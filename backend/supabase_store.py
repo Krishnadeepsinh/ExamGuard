@@ -18,6 +18,7 @@ from backend.agents.orchestrator_agent import compute_integrity_score
 from backend.agents.paper_config_agent import generate_join_code, validate_paper_config
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
+from backend.store import build_pdf_report
 
 
 def utc_now() -> str:
@@ -263,6 +264,9 @@ class SupabaseStore:
         if not exams:
             raise KeyError("Invalid join code.")
         user = self.login(email or f"{student_name.lower().replace(' ', '.')}@student.local", "student", student_name)
+        existing = self.rest("GET", "exam_sessions", query=f"?exam_id=eq.{exams[0]['id']}&student_id=eq.{user['id']}")
+        if existing:
+            return self.normalize_session(existing[0], student_name)
         factors = {"behavioral": 92, "perplexity": 84, "stylometric": 89, "answer_quality": 91, "time_anomaly": 76}
         integrity = compute_integrity_score(factors, baseline_tier=1)
         session = self.rest("POST", "exam_sessions", {
@@ -329,21 +333,110 @@ class SupabaseStore:
         return [self.normalize_session(row) for row in rows]
 
     def generate_report_pdf(self, session_id: str) -> bytes:
-        session = self.normalize_session(self.require_session(session_id))
-        buffer = BytesIO()
-        pdf = canvas.Canvas(buffer, pagesize=A4)
-        pdf.setTitle(f"ExamGuard report {session_id}")
-        pdf.drawString(50, 800, "ExamGuard AI Integrity Report")
-        pdf.drawString(50, 775, f"Student: {session['student_name']}")
-        pdf.drawString(50, 755, f"Session: {session_id}")
-        pdf.drawString(50, 735, f"Integrity: {session['integrity']['score']} ({session['integrity']['status']})")
-        pdf.drawString(50, 715, "Sources: generated questions are locked to uploaded material chunks.")
-        pdf.drawString(50, 695, f"Generated at: {utc_now()}")
-        pdf.showPage()
-        pdf.save()
-        data = buffer.getvalue()
+        session_row = self.require_session(session_id)
+        session = self.normalize_session(session_row)
+        questions = self.session_questions(session_id)
+        answers = self.rest("GET", "answers", query=f"?session_id=eq.{session_id}") or []
+        events = self.rest("GET", "integrity_events", query=f"?session_id=eq.{session_id}") or []
+        
+        data = build_pdf_report(session, questions, answers, events)
         self.reports[session_id] = data
         return data
 
     def appeal_deadline(self) -> str:
         return (datetime.now(timezone.utc) + timedelta(hours=24)).isoformat()
+
+    def delete_exam(self, exam_id: str) -> None:
+        self.get_exam(exam_id)
+        sessions = self.rest("GET", "exam_sessions", query=f"?exam_id=eq.{exam_id}") or []
+        for s in sessions:
+            self.rest("DELETE", "integrity_appeals", query=f"?session_id=eq.{s['id']}")
+            self.rest("DELETE", "answers", query=f"?session_id=eq.{s['id']}")
+            self.rest("DELETE", "integrity_events", query=f"?session_id=eq.{s['id']}")
+        self.rest("DELETE", "exam_sessions", query=f"?exam_id=eq.{exam_id}")
+        self.rest("DELETE", "material_chunks", query=f"?exam_id=eq.{exam_id}")
+        self.rest("DELETE", "materials", query=f"?exam_id=eq.{exam_id}")
+        self.rest("DELETE", "questions", query=f"?exam_id=eq.{exam_id}")
+        self.rest("DELETE", "exams", query=f"?id=eq.{exam_id}")
+
+    def clone_exam(self, exam_id: str) -> dict[str, Any]:
+        source = self.get_exam(exam_id)
+        cloned = self.create_exam(source["teacher_id"], {
+            "title": f"{source['title']} (Copy)",
+            "subject": source["subject"],
+            "duration_minutes": source["duration_min"],
+            "total_marks": source["total_marks"],
+        })
+        if source.get("paper_config"):
+            self.rest("PATCH", "exams", {
+                "paper_config": source["paper_config"],
+                "config_validated": source.get("config_validated", False)
+            }, query=f"?id=eq.{cloned['id']}")
+            cloned["paper_config"] = source["paper_config"]
+        return cloned
+
+    def delete_material(self, material_id: str) -> None:
+        self.get_material(material_id)
+        self.rest("DELETE", "materials", query=f"?id=eq.{material_id}")
+
+    def get_session_result(self, session_id: str) -> dict[str, Any]:
+        session_row = self.require_session(session_id)
+        session = self.normalize_session(session_row)
+        answers = self.rest("GET", "answers", query=f"?session_id=eq.{session_id}") or []
+        return {
+            "session_id": session_id,
+            "student_name": session.get("student_name", ""),
+            "status": session.get("status", ""),
+            "integrity": session.get("integrity", {}),
+            "review_status": session.get("review_status", "none"),
+            "grade_released": session.get("grade_released", False),
+            "answers_count": len(answers),
+            "answers": answers,
+        }
+
+    def pause_exam(self, exam_id: str) -> dict[str, Any]:
+        exam = self.get_exam(exam_id)
+        if exam["status"] != "active":
+            raise ValueError("only active exams can be paused")
+        updated = self.rest("PATCH", "exams", {"status": "paused"}, query=f"?id=eq.{exam_id}")[0]
+        return self.normalize_exam(updated)
+
+    def resume_exam(self, exam_id: str) -> dict[str, Any]:
+        exam = self.get_exam(exam_id)
+        if exam["status"] != "paused":
+            raise ValueError("only paused exams can be resumed")
+        updated = self.rest("PATCH", "exams", {"status": "active"}, query=f"?id=eq.{exam_id}")[0]
+        return self.normalize_exam(updated)
+
+    def submit_appeal(self, session_id: str, response: str) -> dict[str, Any]:
+        deadline = self.appeal_deadline()
+        appeal = self.rest("POST", "integrity_appeals", {
+            "session_id": session_id,
+            "student_response": response,
+            "submitted_at": deadline,
+            "deadline_at": deadline,
+        })[0]
+        self.update_session(session_id, {"review_status": "awaiting_response"})
+        return {"response": appeal["student_response"], "submitted_at": appeal["submitted_at"], "status": "submitted"}
+
+    def teacher_decision(self, session_id: str, decision: str, teacher_note: str) -> dict[str, Any]:
+        try:
+            self.rest("PATCH", "integrity_appeals", {"teacher_note": teacher_note}, query=f"?session_id=eq.{session_id}")
+        except Exception:
+            pass
+        updated = self.update_session(session_id, {
+            "teacher_decision": "cleared" if decision == "clear" else "confirmed_flag",
+            "decision_at": self.appeal_deadline(),
+            "grade_released": True,
+            "review_status": "decided",
+        })
+        return self.normalize_session(updated)
+
+    def save_settings(self, user_id: str, display_name: str, institute_name: str) -> dict[str, Any]:
+        updated = self.rest("PATCH", "users", {
+            "display_name": display_name,
+            "institute_name": institute_name,
+        }, query=f"?id=eq.{user_id}")
+        if not updated:
+            raise KeyError("user not found")
+        return updated[0]

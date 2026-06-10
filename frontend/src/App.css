@@ -819,6 +819,17 @@ textarea {
   gap: 8px;
 }
 
+.connection-banner {
+  border: 1px solid #6ee7b7;
+  color: #065f46;
+  background: #ecfdf5;
+  border-radius: 10px;
+  padding: 10px 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .student-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));

@@ -18,11 +18,19 @@ class Settings:
 
     @property
     def supabase_enabled(self) -> bool:
-        return self.store_backend == "supabase" and bool(self.supabase_url and self.supabase_service_role_key)
+        return self.store_backend == "supabase" and bool(
+            self.supabase_url 
+            and self.supabase_service_role_key 
+            and not self.supabase_url.startswith("your-")
+        )
 
     @property
     def redis_enabled(self) -> bool:
-        return bool(self.upstash_redis_rest_url and self.upstash_redis_rest_token)
+        return bool(
+            self.upstash_redis_rest_url 
+            and self.upstash_redis_rest_token 
+            and not self.upstash_redis_rest_url.startswith("your-")
+        )
 
 
 def load_env_file(path: Path) -> None:

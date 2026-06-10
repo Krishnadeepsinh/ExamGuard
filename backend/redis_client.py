@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from typing import Any
-from urllib import request
+from urllib import parse, request
 
 from backend.config import settings
 
@@ -18,7 +18,7 @@ class RedisHotState:
     def command(self, *parts: str) -> Any:
         if not self.enabled:
             return None
-        encoded = "/".join(request.pathname2url(part) for part in parts)
+        encoded = "/".join(parse.quote(part, safe="") for part in parts)
         req = request.Request(
             f"{self.base_url}/{encoded}",
             method="GET",

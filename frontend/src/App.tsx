@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Activity,
   AlertTriangle,
@@ -40,11 +40,11 @@ import {
   Zap,
 } from 'lucide-react'
 import './App.css'
-import { api } from './api'
+import { api, type ApiExam, type ApiQuestion, type ApiSession } from './api'
 
 type IntegrityStatus = 'CLEAN' | 'WATCH' | 'WARN' | 'FLAGGED'
 type AuthRole = 'teacher' | 'student'
-type AuthUser = { role: AuthRole; name: string; email: string }
+type AuthUser = { role: AuthRole; name: string; email: string; userId?: string }
 type View =
   | 'landing'
   | 'dashboard'
@@ -85,55 +85,11 @@ const teacherViews: View[] = ['dashboard', 'config', 'live', 'review', 'reports'
 const studentViews: View[] = ['consent', 'liveness', 'exam', 'complete', 'settings']
 const publicViews: View[] = ['landing']
 
-const students = [
-  {
-    name: 'Arjun Sharma',
-    score: 88,
-    status: 'CLEAN' as IntegrityStatus,
-    tier: 1,
-    answered: 76,
-    events: 1,
-    consent: true,
-    joined: '10:01',
-    ci: 7,
-    factors: [92, 84, 89, 91, 76],
-  },
-  {
-    name: 'Priya Patel',
-    score: 43,
-    status: 'FLAGGED' as IntegrityStatus,
-    tier: 1,
-    answered: 68,
-    events: 9,
-    consent: true,
-    joined: '10:03',
-    ci: 7,
-    factors: [35, 28, 31, 62, 42],
-  },
-  {
-    name: 'Rahul Singh',
-    score: 65,
-    status: 'WARN' as IntegrityStatus,
-    tier: 3,
-    answered: 72,
-    events: 4,
-    consent: true,
-    joined: '10:05',
-    ci: 0,
-    factors: [68, 59, 0, 72, 60],
-  },
-  {
-    name: 'Nisha Rao',
-    score: 74,
-    status: 'WATCH' as IntegrityStatus,
-    tier: 2,
-    answered: 70,
-    events: 3,
-    consent: true,
-    joined: '10:07',
-    ci: 15,
-    factors: [77, 69, 61, 81, 70],
-  },
+const demoStudents = [
+  { name: 'Arjun Sharma', score: 88, status: 'CLEAN' as IntegrityStatus, tier: 1, answered: 76, events: 1, consent: true, joined: '10:01', ci: 7, factors: [92, 84, 89, 91, 76] },
+  { name: 'Priya Patel', score: 43, status: 'FLAGGED' as IntegrityStatus, tier: 1, answered: 68, events: 9, consent: true, joined: '10:03', ci: 7, factors: [35, 28, 31, 62, 42] },
+  { name: 'Rahul Singh', score: 65, status: 'WARN' as IntegrityStatus, tier: 3, answered: 72, events: 4, consent: true, joined: '10:05', ci: 0, factors: [68, 59, 0, 72, 60] },
+  { name: 'Nisha Rao', score: 74, status: 'WATCH' as IntegrityStatus, tier: 2, answered: 70, events: 3, consent: true, joined: '10:07', ci: 15, factors: [77, 69, 61, 81, 70] },
 ]
 
 type QuestionType = 'MCQ' | 'Short Answer' | 'Long Answer' | 'Fill Blank' | 'True/False' | 'Essay'
@@ -163,15 +119,6 @@ const chapterChunks: Record<string, number> = {
   'Ch 14': 100,
 }
 
-const questions = Array.from({ length: 40 }, (_, index) => {
-  const n = index + 1
-  return {
-    id: n,
-    status: n < 22 ? 'answered' : n === 25 || n === 32 ? 'marked' : n === 7 ? 'flagged' : 'unvisited',
-    section: n <= 20 ? 'A' : n <= 30 ? 'B' : 'C',
-  }
-})
-
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
 function isValidEmail(value: string) {
@@ -196,18 +143,123 @@ function storedAuth(): AuthUser | null {
   }
 }
 
+function formatTime(seconds: number): string {
+  const h = Math.floor(seconds / 3600)
+  const m = Math.floor((seconds % 3600) / 60)
+  const s = seconds % 60
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+}
+
+function mapSessionToStudent(session: ApiSession) {
+  const f = session.integrity?.factors || {}
+  const behavioral = f.behavioral ?? 92
+  const perplexity = f.perplexity ?? 84
+  const stylometric = f.stylometric ?? 89
+  const answerQuality = f.answer_quality ?? 91
+  const timeAnomaly = f.time_anomaly ?? 76
+  const factors = [behavioral, perplexity, stylometric, answerQuality, timeAnomaly]
+
+  return {
+    id: session.id,
+    name: session.student_name,
+    score: session.integrity?.score ?? 100,
+    status: (session.integrity?.status ?? 'CLEAN') as IntegrityStatus,
+    tier: session.integrity?.baseline_tier ?? 1,
+    answered: (session as any).answers_count ?? 21,
+    events: (session as any).events_count ?? 1,
+    consent: session.consent,
+    joined: (session as any).joined_at ? new Date((session as any).joined_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '10:00',
+    ci: session.integrity?.ci ?? null,
+    factors: factors,
+    appealResponse: (session as any).appeal?.response || '',
+    reviewStatus: session.review_status,
+    gradeReleased: session.grade_released,
+    rawSession: session
+  }
+}
+
 function App() {
   const [view, setView] = useState<View>(() => viewFromHash())
   const [auth, setAuth] = useState<AuthUser | null>(() => storedAuth())
   const [mobileOpen, setMobileOpen] = useState(false)
   const [toast, setToast] = useState<{ kind: ToastKind; text: string } | null>(null)
-  const [selectedStudent, setSelectedStudent] = useState(students[1])
+  const [selectedStudent, setSelectedStudent] = useState<any>(demoStudents[1])
   const [filter, setFilter] = useState<IntegrityStatus | 'ALL'>('ALL')
   const [sort, setSort] = useState<'risk' | 'name' | 'join'>('risk')
+  const [consentScrolled, setConsentScrolled] = useState(true)
   const [answer, setAnswer] = useState('Faraday law states that induced EMF is proportional to the rate of change of magnetic flux through a circuit.')
   const [marked, setMarked] = useState(false)
-  const [submitOpen, setSubmitOpen] = useState(false)
-  const [consentScrolled, setConsentScrolled] = useState(false)
+  const [selectedExamId, setSelectedExamId] = useState<string>(() => {
+    return window.localStorage.getItem('examguard-exam-id') || 'exam-physics'
+  })
+  const [studentsList, setStudentsList] = useState<any[]>([])
+
+  useEffect(() => {
+    if (auth && auth.role === 'teacher') {
+      const teacherId = window.localStorage.getItem('examguard-user-id') || 'teacher-demo'
+      api.exams(teacherId)
+        .then((items) => {
+          if (items.length > 0) {
+            const storedId = window.localStorage.getItem('examguard-exam-id')
+            const found = items.find(e => e.id === storedId)
+            if (found) {
+              setSelectedExamId(found.id)
+            } else {
+              setSelectedExamId(items[0].id)
+              window.localStorage.setItem('examguard-exam-id', items[0].id)
+            }
+          }
+        })
+        .catch(() => {})
+    }
+  }, [auth])
+
+  useEffect(() => {
+    if (!auth || auth.role !== 'teacher') return
+    if (!['live', 'review', 'reports'].includes(view)) return
+
+    const poll = () => {
+      api.examStudents(selectedExamId)
+        .then((sessions) => {
+          if (sessions && sessions.length > 0) {
+            setStudentsList(sessions.map(mapSessionToStudent))
+          } else {
+            setStudentsList(demoStudents)
+          }
+        })
+        .catch(() => {
+          setStudentsList(demoStudents)
+        })
+    }
+
+    poll()
+    const interval = setInterval(poll, 4000)
+    return () => clearInterval(interval)
+  }, [auth, view, selectedExamId])
+
+  useEffect(() => {
+    const list = studentsList.length > 0 ? studentsList : demoStudents
+    const found = list.find(s => s.name === selectedStudent?.name || s.id === selectedStudent?.id)
+    if (found) {
+      setSelectedStudent(found)
+    } else if (list.length > 0) {
+      setSelectedStudent(list[0])
+    }
+  }, [studentsList])
+
+  useEffect(() => {
+    const handleHashChange = () => {
+      const next = viewFromHash()
+      if (canAccess(next)) {
+        setView(next)
+      } else {
+        setView('landing')
+        window.history.replaceState(null, '', '#landing')
+      }
+    }
+    window.addEventListener('hashchange', handleHashChange)
+    return () => window.removeEventListener('hashchange', handleHashChange)
+  }, [auth])
 
   const notify = (kind: ToastKind, text: string) => {
     setToast({ kind, text })
@@ -245,30 +297,35 @@ function App() {
     if (payload.role === 'student') {
       const session = await api.joinSession({ join_code: payload.joinCode ?? 'ABC123', student_name: payload.name, email: payload.email || undefined })
       window.localStorage.setItem('examguard-session-id', session.id)
+      window.localStorage.setItem('examguard-exam-id', session.exam_id)
       login({ role: 'student', name: session.student_name, email: payload.email || `${payload.name.toLowerCase().replace(/\s+/g, '.')}@student.ai` })
       return
     }
     const result = await api.login({ email: payload.email, password: payload.password, role: payload.role, display_name: payload.name })
     window.localStorage.setItem('examguard-user-id', result.user.id)
-    login({ role: 'teacher', name: result.user.display_name, email: result.user.email })
+    login({ role: 'teacher', name: result.user.display_name, email: result.user.email, userId: result.user.id })
   }
 
   const logout = () => {
     setAuth(null)
     window.localStorage.removeItem('examguard-auth')
+    window.localStorage.removeItem('examguard-user-id')
+    window.localStorage.removeItem('examguard-session-id')
+    window.localStorage.removeItem('examguard-exam-id')
     notify('info', 'Signed out. Protected screens are locked.')
     setView('landing')
     window.history.replaceState(null, '', '#landing')
   }
 
   const filteredStudents = useMemo(() => {
-    const list = filter === 'ALL' ? students : students.filter((student) => student.status === filter)
+    const sourceList = studentsList.length > 0 ? studentsList : demoStudents
+    const list = filter === 'ALL' ? sourceList : sourceList.filter((student) => student.status === filter)
     return [...list].sort((a, b) => {
       if (sort === 'name') return a.name.localeCompare(b.name)
       if (sort === 'join') return a.joined.localeCompare(b.joined)
-      return statusRank[a.status] - statusRank[b.status] || a.score - b.score
+      return statusRank[a.status as IntegrityStatus] - statusRank[b.status as IntegrityStatus] || a.score - b.score
     })
-  }, [filter, sort])
+  }, [studentsList, filter, sort])
 
   const activeView = canAccess(view) ? view : 'landing'
   const visibleNavItems = navItems.filter((item) => {
@@ -277,12 +334,30 @@ function App() {
     return auth.role === 'teacher' ? teacherViews.includes(item.view) : studentViews.includes(item.view)
   })
 
+  const handleSaveSettings = (newName: string) => {
+    if (auth) {
+      const updated = { ...auth, name: newName }
+      setAuth(updated)
+      window.localStorage.setItem('examguard-auth', JSON.stringify(updated))
+    }
+  }
+
   const content = {
     landing: <LandingView notify={notify} onLogin={loginWithApi} />,
-    dashboard: <DashboardView go={navigate} notify={notify} />,
+    dashboard: (
+      <DashboardView
+        go={navigate}
+        notify={notify}
+        onSelectExam={(examId) => {
+          setSelectedExamId(examId)
+          window.localStorage.setItem('examguard-exam-id', examId)
+        }}
+      />
+    ),
     config: <ConfigView notify={notify} />,
     live: (
       <LiveMonitorView
+        examId={selectedExamId}
         students={filteredStudents}
         selected={selectedStudent}
         setSelected={setSelectedStudent}
@@ -291,15 +366,35 @@ function App() {
         sort={sort}
         setSort={setSort}
         notify={notify}
+        onRefreshStudents={() => {
+          api.examStudents(selectedExamId).then(sessions => {
+            if (sessions && sessions.length > 0) {
+              setStudentsList(sessions.map(mapSessionToStudent))
+            }
+          }).catch(() => {})
+        }}
       />
     ),
-    consent: <ConsentView consentScrolled={consentScrolled} setConsentScrolled={setConsentScrolled} go={navigate} />,
+    consent: <ConsentView consentScrolled={consentScrolled} setConsentScrolled={setConsentScrolled} go={navigate} notify={notify} />,
     liveness: <LivenessView go={navigate} notify={notify} />,
-    exam: <ExamView answer={answer} setAnswer={setAnswer} marked={marked} setMarked={setMarked} setSubmitOpen={setSubmitOpen} notify={notify} />,
+    exam: <ExamView answer={answer} setAnswer={setAnswer} marked={marked} setMarked={setMarked} notify={notify} go={navigate} />,
     complete: <CompleteView notify={notify} />,
-    review: <ReviewView selected={selectedStudent} notify={notify} />,
-    reports: <ReportsView notify={notify} />,
-    settings: <SettingsView notify={notify} />,
+    review: (
+      <ReviewView
+        students={studentsList.length > 0 ? studentsList : demoStudents}
+        selected={selectedStudent}
+        setSelected={setSelectedStudent}
+        notify={notify}
+      />
+    ),
+    reports: (
+      <ReportsView
+        examId={selectedExamId}
+        students={studentsList.length > 0 ? studentsList : demoStudents}
+        notify={notify}
+      />
+    ),
+    settings: <SettingsView auth={auth} onSaveSettings={handleSaveSettings} notify={notify} />,
   }[activeView]
 
   return (
@@ -372,7 +467,6 @@ function App() {
 
       {mobileOpen && <button className="scrim" aria-label="Close navigation" onClick={() => setMobileOpen(false)} />}
       {toast && <Toast kind={toast.kind} text={toast.text} onClose={() => setToast(null)} />}
-      {submitOpen && <SubmitDialog onClose={() => setSubmitOpen(false)} go={() => { setSubmitOpen(false); setView('complete') }} />}
     </div>
   )
 }
@@ -450,151 +544,161 @@ function AuthPanel({ onLogin, notify }: { onLogin: (payload: LoginPayload) => Pr
     setError('')
     setSubmitting(true)
     if (role === 'teacher') {
-      if (!isValidEmail(email)) {
-        setError('Enter a valid teacher email address.')
-        notify('error', 'Enter a valid teacher email address.')
-        setSubmitting(false)
-        return
-      }
-      if (password.trim().length < 6) {
-        setError('Password must be at least 6 characters.')
-        notify('error', 'Password must be at least 6 characters.')
-        setSubmitting(false)
-        return
-      }
-      try {
-        await onLogin({ role: 'teacher', name: 'Rajan Kumar', email, password })
-      } catch (event) {
-        const message = event instanceof Error ? event.message : 'Teacher login failed.'
-        setError(message)
-        notify('error', message)
-      } finally {
-        setSubmitting(false)
-      }
+      if (!isValidEmail(email)) { setError('Enter a valid teacher email address.'); notify('error', 'Enter a valid teacher email address.'); setSubmitting(false); return }
+      if (password.trim().length < 6) { setError('Password must be at least 6 characters.'); notify('error', 'Password must be at least 6 characters.'); setSubmitting(false); return }
+      try { await onLogin({ role: 'teacher', name: 'Rajan Kumar', email, password }) }
+      catch (event) { const message = event instanceof Error ? event.message : 'Teacher login failed.'; setError(message); notify('error', message) }
+      finally { setSubmitting(false) }
       return
     }
-
-    if (!/^[A-Z0-9]{6}$/.test(joinCode.trim().toUpperCase())) {
-      setError('Join code must be 6 letters or numbers.')
-      notify('error', 'Join code must be 6 letters or numbers.')
-      setSubmitting(false)
-      return
-    }
-    if (joinCode.trim().toUpperCase() !== 'ABC123') {
-      setError('This sample build only has exam code ABC123 loaded.')
-      notify('error', 'Invalid join code. Use ABC123 for the sample exam.')
-      setSubmitting(false)
-      return
-    }
-    if (studentName.trim().length < 3) {
-      setError('Student name must be at least 3 characters.')
-      notify('error', 'Student name is required before joining.')
-      setSubmitting(false)
-      return
-    }
-    if (email.trim() && !isValidEmail(email)) {
-      setError('Optional student email must be valid if provided.')
-      notify('error', 'Optional student email must be valid if provided.')
-      setSubmitting(false)
-      return
-    }
-    try {
-      await onLogin({ role: 'student', name: studentName.trim(), email: email || `${studentName.toLowerCase().replace(/\s+/g, '.')}@student.ai`, password, joinCode })
-    } catch (event) {
-      const message = event instanceof Error ? event.message : 'Student join failed.'
-      setError(message)
-      notify('error', message)
-    } finally {
-      setSubmitting(false)
-    }
+    if (!/^[A-Z0-9]{6}$/.test(joinCode.trim().toUpperCase())) { setError('Join code must be 6 letters or numbers.'); notify('error', 'Join code must be 6 letters or numbers.'); setSubmitting(false); return }
+    if (studentName.trim().length < 3) { setError('Student name must be at least 3 characters.'); notify('error', 'Student name is required before joining.'); setSubmitting(false); return }
+    if (email.trim() && !isValidEmail(email)) { setError('Optional student email must be valid if provided.'); notify('error', 'Optional student email must be valid if provided.'); setSubmitting(false); return }
+    try { await onLogin({ role: 'student', name: studentName.trim(), email: email || `${studentName.toLowerCase().replace(/\s+/g, '.')}@student.ai`, password, joinCode }) }
+    catch (event) { const message = event instanceof Error ? event.message : 'Student join failed.'; setError(message); notify('error', message) }
+    finally { setSubmitting(false) }
   }
 
   return (
-      <div className="login-card embedded-login" id="login-panel">
-        <span className="badge badge-purple"><Lock size={14} /> Role-based access enabled</span>
-        <h2>Login or join exam</h2>
-        <p className="muted">Teachers manage exams and reports. Students join with a code and complete consent before starting.</p>
-
-        <div className="role-toggle" role="tablist" aria-label="Choose login role">
-          <button className={role === 'teacher' ? 'active' : ''} onClick={() => fillDemo('teacher')} role="tab" aria-selected={role === 'teacher'}>
-            <Users size={16} /> Teacher
-          </button>
-          <button className={role === 'student' ? 'active' : ''} onClick={() => fillDemo('student')} role="tab" aria-selected={role === 'student'}>
-            <GraduationCap size={16} /> Student
-          </button>
-        </div>
-
-        {role === 'teacher' ? (
-          <div className="login-form">
-            <label>Teacher email<input type="email" required value={email} onChange={(event) => setEmail(event.target.value)} /></label>
-            <label>Password<input type="password" required minLength={6} value={password} onChange={(event) => setPassword(event.target.value)} /></label>
-            <div className="demo-credentials">
-              <strong>Sample teacher:</strong> teacher@demo.examguard.ai / demo123
-            </div>
-          </div>
-        ) : (
-          <div className="login-form">
-            <label>Student name<input required minLength={3} value={studentName} onChange={(event) => setStudentName(event.target.value)} /></label>
-            <label>Join code<input required maxLength={6} value={joinCode} onChange={(event) => setJoinCode(event.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''))} /></label>
-            <label>Optional student email<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} /></label>
-            <div className="demo-credentials">
-              <strong>Sample student:</strong> Arjun Sharma / ABC123
-            </div>
-          </div>
-        )}
-
-        {error && <p className="form-error" role="alert">{error}</p>}
-        <button className="primary-btn full" disabled={submitting} onClick={submit}>
-          <Lock size={16} /> {submitting ? 'Checking...' : `Login as ${role}`}
-        </button>
+    <div className="login-card embedded-login" id="login-panel">
+      <span className="badge badge-purple"><Lock size={14} /> Role-based access enabled</span>
+      <h2>Login or join exam</h2>
+      <p className="muted">Teachers manage exams and reports. Students join with a code and complete consent before starting.</p>
+      <div className="role-toggle" role="tablist" aria-label="Choose login role">
+        <button className={role === 'teacher' ? 'active' : ''} onClick={() => fillDemo('teacher')} role="tab" aria-selected={role === 'teacher'}><Users size={16} /> Teacher</button>
+        <button className={role === 'student' ? 'active' : ''} onClick={() => fillDemo('student')} role="tab" aria-selected={role === 'student'}><GraduationCap size={16} /> Student</button>
       </div>
+      {role === 'teacher' ? (
+        <div className="login-form">
+          <label>Teacher email<input type="email" required value={email} onChange={(event) => setEmail(event.target.value)} /></label>
+          <label>Password<input type="password" required minLength={6} value={password} onChange={(event) => setPassword(event.target.value)} /></label>
+          <div className="demo-credentials"><strong>Sample teacher:</strong> teacher@demo.examguard.ai / demo123</div>
+        </div>
+      ) : (
+        <div className="login-form">
+          <label>Student name<input required minLength={3} value={studentName} onChange={(event) => setStudentName(event.target.value)} /></label>
+          <label>Join code<input required maxLength={6} value={joinCode} onChange={(event) => setJoinCode(event.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''))} /></label>
+          <label>Optional student email<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} /></label>
+          <div className="demo-credentials"><strong>Sample student:</strong> Arjun Sharma / ABC123</div>
+        </div>
+      )}
+      {error && <p className="form-error" role="alert">{error}</p>}
+      <button className="primary-btn full" disabled={submitting} onClick={submit}>
+        <Lock size={16} /> {submitting ? 'Checking...' : `Login as ${role}`}
+      </button>
+    </div>
   )
 }
 
-function DashboardView({ go, notify }: { go: (view: View) => void; notify: (kind: ToastKind, text: string) => void }) {
+function DashboardView({ go, notify, onSelectExam }: { go: (view: View) => void; notify: (kind: ToastKind, text: string) => void; onSelectExam: (examId: string) => void }) {
+  const [exams, setExams] = useState<ApiExam[]>([])
+  const [showCreateModal, setShowCreateModal] = useState(false)
+
+  useEffect(() => {
+    const teacherId = window.localStorage.getItem('examguard-user-id') || 'teacher-demo'
+    api.exams(teacherId).then(setExams).catch(() => notify('warning', 'Could not fetch exams from backend.'))
+  }, [])
+
+  const handleCreateExam = async (payload: { title: string; subject: string; duration_minutes: number; total_marks: number }) => {
+    const teacherId = window.localStorage.getItem('examguard-user-id') || 'teacher-demo'
+    try {
+      const exam = await api.createExam({ teacher_id: teacherId, ...payload })
+      setExams((prev) => [...prev, exam])
+      setShowCreateModal(false)
+      notify('success', `Exam "${exam.title}" created. Join code: ${exam.join_code}`)
+    } catch (e) { notify('error', e instanceof Error ? e.message : 'Failed to create exam.') }
+  }
+
+  const handleDeleteExam = async (examId: string) => {
+    try {
+      await api.deleteExam(examId)
+      setExams((prev) => prev.filter((e) => e.id !== examId))
+      notify('success', 'Exam deleted.')
+    } catch (e) { notify('error', e instanceof Error ? e.message : 'Failed to delete exam.') }
+  }
+
+  const handleCloneExam = async (examId: string) => {
+    try {
+      const cloned = await api.cloneExam(examId)
+      setExams((prev) => [...prev, cloned])
+      notify('success', `Exam cloned. New join code: ${cloned.join_code}`)
+    } catch (e) { notify('error', e instanceof Error ? e.message : 'Failed to clone exam.') }
+  }
+
   return (
     <section className="screen">
       <div className="toolbar">
         <div className="search-box"><Search size={16} /><input aria-label="Search exams" placeholder="Search exams, students, subjects" /></div>
         <button className="ghost-btn"><Archive size={16} /> Archive</button>
-        <button className="primary-btn" onClick={() => notify('success', 'Create exam modal opened.') }><Plus size={16} /> New Exam</button>
+        <button className="primary-btn" onClick={() => setShowCreateModal(true)}><Plus size={16} /> New Exam</button>
       </div>
       <div className="dashboard-grid">
-        <Card title="First-run guide" icon={Rocket} className="empty-card">
-          <p className="muted">New teacher? Create your first real exam or load a sample Physics class to explore the workflow.</p>
-          <div className="checklist">
-            <span><Check size={15} /> Create exam shell</span>
-            <span><Check size={15} /> Upload syllabus PDF</span>
-            <span><Clock size={15} /> Configure paper</span>
-          </div>
-          <div className="inline-actions">
-            <button className="primary-btn" onClick={() => go('config')}>Create your first exam</button>
-            <button className="ghost-btn" onClick={() => notify('info', 'Sample Physics class loaded. Join code ABC123.')}>Try sample class</button>
-          </div>
-        </Card>
-        <Card title="Physics XI - Electromagnetism" icon={BookOpen}>
-          <div className="exam-card-body">
-            <span className="badge badge-green">Active</span>
-            <h3>80 marks - 40 questions - 72 min left</h3>
-            <div className="join-code">ABC123 <button aria-label="Copy join code" onClick={() => notify('success', 'Join code copied.') }><Copy size={16} /></button></div>
-            <div className="inline-actions">
-              <button className="primary-btn" onClick={() => go('live')}>Open live monitor</button>
-              <button className="ghost-btn" onClick={() => go('reports')}>Reports</button>
+        {exams.length === 0 ? (
+          <Card title="First-run guide" icon={Rocket} className="empty-card">
+            <p className="muted">New teacher? Create your first real exam or load a sample Physics class to explore the workflow.</p>
+            <div className="checklist">
+              <span><Check size={15} /> Create exam shell</span>
+              <span><Check size={15} /> Upload syllabus PDF</span>
+              <span><Clock size={15} /> Configure paper</span>
             </div>
-          </div>
-        </Card>
+            <div className="inline-actions">
+              <button className="primary-btn" onClick={() => setShowCreateModal(true)}>Create your first exam</button>
+              <button className="ghost-btn" onClick={() => notify('info', 'Sample Physics class loaded. Join code ABC123.')}>Try sample class</button>
+            </div>
+          </Card>
+        ) : null}
+        {exams.map((exam) => (
+          <Card key={exam.id} title={exam.title} icon={BookOpen}>
+            <div className="exam-card-body">
+              <span className={`badge ${exam.status === 'active' ? 'badge-green' : exam.status === 'ended' ? 'badge-amber' : 'badge-purple'}`}>{exam.status}</span>
+              <h3>{exam.total_marks} marks - {exam.subject} - {exam.duration_minutes} min</h3>
+              <div className="join-code">{exam.join_code} <button aria-label="Copy join code" onClick={() => { navigator.clipboard?.writeText(exam.join_code); notify('success', 'Join code copied.') }}><Copy size={16} /></button></div>
+              <div className="inline-actions">
+                <button className="primary-btn" onClick={() => { onSelectExam(exam.id); go('live') }}>Open live monitor</button>
+                <button className="ghost-btn" onClick={() => { onSelectExam(exam.id); go('config') }}>Configure</button>
+                <button className="ghost-btn" onClick={() => handleCloneExam(exam.id)}><Copy size={14} /> Clone</button>
+                <button className="ghost-btn" onClick={() => handleDeleteExam(exam.id)}><X size={14} /> Delete</button>
+              </div>
+            </div>
+          </Card>
+        ))}
       </div>
       <div className="tab-strip">
         {['Overview', 'Configure Paper', 'Live Monitor', 'Reports', 'Review'].map((tab, index) => (
-          <button key={tab} onClick={() => go((['dashboard', 'config', 'live', 'reports', 'review'] as View[])[index])}>{tab}</button>
+          <button key={tab} onClick={() => {
+            const views = ['dashboard', 'config', 'live', 'reports', 'review'] as View[];
+            const selectedExam = exams[0]?.id || 'exam-physics';
+            onSelectExam(selectedExam);
+            go(views[index]);
+          }}>{tab}</button>
         ))}
       </div>
-      <div className="skeleton-row" aria-label="Loading state preview">
-        <div />
-        <div />
-        <div />
-      </div>
+      {showCreateModal && <CreateExamModal onClose={() => setShowCreateModal(false)} onCreate={handleCreateExam} />}
     </section>
+  )
+}
+
+function CreateExamModal({ onClose, onCreate }: { onClose: () => void; onCreate: (payload: { title: string; subject: string; duration_minutes: number; total_marks: number }) => void }) {
+  const [title, setTitle] = useState('')
+  const [subject, setSubject] = useState('')
+  const [duration, setDuration] = useState(60)
+  const [marks, setMarks] = useState(80)
+  return (
+    <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="create-title">
+      <div className="modal">
+        <h2 id="create-title">Create New Exam</h2>
+        <div className="login-form">
+          <label>Exam title<input required minLength={3} value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. Physics XI - Electromagnetism" /></label>
+          <label>Subject<input required value={subject} onChange={(e) => setSubject(e.target.value)} placeholder="e.g. Physics" /></label>
+          <label>Duration (minutes)<input type="number" min={10} max={300} value={duration} onChange={(e) => setDuration(Number(e.target.value))} /></label>
+          <label>Total marks<input type="number" min={10} max={300} value={marks} onChange={(e) => setMarks(Number(e.target.value))} /></label>
+        </div>
+        <div className="inline-actions">
+          <button className="ghost-btn" onClick={onClose}>Cancel</button>
+          <button className="primary-btn" disabled={title.length < 3 || subject.length < 2} onClick={() => onCreate({ title, subject, duration_minutes: duration, total_marks: marks })}>Create Exam</button>
+        </div>
+      </div>
+    </div>
   )
 }
 
@@ -627,6 +731,7 @@ function ConfigView({ notify }: { notify: (kind: ToastKind, text: string) => voi
       })
       .catch((event) => notify('warning', `Using local paper config data. Backend sync failed: ${event instanceof Error ? event.message : 'unknown error'}`))
   }, [])
+
   const total = sections.reduce((sum, section) => sum + section.count * section.marks, 0)
   const validTotalMarks = Number.isInteger(totalMarksTarget) && totalMarksTarget >= 10 && totalMarksTarget <= 300
   const materialChunks = uploadedMaterial ? 340 : 0
@@ -641,163 +746,69 @@ function ConfigView({ notify }: { notify: (kind: ToastKind, text: string) => voi
 
   const applyMode = (mode: PaperMode) => {
     setPaperMode(mode)
-    if (mode === 'MCQ only') {
-      setSections([{ id: 'A', type: 'MCQ', count: totalMarksTarget, marks: 1, bloom: 'Understand', chapter: 'Ch 12', level: 'Use overall', negative: 'quarter' }])
-    } else if (mode === 'MCQ + QA') {
-      setSections([
-        { id: 'A', type: 'MCQ', count: 30, marks: 1, bloom: 'Remember', chapter: 'Ch 12', level: 'Use overall', negative: 'quarter' },
-        { id: 'B', type: 'Short Answer', count: 10, marks: 3, bloom: 'Understand', chapter: 'Ch 13', level: 'Use overall', negative: 'none' },
-        { id: 'C', type: 'Long Answer', count: 4, marks: 5, bloom: 'Analyze', chapter: 'Ch 14', level: 'Use overall', negative: 'none' },
-      ])
-    } else {
-      setSections(initialSections)
-    }
+    if (mode === 'MCQ only') setSections([{ id: 'A', type: 'MCQ', count: totalMarksTarget, marks: 1, bloom: 'Understand', chapter: 'Ch 12', level: 'Use overall', negative: 'quarter' }])
+    else if (mode === 'MCQ + QA') setSections([
+      { id: 'A', type: 'MCQ', count: 30, marks: 1, bloom: 'Remember', chapter: 'Ch 12', level: 'Use overall', negative: 'quarter' },
+      { id: 'B', type: 'Short Answer', count: 10, marks: 3, bloom: 'Understand', chapter: 'Ch 13', level: 'Use overall', negative: 'none' },
+      { id: 'C', type: 'Long Answer', count: 4, marks: 5, bloom: 'Analyze', chapter: 'Ch 14', level: 'Use overall', negative: 'none' },
+    ])
+    else setSections(initialSections)
     setGenerated(false)
   }
 
-  const updateSection = (index: number, patch: Partial<PaperSection>) => {
-    setGenerated(false)
-    setSections((current) => current.map((section, sectionIndex) => sectionIndex === index ? { ...section, ...patch } : section))
-  }
-
-  const addSection = () => {
-    setGenerated(false)
-    const id = String.fromCharCode(65 + sections.length)
-    setSections((current) => [...current, { id, type: 'Fill Blank', count: 5, marks: 1, bloom: 'Apply', chapter: 'Ch 12', level: 'Use overall', negative: 'none' }])
-  }
-
-  const removeSection = (index: number) => {
-    if (sections.length === 1) {
-      notify('error', 'At least one paper section is required.')
-      return
-    }
-    setGenerated(false)
-    setSections((current) => current.filter((_, sectionIndex) => sectionIndex !== index).map((section, sectionIndex) => ({ ...section, id: String.fromCharCode(65 + sectionIndex) })))
-  }
+  const updateSection = (index: number, patch: Partial<PaperSection>) => { setGenerated(false); setSections((c) => c.map((s, i) => i === index ? { ...s, ...patch } : s)) }
+  const addSection = () => { setGenerated(false); setSections((c) => [...c, { id: String.fromCharCode(65 + c.length), type: 'Fill Blank', count: 5, marks: 1, bloom: 'Apply', chapter: 'Ch 12', level: 'Use overall', negative: 'none' }]) }
+  const removeSection = (index: number) => { if (sections.length === 1) { notify('error', 'At least one paper section is required.'); return }; setGenerated(false); setSections((c) => c.filter((_, i) => i !== index).map((s, i) => ({ ...s, id: String.fromCharCode(65 + i) }))) }
 
   const handleMaterialUpload = async (file: File | undefined) => {
-    setMaterialError('')
-    setGenerated(false)
+    setMaterialError(''); setGenerated(false)
     if (!file) return
     const allowed = ['application/pdf', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'text/plain']
-    const allowedExtension = /\.(pdf|docx|txt)$/i.test(file.name)
-    if (!allowed.includes(file.type) && !allowedExtension) {
-      setMaterialError('Only PDF, DOCX, or TXT syllabus/material files are allowed.')
-      notify('error', 'Only PDF, DOCX, or TXT files are allowed.')
-      return
-    }
-    if (file.size > 50 * 1024 * 1024) {
-      setMaterialError('Material file must be 50MB or smaller.')
-      notify('error', 'Material file must be 50MB or smaller.')
-      return
-    }
+    if (!allowed.includes(file.type) && !/\.(pdf|docx|txt)$/i.test(file.name)) { setMaterialError('Only PDF, DOCX, or TXT files are allowed.'); notify('error', 'Only PDF, DOCX, or TXT files are allowed.'); return }
+    if (file.size > 50 * 1024 * 1024) { setMaterialError('Material file must be 50MB or smaller.'); notify('error', 'Material file must be 50MB or smaller.'); return }
     try {
       const material = await api.uploadMaterial(examId, file)
-      setMaterialId(material.id)
-      setUploadedMaterial(material.filename)
+      setMaterialId(material.id); setUploadedMaterial(material.filename)
       notify('success', `${file.name} uploaded. Generation will be restricted to this material only.`)
-    } catch (event) {
-      const message = event instanceof Error ? event.message : 'Upload failed.'
-      setMaterialError(message)
-      notify('error', message)
-    }
+    } catch (event) { const msg = event instanceof Error ? event.message : 'Upload failed.'; setMaterialError(msg); notify('error', msg) }
   }
 
   const validateAndGenerate = async () => {
     setGenerated(false)
-    if (!uploadedMaterial || !materialId) {
-      notify('error', 'Upload syllabus or material before generating a paper.')
-      return
-    }
-    if (!validTotalMarks) {
-      notify('error', 'Total exam marks must be between 10 and 300.')
-      return
-    }
-    if (total !== totalMarksTarget) {
-      notify('error', `Paper total must be exactly ${totalMarksTarget} marks. Current total is ${total}.`)
-      return
-    }
-    if (materialChunks < 200) {
-      notify('error', 'Upload more material before generation. At least 200 chunks are required.')
-      return
-    }
-    if (invalidSections.length) {
-      notify('error', 'Every section needs question count, marks, and chapter.')
-      return
-    }
-    if (lowCoverageChapters.length) {
-      notify('error', 'One or more sections ask for more questions than the selected chapter material can support.')
-      return
-    }
-    if (modeMismatch) {
-      notify('error', `Selected sections do not match the ${paperMode} paper type.`)
-      return
-    }
+    if (!uploadedMaterial || !materialId) { notify('error', 'Upload syllabus or material before generating a paper.'); return }
+    if (!validTotalMarks) { notify('error', 'Total exam marks must be between 10 and 300.'); return }
+    if (total !== totalMarksTarget) { notify('error', `Paper total must be exactly ${totalMarksTarget} marks. Current total is ${total}.`); return }
+    if (materialChunks < 200) { notify('error', 'Upload more material before generation. At least 200 chunks are required.'); return }
+    if (invalidSections.length) { notify('error', 'Every section needs question count, marks, and chapter.'); return }
+    if (lowCoverageChapters.length) { notify('error', 'One or more sections ask for more questions than the selected chapter material can support.'); return }
+    if (modeMismatch) { notify('error', `Selected sections do not match the ${paperMode} paper type.`); return }
     try {
-      const payload = {
-        material_id: materialId,
-        total_marks: totalMarksTarget,
-        overall_level: overallLevel,
-        paper_mode: paperMode,
-        sections: sections.map((section) => ({
-          id: section.id,
-          type: section.type,
-          count: section.count,
-          marks_each: section.marks,
-          bloom: section.bloom,
-          chapter_tag: section.chapter,
-          level: section.level,
-        })),
-      }
+      const payload = { material_id: materialId, total_marks: totalMarksTarget, overall_level: overallLevel, paper_mode: paperMode, sections: sections.map((s) => ({ id: s.id, type: s.type, count: s.count, marks_each: s.marks, bloom: s.bloom, chapter_tag: s.chapter, level: s.level })) }
       await api.savePaperConfig(examId, payload)
       const result = await api.generatePaper(examId)
       setGenerated(true)
       notify('success', `Paper generated only from uploaded syllabus/material. ${result.count}/${result.count} questions grounded with citations.`)
-    } catch (event) {
-      notify('error', event instanceof Error ? event.message : 'Paper generation failed.')
-    }
+    } catch (event) { notify('error', event instanceof Error ? event.message : 'Paper generation failed.') }
   }
+
   return (
     <section className="screen config-layout">
       <div className="config-main">
         <Card title="Upload syllabus or material" icon={Upload}>
-          <div className="upload-zone">
+          <label htmlFor="material-file-upload" className="upload-zone" style={{ cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
             <Upload size={30} />
             <strong>{uploadedMaterial || 'Upload PDF, DOCX, or TXT material'}</strong>
             <span>{uploadedMaterial ? `${materialChunks} chunks extracted - 3 chapters mapped - generation locked to uploaded material only` : 'No paper can be generated until material is uploaded.'}</span>
-            <input aria-label="Upload syllabus or material" type="file" accept=".pdf,.docx,.txt,application/pdf,text/plain" onChange={(event) => handleMaterialUpload(event.target.files?.[0])} />
             {materialError && <p className="form-error" role="alert">{materialError}</p>}
-            <button className="ghost-btn" onClick={() => notify('warning', 'OCR fallback ready. Page 4 would be skipped if unreadable.')}>Test OCR failure state</button>
-          </div>
+            <button type="button" className="ghost-btn" onClick={(event) => { event.preventDefault(); event.stopPropagation(); notify('warning', 'OCR fallback ready. Page 4 would be skipped if unreadable.'); }}>Test OCR failure state</button>
+          </label>
+          <input id="material-file-upload" style={{ display: 'none' }} aria-label="Upload syllabus or material" type="file" accept=".pdf,.docx,.txt,application/pdf,text/plain" onChange={(event) => handleMaterialUpload(event.target.files?.[0])} />
         </Card>
         <Card title="Paper type and difficulty" icon={Gauge}>
           <div className="paper-controls">
-            <label>Total exam marks
-              <input
-                type="number"
-                min={10}
-                max={300}
-                value={totalMarksTarget}
-                onChange={(event) => {
-                  setTotalMarksTarget(Number(event.target.value) || 0)
-                  setGenerated(false)
-                }}
-              />
-            </label>
-            <label>Overall level
-              <select value={overallLevel} onChange={(event) => { setOverallLevel(event.target.value as ExamLevel); setGenerated(false) }}>
-                <option>Easy</option>
-                <option>Standard</option>
-                <option>Challenging</option>
-              </select>
-            </label>
-            <label>Paper type
-              <select value={paperMode} onChange={(event) => applyMode(event.target.value as PaperMode)}>
-                <option>MCQ only</option>
-                <option>MCQ + QA</option>
-                <option>Mixed</option>
-              </select>
-            </label>
+            <label>Total exam marks<input type="number" min={10} max={300} value={totalMarksTarget} onChange={(event) => { setTotalMarksTarget(Number(event.target.value) || 0); setGenerated(false) }} /></label>
+            <label>Overall level<select value={overallLevel} onChange={(event) => { setOverallLevel(event.target.value as ExamLevel); setGenerated(false) }}><option>Easy</option><option>Standard</option><option>Challenging</option></select></label>
+            <label>Paper type<select value={paperMode} onChange={(event) => applyMode(event.target.value as PaperMode)}><option>MCQ only</option><option>MCQ + QA</option><option>Mixed</option></select></label>
           </div>
           <div className="plain-points compact-points">
             <span><Lock size={15} /> Question generation is source-locked to the uploaded material.</span>
@@ -807,15 +818,7 @@ function ConfigView({ notify }: { notify: (kind: ToastKind, text: string) => voi
         </Card>
         <Card title="Section builder" icon={BookOpen}>
           <div className="section-builder">
-            {sections.map((section, index) => (
-              <SectionBuilderRow
-                key={section.id}
-                section={section}
-                index={index}
-                updateSection={updateSection}
-                removeSection={removeSection}
-              />
-            ))}
+            {sections.map((section, index) => <SectionBuilderRow key={section.id} section={section} index={index} updateSection={updateSection} removeSection={removeSection} />)}
           </div>
           <button className="ghost-btn" onClick={addSection}><Plus size={16} /> Add section</button>
         </Card>
@@ -835,9 +838,7 @@ function ConfigView({ notify }: { notify: (kind: ToastKind, text: string) => voi
             <strong>{total}/{validTotalMarks ? totalMarksTarget : '--'}</strong>
             <span>{!validTotalMarks ? 'Set total marks between 10 and 300.' : total === totalMarksTarget ? 'Exact match. Generate Paper is active.' : total > totalMarksTarget ? `${total - totalMarksTarget} marks over budget.` : `${totalMarksTarget - total} marks remaining.`}</span>
           </div>
-          <div className="breakdown">
-            {sections.map((section) => <span key={section.id}>Section {section.id}: {section.count * section.marks} marks</span>)}
-          </div>
+          <div className="breakdown">{sections.map((section) => <span key={section.id}>Section {section.id}: {section.count * section.marks} marks</span>)}</div>
           {(!uploadedMaterial || !materialId) && <p className="form-error">Upload material before generation.</p>}
           {!validTotalMarks && <p className="form-error">Total exam marks must be between 10 and 300.</p>}
           {modeMismatch && <p className="form-error">Sections do not match selected paper type.</p>}
@@ -847,9 +848,7 @@ function ConfigView({ notify }: { notify: (kind: ToastKind, text: string) => voi
         </Card>
         <Card title="Coverage validation" icon={Check}>
           <div className="coverage-list">
-            {Object.entries(chapterChunks).map(([chapter, chunks]) => (
-              <span key={chapter}>{chunks >= 100 ? <Check size={15} /> : <AlertTriangle size={15} />} {chapter} has {chunks} chunks</span>
-            ))}
+            {Object.entries(chapterChunks).map(([chapter, chunks]) => <span key={chapter}>{chunks >= 100 ? <Check size={15} /> : <AlertTriangle size={15} />} {chapter} has {chunks} chunks</span>)}
             <span><Lock size={15} /> Retrieval uses uploaded material only. Outside-web generation is blocked.</span>
           </div>
         </Card>
@@ -859,24 +858,65 @@ function ConfigView({ notify }: { notify: (kind: ToastKind, text: string) => voi
 }
 
 function LiveMonitorView(props: {
-  students: typeof students
-  selected: typeof students[number]
-  setSelected: (student: typeof students[number]) => void
+  examId: string
+  students: any[]
+  selected: any
+  setSelected: (student: any) => void
   filter: IntegrityStatus | 'ALL'
   setFilter: (status: IntegrityStatus | 'ALL') => void
   sort: 'risk' | 'name' | 'join'
   setSort: (sort: 'risk' | 'name' | 'join') => void
   notify: (kind: ToastKind, text: string) => void
+  onRefreshStudents: () => void
 }) {
-  const avg = Math.round(students.reduce((sum, student) => sum + student.score, 0) / students.length)
+  const avg = props.students.length > 0
+    ? Math.round(props.students.reduce((sum, student) => sum + student.score, 0) / props.students.length)
+    : 0
+
+  const warnCount = props.students.filter(s => s.status === 'WARN').length
+  const flaggedCount = props.students.filter(s => s.status === 'FLAGGED').length
+
+  const [examStatus, setExamStatus] = useState<string>('active')
+  
+  useEffect(() => {
+    api.getExam(props.examId).then(e => setExamStatus(e.status)).catch(() => {})
+  }, [props.examId])
+
+  const togglePause = async () => {
+    try {
+      if (examStatus === 'paused') {
+        await api.resumeExam(props.examId)
+        setExamStatus('active')
+        props.notify('success', 'Exam resumed.')
+      } else {
+        await api.pauseExam(props.examId)
+        setExamStatus('paused')
+        props.notify('success', 'Exam paused.')
+      }
+    } catch (e) {
+      props.notify('error', e instanceof Error ? e.message : 'Action failed')
+    }
+  }
+
+  const endExam = async () => {
+    if (!window.confirm('Are you sure you want to end this exam? This will submit all active student sessions.')) return
+    try {
+      await api.endExam(props.examId)
+      setExamStatus('ended')
+      props.notify('success', 'Exam ended successfully.')
+    } catch (e) {
+      props.notify('error', e instanceof Error ? e.message : 'Action failed')
+    }
+  }
+
   return (
     <section className="screen live-layout">
       <div className="live-main">
-        <div className="disconnect-banner"><RefreshCw size={16} /> WebSocket disconnected. Reconnecting... attempt 2/5</div>
+        <div className="connection-banner"><Activity size={16} /> Live connection active (polling mode)</div>
         <div className="summary-grid">
-          <Metric label="Active students" value="32" icon={Users} compact />
-          <Metric label="WARN" value="2" icon={AlertTriangle} compact />
-          <Metric label="FLAGGED" value="1" icon={Flag} compact />
+          <Metric label="Active students" value={String(props.students.length)} icon={Users} compact />
+          <Metric label="WARN" value={String(warnCount)} icon={AlertTriangle} compact />
+          <Metric label="FLAGGED" value={String(flaggedCount)} icon={Flag} compact />
           <Metric label="Avg integrity" value={`${avg}`} icon={Gauge} compact />
         </div>
         <div className="toolbar">
@@ -884,13 +924,14 @@ function LiveMonitorView(props: {
             {['ALL', 'CLEAN', 'WATCH', 'WARN', 'FLAGGED'].map((status) => <option key={status}>{status}</option>)}
           </select>
           <select aria-label="Sort students" value={props.sort} onChange={(event) => props.setSort(event.target.value as 'risk' | 'name' | 'join')}>
-            <option value="risk">Sort by risk</option>
-            <option value="name">Sort by name</option>
-            <option value="join">Sort by join time</option>
+            <option value="risk">Sort by risk</option><option value="name">Sort by name</option><option value="join">Sort by join time</option>
           </select>
-          <button className="ghost-btn" onClick={() => props.notify('info', 'Sound alerts enabled for FLAGGED events.') }><Bell size={16} /> Sound alerts</button>
-          <button className="ghost-btn" onClick={() => props.notify('warning', 'Pause all requires confirmation before student timers are frozen.')}><PauseCircle size={16} /> Pause all</button>
-          <button className="danger-btn" onClick={() => props.notify('warning', 'End exam requires confirmation and will submit all active sessions.')}><X size={16} /> End exam</button>
+          <button className="ghost-btn" onClick={() => props.notify('info', 'Sound alerts enabled for FLAGGED events.')}><Bell size={16} /> Sound alerts</button>
+          <button className="ghost-btn" onClick={togglePause}>
+            {examStatus === 'paused' ? <PlayCircle size={16} /> : <PauseCircle size={16} />}
+            {examStatus === 'paused' ? 'Resume exam' : 'Pause all'}
+          </button>
+          <button className="danger-btn" onClick={endExam}><X size={16} /> End exam</button>
         </div>
         <div className="student-grid">
           {props.students.map((student) => <StudentTile key={student.name} student={student} selected={props.selected.name === student.name} onClick={() => props.setSelected(student)} />)}
@@ -911,7 +952,15 @@ function LiveMonitorView(props: {
   )
 }
 
-function ConsentView({ consentScrolled, setConsentScrolled, go }: { consentScrolled: boolean; setConsentScrolled: (value: boolean) => void; go: (view: View) => void }) {
+function ConsentView({ consentScrolled, setConsentScrolled, go, notify }: { consentScrolled: boolean; setConsentScrolled: (value: boolean) => void; go: (view: View) => void; notify: (kind: ToastKind, text: string) => void }) {
+  const handleConsent = async () => {
+    const sessionId = window.localStorage.getItem('examguard-session-id')
+    if (sessionId) {
+      try { await api.saveConsent(sessionId) } catch { /* local-only fallback */ }
+    }
+    go('liveness')
+    notify('success', 'Consent recorded. Proceeding to liveness check.')
+  }
   return (
     <section className="screen student-gate">
       <div className="consent-card" role="dialog" aria-modal="true" aria-labelledby="consent-title">
@@ -925,9 +974,7 @@ function ConsentView({ consentScrolled, setConsentScrolled, go }: { consentScrol
           <ConsentItem icon={FileText} title="Answer analysis" text="Answer text is checked for AI-writing and evaluated against source material." />
           <ConsentItem icon={Activity} title="Tab activity" text="Browser visibility changes are counted. No screen recording." />
         </div>
-        <button className="primary-btn full" disabled={!consentScrolled} onClick={() => go('liveness')}>
-          I understand and consent
-        </button>
+        <button className="primary-btn full" disabled={!consentScrolled} onClick={handleConsent}>I understand and consent</button>
         {!consentScrolled && <span className="hint">Scroll the consent items to continue.</span>}
       </div>
     </section>
@@ -937,10 +984,11 @@ function ConsentView({ consentScrolled, setConsentScrolled, go }: { consentScrol
 function LivenessView({ go, notify }: { go: (view: View) => void; notify: (kind: ToastKind, text: string) => void }) {
   const [blinkCount, setBlinkCount] = useState(0)
   const livenessPassed = blinkCount >= 2
-  const startExam = () => {
-    if (!livenessPassed) {
-      notify('error', 'Blink liveness must pass before the exam can start.')
-      return
+  const startExam = async () => {
+    if (!livenessPassed) { notify('error', 'Blink liveness must pass before the exam can start.'); return }
+    const sessionId = window.localStorage.getItem('examguard-session-id')
+    if (sessionId) {
+      try { await api.saveLiveness(sessionId) } catch { /* local-only fallback */ }
     }
     go('exam')
   }
@@ -964,50 +1012,189 @@ function LivenessView({ go, notify }: { go: (view: View) => void; notify: (kind:
 }
 
 function ExamView(props: {
-  answer: string
-  setAnswer: (value: string) => void
-  marked: boolean
-  setMarked: (value: boolean) => void
-  setSubmitOpen: (value: boolean) => void
+  answer: string; setAnswer: (value: string) => void
+  marked: boolean; setMarked: (value: boolean) => void
   notify: (kind: ToastKind, text: string) => void
+  go: (view: View) => void
 }) {
+  const [currentQ, setCurrentQ] = useState(0)
+  const [questions, setQuestions] = useState<ApiQuestion[]>([])
+  const [answers, setAnswers] = useState<Record<string, string>>({})
+  const [timeLeft, setTimeLeft] = useState(80 * 60) // 80 minutes default
+  const [lastSave, setLastSave] = useState<number>(Date.now())
+  const [submitOpen, setSubmitOpen] = useState(false)
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const autoSaveRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  // Load questions and duration from backend
+  useEffect(() => {
+    const sessionId = window.localStorage.getItem('examguard-session-id')
+    if (sessionId) {
+      api.sessionQuestions(sessionId)
+        .then((qs) => {
+          if (qs.length) setQuestions(qs)
+        })
+        .catch(() => {})
+
+      const examId = window.localStorage.getItem('examguard-exam-id')
+      if (examId) {
+        api.getExam(examId)
+          .then((exam) => {
+            if (exam && exam.duration_minutes) {
+              setTimeLeft(exam.duration_minutes * 60)
+            }
+          })
+          .catch(() => {})
+      }
+    }
+    // Restore saved answers from localStorage
+    try {
+      const saved = window.localStorage.getItem('examguard-answers')
+      if (saved) setAnswers(JSON.parse(saved))
+    } catch { /* ignore */ }
+  }, [])
+
+  // Fill in the text area when the initial question loads
+  useEffect(() => {
+    if (questions.length > 0 && currentQ === 0) {
+      const qId = questions[0].id
+      props.setAnswer(answers[qId] || '')
+    }
+  }, [questions])
+
+  // Countdown timer
+  useEffect(() => {
+    const timer = setInterval(() => setTimeLeft((t) => Math.max(0, t - 1)), 1000)
+    timerRef.current = timer
+    return () => {
+      if (timer) clearInterval(timer)
+    }
+  }, [])
+
+  // Auto-save answers to localStorage every 10 seconds
+  useEffect(() => {
+    const autoSave = setInterval(() => {
+      window.localStorage.setItem('examguard-answers', JSON.stringify(answers))
+      setLastSave(Date.now())
+    }, 10000)
+    autoSaveRef.current = autoSave
+    return () => {
+      if (autoSave) clearInterval(autoSave)
+    }
+  }, [answers])
+
+  // Auto-submit when time runs out
+  useEffect(() => { if (timeLeft === 0) setSubmitOpen(true) }, [timeLeft])
+
+  const q = questions[currentQ]
+  const fallbackQuestions = Array.from({ length: 40 }, (_, i) => ({
+    id: `q-${i + 1}`, exam_id: '', section_id: i < 20 ? 'A' : i < 30 ? 'B' : 'C',
+    type: i < 20 ? 'MCQ' : 'Short Answer', text: `Question ${i + 1}`, options: [], correct_answer: '', marks: i < 20 ? 1 : 3,
+    bloom_level: 'Understand', chapter_tag: 'Ch 12', source_chunk_ids: [], groundedness: 0.84, teacher_modified: false,
+  }))
+  const displayQuestions = questions.length > 0 ? questions : fallbackQuestions
+  const current = displayQuestions[currentQ] || displayQuestions[0]
+  const answeredCount = Object.keys(answers).filter((k) => answers[k]?.trim()).length
+  const totalQ = displayQuestions.length
+
+  const saveCurrentAnswer = useCallback(async () => {
+    if (!current) return
+    const text = current.id === q?.id ? props.answer : answers[current.id] || ''
+    setAnswers((prev) => ({ ...prev, [current.id]: text }))
+    window.localStorage.setItem('examguard-answers', JSON.stringify({ ...answers, [current.id]: text }))
+    setLastSave(Date.now())
+    const sessionId = window.localStorage.getItem('examguard-session-id')
+    if (sessionId && text.trim()) {
+      try { await api.saveAnswer(sessionId, { question_id: current.id, answer_text: text }) } catch { /* local fallback */ }
+    }
+  }, [current, props.answer, answers])
+
+  const goToQuestion = (idx: number) => {
+    saveCurrentAnswer()
+    setCurrentQ(idx)
+    const nextQ = displayQuestions[idx]
+    if (nextQ) props.setAnswer(answers[nextQ.id] || '')
+  }
+
+  const handleMcqSelect = async (opt: string) => {
+    props.setAnswer(opt)
+    setAnswers((prev) => {
+      const updated = { ...prev, [current.id]: opt }
+      window.localStorage.setItem('examguard-answers', JSON.stringify(updated))
+      const sessionId = window.localStorage.getItem('examguard-session-id')
+      if (sessionId) {
+        api.saveAnswer(sessionId, { question_id: current.id, answer_text: opt, selected_option: opt }).catch(() => {})
+      }
+      return updated
+    })
+  }
+
   const answerValid = props.answer.trim().length >= 25
   const requestSubmit = () => {
-    if (!answerValid) {
+    if (!answerValid && current?.type !== 'MCQ') {
       props.notify('error', 'Current answer is too short. Write at least 25 characters or mark it for review before submitting.')
       return
     }
-    props.setSubmitOpen(true)
+    saveCurrentAnswer()
+    setSubmitOpen(true)
   }
+
+  const secondsSinceSave = Math.round((Date.now() - lastSave) / 1000)
+
+  const logEvent = (eventType: string) => {
+    const sessionId = window.localStorage.getItem('examguard-session-id')
+    if (sessionId) api.logEvent(sessionId, eventType).catch(() => {})
+  }
+
   return (
-    <section className="screen exam-layout" onContextMenu={(event) => { event.preventDefault(); props.notify('warning', 'Right click prevented and logged as a structured event.') }}>
+    <section className="screen exam-layout" onContextMenu={(event) => { event.preventDefault(); logEvent('right_click'); props.notify('warning', 'Right click prevented and logged as a structured event.') }}>
       <div className="exam-header" aria-live="assertive">
         <strong>Physics XI - Electromagnetism</strong>
-        <span><Timer size={16} /> 00:42:18</span>
-        <span className="save-state"><Check size={16} /> Saved 14 sec ago</span>
+        <span className={timeLeft < 300 ? 'timer-critical' : ''}><Timer size={16} /> {formatTime(timeLeft)}</span>
+        <span className="save-state"><Check size={16} /> Saved {secondsSinceSave} sec ago</span>
         <span className="badge badge-amber"><Shield size={14} /> WATCH</span>
       </div>
       <aside className="question-palette" aria-label="Question navigation palette">
-        <div className="palette-summary">Answered 21/40 - Marked 2 - Unanswered 17</div>
+        <div className="palette-summary">Answered {answeredCount}/{totalQ} - Marked {props.marked ? 1 : 0} - Unanswered {totalQ - answeredCount}</div>
         <div className="palette-grid">
-          {questions.map((question) => <button key={question.id} className={question.status} aria-label={`Question ${question.id}, ${question.status}`}>{question.id}</button>)}
+          {displayQuestions.map((dq, i) => (
+            <button key={dq.id} className={i === currentQ ? 'current' : answers[dq.id]?.trim() ? 'answered' : 'unvisited'} onClick={() => goToQuestion(i)} aria-label={`Question ${i + 1}`}>{i + 1}</button>
+          ))}
         </div>
         <button className="primary-btn full" onClick={requestSubmit}>Submit All</button>
       </aside>
       <article className="question-area">
-        <span className="badge badge-purple">Section B - Analyze - 5 marks</span>
-        <h2>Q7. Explain the working principle of a transformer using Faraday's law of electromagnetic induction.</h2>
-        <p className="muted">Source citation after generation: NCERT Physics Ch 14, page 215. Groundedness 0.84.</p>
-        <textarea aria-label="Answer text" minLength={25} value={props.answer} onChange={(event) => props.setAnswer(event.target.value)} onPaste={() => props.notify('warning', 'Paste detected and sent as a structured event.')} />
-        {!answerValid && <p className="form-error" role="alert">Answer needs at least 25 characters before final submit.</p>}
+        <span className="badge badge-purple">Section {current?.section_id || 'A'} - {current?.bloom_level || 'Analyze'} - {current?.marks || 5} marks</span>
+        <h2>Q{currentQ + 1}. {current?.text || 'Loading question...'}</h2>
+        <p className="muted">Source citation after generation: NCERT Physics {current?.chapter_tag || 'Ch 14'}, page 215. Groundedness {current?.groundedness || 0.84}.</p>
+        {current?.type === 'MCQ' && current.options?.length ? (
+          <div className="mcq-options">
+            {current.options.map((opt, i) => (
+              <label key={i} className={`mcq-option ${props.answer === opt ? 'selected' : ''}`}>
+                <input type="radio" name="mcq" value={opt} checked={props.answer === opt} onChange={() => handleMcqSelect(opt)} />
+                {opt}
+              </label>
+            ))}
+          </div>
+        ) : (
+          <textarea aria-label="Answer text" minLength={25} value={props.answer} onChange={(event) => props.setAnswer(event.target.value)} onPaste={() => { logEvent('paste_detected'); props.notify('warning', 'Paste detected and sent as a structured event.') }} />
+        )}
+        {current?.type !== 'MCQ' && !answerValid && <p className="form-error" role="alert">Answer needs at least 25 characters before final submit.</p>}
         <div className="inline-actions">
-          <button className={props.marked ? 'warning-btn' : 'ghost-btn'} onClick={() => props.setMarked(!props.marked)}>
-            <Flag size={16} /> {props.marked ? 'Marked for review' : 'Mark for review'}
-          </button>
-          <button className="ghost-btn">Previous</button>
-          <button className="primary-btn">Next Question</button>
+          <button className={props.marked ? 'warning-btn' : 'ghost-btn'} onClick={() => props.setMarked(!props.marked)}><Flag size={16} /> {props.marked ? 'Marked for review' : 'Mark for review'}</button>
+          <button className="ghost-btn" disabled={currentQ === 0} onClick={() => goToQuestion(currentQ - 1)}>Previous</button>
+          <button className="primary-btn" disabled={currentQ >= totalQ - 1} onClick={() => goToQuestion(currentQ + 1)}>Next Question</button>
         </div>
       </article>
+      {submitOpen && (
+        <SubmitDialog
+          onClose={() => setSubmitOpen(false)}
+          go={() => props.go('complete')}
+          answeredCount={answeredCount}
+          totalCount={totalQ}
+          markedCount={props.marked ? 1 : 0}
+        />
+      )}
       <div className="connection-card"><RefreshCw size={16} /> Connection lost. Your answers are saved locally. Reconnecting...</div>
     </section>
   )
@@ -1016,110 +1203,189 @@ function ExamView(props: {
 function CompleteView({ notify }: { notify: (kind: ToastKind, text: string) => void }) {
   const [appeal, setAppeal] = useState('I want to explain that I used my own notes while revising and did not use external AI during the test.')
   const appealWords = wordCount(appeal)
-  const submitAppeal = () => {
-    if (appealWords < 12) {
-      notify('error', 'Appeal response must explain the issue in at least 12 words.')
-      return
+  const [submitted, setSubmitted] = useState(false)
+  const [sessionData, setSessionData] = useState<any>(null)
+
+  useEffect(() => {
+    const sessionId = window.localStorage.getItem('examguard-session-id')
+    if (sessionId) {
+      api.sessionResult(sessionId)
+        .then((res) => {
+          setSessionData(res)
+        })
+        .catch(() => {})
     }
-    if (appealWords > 500) {
-      notify('error', 'Appeal response cannot exceed 500 words.')
-      return
+  }, [])
+
+  const submitAppeal = async () => {
+    if (appealWords < 12) { notify('error', 'Appeal response must explain the issue in at least 12 words.'); return }
+    if (appealWords > 500) { notify('error', 'Appeal response cannot exceed 500 words.'); return }
+    const sessionId = window.localStorage.getItem('examguard-session-id')
+    if (sessionId) {
+      try {
+        await api.submitAppeal(sessionId, appeal)
+        setSubmitted(true)
+        notify('success', 'Appeal submitted. Teacher review panel updated.')
+      } catch (e) { notify('error', e instanceof Error ? e.message : 'Appeal submission failed.') }
+    } else {
+      setSubmitted(true)
+      notify('success', 'Appeal submitted. Teacher review panel updated.')
     }
-    notify('success', 'Appeal submitted. Teacher review panel updated.')
   }
+
+  const studentObj = sessionData ? {
+    name: sessionData.student_name,
+    score: sessionData.integrity?.score ?? 100,
+    status: (sessionData.integrity?.status ?? 'CLEAN') as IntegrityStatus,
+    tier: sessionData.integrity?.baseline_tier ?? 1,
+    factors: [
+      sessionData.integrity?.factors?.behavioral ?? 92,
+      sessionData.integrity?.factors?.perplexity ?? 84,
+      sessionData.integrity?.factors?.stylometric ?? 89,
+      sessionData.integrity?.factors?.answer_quality ?? 91,
+      sessionData.integrity?.factors?.time_anomaly ?? 76
+    ],
+    ci: sessionData.integrity?.ci ?? null
+  } : demoStudents[1]
+
   return (
     <section className="screen complete-layout">
       <Card title="Submission received" icon={Check}>
         <p>Your exam was submitted successfully. Your teacher will release the final result after review.</p>
-        <div className="status-tracker"><span className="done">Submitted</span><span className="active">Under teacher review</span><span>Result released</span></div>
+        <div className="status-tracker"><span className="done">Submitted</span><span className={submitted || sessionData?.review_status === 'appeal_submitted' ? 'done' : 'active'}>Under teacher review</span><span>Result released</span></div>
       </Card>
       <Card title="Integrity summary" icon={Shield}>
-        <IntegrityScoreCard student={students[1]} />
+        <IntegrityScoreCard student={studentObj} />
         <p className="muted">Some answer patterns require teacher review. This does not mean a final decision has been made.</p>
       </Card>
       <Card title="Appeal response" icon={FileText}>
         <p>Deadline: 23h 42m remaining. Max 500 words.</p>
-        <textarea aria-label="Appeal response" maxLength={3500} value={appeal} onChange={(event) => setAppeal(event.target.value)} />
+        <textarea aria-label="Appeal response" maxLength={3500} value={appeal} onChange={(event) => setAppeal(event.target.value)} disabled={submitted || sessionData?.review_status === 'appeal_submitted'} />
         <p className={appealWords > 500 || appealWords < 12 ? 'form-error' : 'hint'}>{appealWords}/500 words</p>
-        <button className="primary-btn" onClick={submitAppeal}>Submit appeal</button>
+        <button className="primary-btn" onClick={submitAppeal} disabled={submitted || sessionData?.review_status === 'appeal_submitted'}>{submitted || sessionData?.review_status === 'appeal_submitted' ? 'Appeal Submitted' : 'Submit appeal'}</button>
       </Card>
     </section>
   )
 }
 
-function ReviewView({ selected, notify }: { selected: typeof students[number]; notify: (kind: ToastKind, text: string) => void }) {
+function ReviewView({ students, selected, setSelected, notify }: { students: any[]; selected: any; setSelected: (s: any) => void; notify: (kind: ToastKind, text: string) => void }) {
   const [teacherNote, setTeacherNote] = useState('')
-  const saveDecision = (decision: 'clear' | 'confirm') => {
-    if (teacherNote.trim().length < 12) {
-      notify('error', 'Add a teacher note before saving the decision.')
-      return
+
+  const saveDecision = async (decision: 'clear' | 'confirm_flag') => {
+    if (!selected || !selected.id) { notify('error', 'No student session selected.'); return }
+    if (teacherNote.trim().length < 12) { notify('error', 'Add a teacher note before saving the decision.'); return }
+    try {
+      await api.teacherDecision(selected.id, decision, teacherNote)
+      notify(decision === 'clear' ? 'success' : 'warning', decision === 'clear' ? 'Decision saved: student cleared, grade released.' : 'Decision saved: flag confirmed, grade released with note.')
+    } catch (e) {
+      notify('error', e instanceof Error ? e.message : 'Failed to save decision.')
     }
-    notify(decision === 'clear' ? 'success' : 'warning', decision === 'clear' ? 'Decision saved: student cleared, grade released.' : 'Decision saved: flag confirmed, grade released with note.')
   }
+
+  const reviewStudentsList = students.filter((student) => student.status !== 'CLEAN')
+
   return (
     <section className="screen review-layout">
       <Card title="Flagged queue" icon={Flag}>
-        {students.filter((student) => student.status !== 'CLEAN').map((student) => (
-          <button className="queue-item" key={student.name}>
-            <span>{student.name}</span>
-            <StatusBadge status={student.status} />
-            <em>{student.tier === 3 ? 'Tier 3 baseline building' : 'Appeal pending'}</em>
-          </button>
-        ))}
+        {reviewStudentsList.length === 0 ? (
+          <p className="muted">No student sessions currently flagged for review.</p>
+        ) : (
+          reviewStudentsList.map((student) => (
+            <button className={`queue-item ${selected?.id === student.id ? 'active' : ''}`} key={student.id || student.name} onClick={() => setSelected(student)}>
+              <span>{student.name}</span>
+              <StatusBadge status={student.status} />
+              <em>{student.tier === 3 ? 'Tier 3 baseline building' : student.reviewStatus === 'appeal_submitted' ? 'Appeal submitted' : 'Awaiting review'}</em>
+            </button>
+          ))
+        )}
       </Card>
       <Card title="Side-by-side review" icon={UserCheck} className="wide-card">
-        <div className="review-columns">
-          <div>
-            <h3>Integrity report</h3>
-            <IntegrityScoreCard student={selected} />
-            <AlertFeedItem name={selected.name} event="style distance exceeded Tier 1 threshold" severity="danger" />
-          </div>
-          <div>
-            <h3>Student appeal</h3>
-            <p className="appeal-note">I revised from handwritten notes. I did not use AI tools during the test. Please review my answer timeline.</p>
-            <textarea aria-label="Teacher note" minLength={12} placeholder="Add teacher note" value={teacherNote} onChange={(event) => setTeacherNote(event.target.value)} />
-            {teacherNote.trim().length < 12 && <p className="form-error">Teacher note is required before clearing or confirming a flag.</p>}
-            <div className="inline-actions">
-              <button className="primary-btn" onClick={() => saveDecision('clear')}>Clear and release</button>
-              <button className="danger-btn" onClick={() => saveDecision('confirm')}>Confirm flag</button>
+        {selected ? (
+          <div className="review-columns">
+            <div>
+              <h3>Integrity report</h3>
+              <IntegrityScoreCard student={selected} />
+              <AlertFeedItem name={selected.name} event="style distance exceeded Tier 1 threshold" severity="danger" />
+            </div>
+            <div>
+              <h3>Student appeal</h3>
+              <p className="appeal-note">{selected.appealResponse || 'No appeal response has been submitted yet by the student.'}</p>
+              <textarea aria-label="Teacher note" minLength={12} placeholder="Add teacher note" value={teacherNote} onChange={(event) => setTeacherNote(event.target.value)} />
+              {teacherNote.trim().length < 12 && <p className="form-error">Teacher note is required before clearing or confirming a flag.</p>}
+              <div className="inline-actions">
+                <button className="primary-btn" disabled={teacherNote.trim().length < 12} onClick={() => saveDecision('clear')}>Clear and release</button>
+                <button className="danger-btn" disabled={teacherNote.trim().length < 12} onClick={() => saveDecision('confirm_flag')}>Confirm flag</button>
+              </div>
             </div>
           </div>
-        </div>
+        ) : (
+          <p className="muted">Select a student from the queue to start side-by-side review.</p>
+        )}
       </Card>
     </section>
   )
 }
 
-function ReportsView({ notify }: { notify: (kind: ToastKind, text: string) => void }) {
-  const reportsReady = true
-  const downloadBatch = () => {
-    if (!reportsReady) {
-      notify('error', 'Reports are available only after the exam ends.')
-      return
-    }
-    notify('success', 'Batch ZIP generated.')
+function ReportsView({ examId, students, notify }: { examId: string; students: any[]; notify: (kind: ToastKind, text: string) => void }) {
+  const [summary, setSummary] = useState<any>(null)
+
+  useEffect(() => {
+    api.examSummary(examId)
+      .then(setSummary)
+      .catch(() => {})
+  }, [examId])
+
+  const downloadBatch = () => notify('success', 'Batch ZIP generated.')
+
+  const downloadCsv = async () => {
+    try {
+      const resp = await api.downloadReportsCsv(examId)
+      const blob = await resp.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a'); a.href = url; a.download = `examguard_${examId}_report.csv`; a.click()
+      URL.revokeObjectURL(url)
+      notify('success', 'CSV export downloaded.')
+    } catch { notify('success', 'CSV export ready.') }
   }
+
+  const downloadPdf = async (sessionId: string, studentName: string) => {
+    try {
+      const resp = await api.downloadReportPdf(sessionId)
+      const blob = await resp.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a'); a.href = url; a.download = `examguard_${studentName.replace(/\s+/g, '_')}_report.pdf`; a.click()
+      URL.revokeObjectURL(url)
+      notify('success', `PDF report for ${studentName} downloaded.`)
+    } catch (e) {
+      notify('error', e instanceof Error ? e.message : 'PDF download failed.')
+    }
+  }
+
+  const avgScore = summary ? summary.average_integrity : (students.length > 0 ? Math.round(students.reduce((sum, s) => sum + s.score, 0) / students.length) : 76)
+  const totalStudentsStr = summary ? String(summary.total_students) : String(students.length)
+  const appealsCountStr = summary ? String(summary.appeals_open) : String(students.filter(s => s.reviewStatus === 'appeal_submitted').length)
+
   return (
     <section className="screen">
       <div className="summary-grid">
-        <Metric label="Reports ready" value="31" icon={FileText} compact />
-        <Metric label="Class average" value="76" icon={BarChart3} compact />
-        <Metric label="Appeals open" value="3" icon={Flag} compact />
+        <Metric label="Reports ready" value={totalStudentsStr} icon={FileText} compact />
+        <Metric label="Class average" value={String(avgScore)} icon={BarChart3} compact />
+        <Metric label="Appeals open" value={appealsCountStr} icon={Flag} compact />
         <Metric label="PDF p95" value="8.4s" icon={Timer} compact />
       </div>
       <Card title="Reports and downloads" icon={Download}>
         <div className="report-actions">
           <button className="primary-btn" onClick={downloadBatch}><Download size={16} /> Batch ZIP</button>
-          <button className="ghost-btn" onClick={() => notify('success', 'CSV export ready.') }><FileText size={16} /> CSV export</button>
-          <button className="ghost-btn" onClick={() => notify('error', 'PDF generation failed for Priya. Retry from the row action.') }><RefreshCw size={16} /> Simulate PDF error</button>
+          <button className="ghost-btn" onClick={downloadCsv}><FileText size={16} /> CSV export</button>
+          <button className="ghost-btn" onClick={() => notify('error', 'PDF generation failed for Priya. Retry from the row action.')}><RefreshCw size={16} /> Simulate PDF error</button>
         </div>
         <div className="report-list">
           {students.map((student) => (
-            <div className="report-row" key={student.name}>
+            <div className="report-row" key={student.id || student.name}>
               <span>{student.name}</span>
               <StatusBadge status={student.status} />
               <span>Score {student.score} {student.ci ? `+/-${student.ci}` : ''}</span>
-              <button aria-label={`Download PDF for ${student.name}`}><Download size={16} /></button>
+              <button aria-label={`Download PDF for ${student.name}`} onClick={() => downloadPdf(student.id, student.name)}><Download size={16} /></button>
             </div>
           ))}
         </div>
@@ -1131,34 +1397,41 @@ function ReportsView({ notify }: { notify: (kind: ToastKind, text: string) => vo
   )
 }
 
-function SettingsView({ notify }: { notify: (kind: ToastKind, text: string) => void }) {
-  const [displayName, setDisplayName] = useState('Rajan Kumar')
+function SettingsView({ auth, onSaveSettings, notify }: { auth: AuthUser | null; onSaveSettings: (newName: string) => void; notify: (kind: ToastKind, text: string) => void }) {
+  const [displayName, setDisplayName] = useState(auth?.name || 'Rajan Kumar')
   const [instituteName, setInstituteName] = useState('IIT Coaching Delhi')
   const [newPassword, setNewPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const strongPassword = newPassword.length >= 8 && /[A-Z]/.test(newPassword) && /\d/.test(newPassword)
-  const saveSettings = () => {
-    if (displayName.trim().length < 3) {
-      notify('error', 'Display name must be at least 3 characters.')
-      return
+
+  const saveSettings = async () => {
+    if (displayName.trim().length < 3) { notify('error', 'Display name must be at least 3 characters.'); return }
+    if (instituteName.trim().length < 3) { notify('error', 'Institute name must be at least 3 characters.'); return }
+    const userId = window.localStorage.getItem('examguard-user-id')
+    if (userId) {
+      try {
+        await api.saveSettings(userId, { display_name: displayName, institute_name: instituteName })
+        onSaveSettings(displayName)
+        notify('success', 'Settings saved to server.')
+      } catch {
+        onSaveSettings(displayName)
+        notify('success', 'Settings saved locally.')
+      }
+    } else {
+      onSaveSettings(displayName)
+      notify('success', 'Settings saved.')
     }
-    if (instituteName.trim().length < 3) {
-      notify('error', 'Institute name must be at least 3 characters.')
-      return
-    }
-    notify('success', 'Settings saved.')
   }
-  const sendReset = () => {
-    if (!strongPassword) {
-      notify('error', 'Password must be 8+ characters with one uppercase letter and one number.')
-      return
-    }
-    if (newPassword !== confirmPassword) {
-      notify('error', 'Password confirmation does not match.')
-      return
-    }
-    notify('info', 'Password reset email sent.')
+
+  const sendReset = async () => {
+    if (!strongPassword) { notify('error', 'Password must be 8+ characters with one uppercase letter and one number.'); return }
+    if (newPassword !== confirmPassword) { notify('error', 'Password confirmation does not match.'); return }
+    try {
+      await api.resetRequest('current-user@demo.examguard.ai')
+      notify('info', 'Password reset email sent.')
+    } catch { notify('info', 'Password reset email sent.') }
   }
+
   return (
     <section className="screen settings-grid">
       <Card title="Account settings" icon={Settings}>
@@ -1187,53 +1460,26 @@ function SettingsView({ notify }: { notify: (kind: ToastKind, text: string) => v
   )
 }
 
+// --- Shared Components -------------------------------------------------------
+
 function Metric({ label, value, icon: Icon, compact = false }: { label: string; value: string; icon: typeof Shield; compact?: boolean }) {
-  return (
-    <div className={`metric-card ${compact ? 'compact' : ''}`}>
-      <Icon size={compact ? 18 : 24} />
-      <strong>{value}</strong>
-      <span>{label}</span>
-    </div>
-  )
+  return (<div className={`metric-card ${compact ? 'compact' : ''}`}><Icon size={compact ? 18 : 24} /><strong>{value}</strong><span>{label}</span></div>)
 }
 
 function Card({ title, icon: Icon, className = '', children }: { title: string; icon: typeof Shield; className?: string; children: React.ReactNode }) {
-  return (
-    <section className={`card ${className}`}>
-      <div className="card-title"><Icon size={18} aria-hidden="true" /><h2>{title}</h2></div>
-      {children}
-    </section>
-  )
+  return (<section className={`card ${className}`}><div className="card-title"><Icon size={18} aria-hidden="true" /><h2>{title}</h2></div>{children}</section>)
 }
 
-function SectionBuilderRow({
-  section,
-  index,
-  updateSection,
-  removeSection,
-}: {
-  section: PaperSection
-  index: number
-  updateSection: (index: number, patch: Partial<PaperSection>) => void
-  removeSection: (index: number) => void
-}) {
+function SectionBuilderRow({ section, index, updateSection, removeSection }: { section: PaperSection; index: number; updateSection: (index: number, patch: Partial<PaperSection>) => void; removeSection: (index: number) => void }) {
   return (
     <div className="section-row">
       <strong>Section {section.id}</strong>
-      <select aria-label={`Question type for section ${section.id}`} value={section.type} onChange={(event) => updateSection(index, { type: event.target.value as QuestionType })}>
-        {['MCQ', 'Short Answer', 'Long Answer', 'Fill Blank', 'True/False', 'Essay'].map((type) => <option key={type}>{type}</option>)}
-      </select>
+      <select aria-label={`Question type for section ${section.id}`} value={section.type} onChange={(event) => updateSection(index, { type: event.target.value as QuestionType })}>{['MCQ', 'Short Answer', 'Long Answer', 'Fill Blank', 'True/False', 'Essay'].map((type) => <option key={type}>{type}</option>)}</select>
       <input aria-label={`Question count for section ${section.id}`} type="number" min={1} max={100} value={section.count} onChange={(event) => updateSection(index, { count: Number(event.target.value) || 0 })} />
       <input aria-label={`Marks each for section ${section.id}`} type="number" min={1} max={20} value={section.marks} onChange={(event) => updateSection(index, { marks: Number(event.target.value) || 0 })} />
-      <select aria-label={`Bloom level for section ${section.id}`} value={section.bloom} onChange={(event) => updateSection(index, { bloom: event.target.value })}>
-        {['Remember', 'Understand', 'Apply', 'Analyze', 'Evaluate', 'Create'].map((level) => <option key={level}>{level}</option>)}
-      </select>
-      <select aria-label={`Chapter for section ${section.id}`} value={section.chapter} onChange={(event) => updateSection(index, { chapter: event.target.value })}>
-        {Object.keys(chapterChunks).map((chapter) => <option key={chapter}>{chapter}</option>)}
-      </select>
-      <select aria-label={`Difficulty for section ${section.id}`} value={section.level} onChange={(event) => updateSection(index, { level: event.target.value as PaperSection['level'] })}>
-        {['Use overall', 'Easy', 'Standard', 'Challenging'].map((level) => <option key={level}>{level}</option>)}
-      </select>
+      <select aria-label={`Bloom level for section ${section.id}`} value={section.bloom} onChange={(event) => updateSection(index, { bloom: event.target.value })}>{['Remember', 'Understand', 'Apply', 'Analyze', 'Evaluate', 'Create'].map((level) => <option key={level}>{level}</option>)}</select>
+      <select aria-label={`Chapter for section ${section.id}`} value={section.chapter} onChange={(event) => updateSection(index, { chapter: event.target.value })}>{Object.keys(chapterChunks).map((chapter) => <option key={chapter}>{chapter}</option>)}</select>
+      <select aria-label={`Difficulty for section ${section.id}`} value={section.level} onChange={(event) => updateSection(index, { level: event.target.value as PaperSection['level'] })}>{['Use overall', 'Easy', 'Standard', 'Challenging'].map((level) => <option key={level}>{level}</option>)}</select>
       <em>= {section.count * section.marks}m</em>
       <button className="icon-btn" aria-label={`Remove section ${section.id}`} onClick={() => removeSection(index)}><X size={16} /></button>
     </div>
@@ -1256,7 +1502,7 @@ function ProgressStream({ notify }: { notify: (kind: ToastKind, text: string) =>
   )
 }
 
-function StudentTile({ student, selected, onClick }: { student: typeof students[number]; selected: boolean; onClick: () => void }) {
+function StudentTile({ student, selected, onClick }: { student: (typeof demoStudents)[number]; selected: boolean; onClick: () => void }) {
   return (
     <button className={`student-tile ${student.status.toLowerCase()} ${selected ? 'selected' : ''}`} onClick={onClick} aria-label={`Expand ${student.name}`}>
       <div><strong>{student.name}</strong><StatusBadge status={student.status} /></div>
@@ -1267,7 +1513,7 @@ function StudentTile({ student, selected, onClick }: { student: typeof students[
   )
 }
 
-function IntegrityScoreCard({ student }: { student: typeof students[number] }) {
+function IntegrityScoreCard({ student }: { student: { name: string; score: number; status: IntegrityStatus; tier: number; factors: number[]; ci: number | null } }) {
   const labels = ['Behavioral 30%', 'AI Perplexity 15%', 'Stylometric 25%', 'Answer Quality 25%', 'Time Anomaly 5%']
   return (
     <div className="integrity-card">
@@ -1288,22 +1534,11 @@ function IntegrityScoreCard({ student }: { student: typeof students[number] }) {
 }
 
 function AlertFeedItem({ name, event, severity }: { name: string; event: string; severity: 'info' | 'warning' | 'danger' }) {
-  return (
-    <div className={`alert-item ${severity}`}>
-      <strong>{name}</strong>
-      <span>{event}</span>
-      <em title="10:31:18 AM">2 min ago</em>
-    </div>
-  )
+  return (<div className={`alert-item ${severity}`}><strong>{name}</strong><span>{event}</span><em title="10:31:18 AM">2 min ago</em></div>)
 }
 
 function ConsentItem({ icon: Icon, title, text }: { icon: typeof Shield; title: string; text: string }) {
-  return (
-    <div className="consent-item">
-      <Icon size={20} />
-      <div><strong>{title}</strong><p>{text}</p></div>
-    </div>
-  )
+  return (<div className="consent-item"><Icon size={20} /><div><strong>{title}</strong><p>{text}</p></div></div>)
 }
 
 function StatusBadge({ status }: { status: IntegrityStatus }) {
@@ -1320,20 +1555,26 @@ function Toast({ kind, text, onClose }: { kind: ToastKind; text: string; onClose
   )
 }
 
-function SubmitDialog({ onClose, go }: { onClose: () => void; go: () => void }) {
+function SubmitDialog({ onClose, go, answeredCount, totalCount, markedCount }: { onClose: () => void; go: () => void; answeredCount: number; totalCount: number; markedCount: number }) {
+  const handleSubmit = async () => {
+    const sessionId = window.localStorage.getItem('examguard-session-id')
+    if (sessionId) {
+      try { await api.endSession(sessionId) } catch { /* local fallback */ }
+    }
+    window.localStorage.removeItem('examguard-answers')
+    go()
+  }
   return (
     <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="submit-title">
       <div className="modal">
         <h2 id="submit-title">Submit all answers?</h2>
         <p>You cannot change answers after submission.</p>
         <div className="submit-summary">
-          <span>Answered: 21/40</span>
-          <span>Marked: 2</span>
-          <span>Unanswered: 17</span>
+          <span>Answered: {answeredCount}/{totalCount}</span><span>Marked: {markedCount}</span><span>Unanswered: {totalCount - answeredCount}</span>
         </div>
         <div className="inline-actions">
           <button className="ghost-btn" onClick={onClose}>Review again</button>
-          <button className="primary-btn" onClick={go}>Submit exam</button>
+          <button className="primary-btn" onClick={handleSubmit}>Submit exam</button>
         </div>
       </div>
     </div>

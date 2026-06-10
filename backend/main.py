@@ -6,12 +6,17 @@ for local demos and frontend integration while Supabase/Redis/Gemini are wired.
 
 from __future__ import annotations
 
+import csv
+import io
 from typing import Literal
 
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import Response
+from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, Field, field_validator
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.util import get_remote_address
 
 from backend.agents.constants import FACTOR_WEIGHTS
 from backend.agents.graph import AGENT_NODES
@@ -26,7 +31,13 @@ if settings.supabase_enabled:
 else:
     store = local_store
 
+# --- Rate Limiter -----------------------------------------------------------
+
+limiter = Limiter(key_func=get_remote_address)
+
 app = FastAPI(title="ExamGuard AI v6", version="6.0")
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 app.add_middleware(
     CORSMiddleware,
@@ -40,6 +51,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# --- Pydantic Models --------------------------------------------------------
 
 
 class LoginRequest(BaseModel):
@@ -111,6 +125,32 @@ class DecisionRequest(BaseModel):
     teacher_note: str = Field(min_length=12, max_length=1200)
 
 
+class ProctoringEventRequest(BaseModel):
+    event_type: str
+    metadata: dict[str, object] = Field(default_factory=dict)
+
+
+class SettingsRequest(BaseModel):
+    display_name: str = Field(min_length=3, max_length=80)
+    institute_name: str = Field(min_length=3, max_length=120)
+    email_on_flag: bool = True
+
+
+# --- Helper ------------------------------------------------------------------
+
+
+def _get_session_field(session: dict, field: str) -> object:
+    """Safely get session fields that may differ between local/supabase stores."""
+    if field == "consent":
+        return session.get("consent", session.get("consent_given", False))
+    if field == "liveness":
+        return session.get("liveness", session.get("liveness_verified", False))
+    return session.get(field)
+
+
+# --- Health ------------------------------------------------------------------
+
+
 @app.get("/health")
 def health() -> dict[str, object]:
     return {
@@ -123,34 +163,45 @@ def health() -> dict[str, object]:
     }
 
 
+# --- Auth --------------------------------------------------------------------
+
+
 @app.post("/api/v1/auth/login")
-def login(payload: LoginRequest) -> dict[str, object]:
+@limiter.limit("10/minute")
+def login(request: Request, payload: LoginRequest) -> dict[str, object]:
     user = store.login(payload.email, payload.role, payload.display_name)
     return {"user": user, "token": f"local-{user['id']}"}
 
 
 @app.post("/api/v1/auth/signup")
-def signup(payload: LoginRequest) -> dict[str, object]:
+@limiter.limit("5/minute")
+def signup(request: Request, payload: LoginRequest) -> dict[str, object]:
     user = store.login(payload.email, payload.role, payload.display_name)
     return {"user": user, "token": f"local-{user['id']}"}
 
 
 @app.post("/api/v1/auth/reset-request")
-def reset_request(payload: dict[str, str]) -> dict[str, str]:
+@limiter.limit("3/minute")
+def reset_request(request: Request, payload: dict[str, str]) -> dict[str, str]:
     if "email" not in payload:
         raise HTTPException(status_code=422, detail="email is required")
     return {"status": "reset_link_created_local"}
 
 
 @app.post("/api/v1/auth/reset-confirm")
-def reset_confirm(payload: dict[str, str]) -> dict[str, str]:
+@limiter.limit("3/minute")
+def reset_confirm(request: Request, payload: dict[str, str]) -> dict[str, str]:
     if len(payload.get("password", "")) < 8:
         raise HTTPException(status_code=422, detail="password must be at least 8 characters")
     return {"status": "password_updated_local"}
 
 
+# --- Exams -------------------------------------------------------------------
+
+
 @app.post("/api/v1/exams")
-def create_exam(payload: ExamCreateRequest) -> dict[str, object]:
+@limiter.limit("20/minute")
+def create_exam(request: Request, payload: ExamCreateRequest) -> dict[str, object]:
     if hasattr(store, "users") and payload.teacher_id not in store.users:
         raise HTTPException(status_code=404, detail="teacher not found")
     return store.create_exam(payload.teacher_id, payload.model_dump())
@@ -178,6 +229,25 @@ def get_exam(exam_id: str) -> dict[str, object]:
     return store.exams[exam_id]
 
 
+@app.delete("/api/v1/exams/{exam_id}")
+def delete_exam(exam_id: str) -> dict[str, str]:
+    """Delete an exam and all associated data."""
+    try:
+        store.delete_exam(exam_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="exam not found") from exc
+    return {"status": "deleted"}
+
+
+@app.post("/api/v1/exams/{exam_id}/clone")
+def clone_exam(exam_id: str) -> dict[str, object]:
+    """Clone an exam with a new join code."""
+    try:
+        return store.clone_exam(exam_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="exam not found") from exc
+
+
 @app.put("/api/v1/exams/{exam_id}/paper-config")
 def save_paper_config(exam_id: str, payload: PaperConfigRequest) -> dict[str, object]:
     get_exam(exam_id)
@@ -189,7 +259,8 @@ def save_paper_config(exam_id: str, payload: PaperConfigRequest) -> dict[str, ob
 
 
 @app.post("/api/v1/exams/{exam_id}/generate")
-def generate_paper(exam_id: str) -> dict[str, object]:
+@limiter.limit("5/minute")
+def generate_paper(request: Request, exam_id: str) -> dict[str, object]:
     exam = get_exam(exam_id)
     if not exam.get("paper_config"):
         raise HTTPException(status_code=422, detail="paper config must be saved before generation")
@@ -198,22 +269,40 @@ def generate_paper(exam_id: str) -> dict[str, object]:
 
 @app.post("/api/v1/exams/{exam_id}/activate")
 def activate_exam(exam_id: str) -> dict[str, object]:
-    if hasattr(store, "activate_exam"):
+    try:
         return store.activate_exam(exam_id)
-    exam = get_exam(exam_id)
-    if exam_id not in store.questions:
-        raise HTTPException(status_code=422, detail="generate questions before activation")
-    exam["status"] = "active"
-    return exam
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="exam not found") from exc
+
+
+@app.post("/api/v1/exams/{exam_id}/pause")
+def pause_exam(exam_id: str) -> dict[str, object]:
+    """Pause an active exam — freezes all student timers."""
+    try:
+        return store.pause_exam(exam_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="exam not found") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.post("/api/v1/exams/{exam_id}/resume")
+def resume_exam(exam_id: str) -> dict[str, object]:
+    """Resume a paused exam."""
+    try:
+        return store.resume_exam(exam_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="exam not found") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @app.post("/api/v1/exams/{exam_id}/end")
 def end_exam(exam_id: str) -> dict[str, object]:
-    if hasattr(store, "end_exam"):
+    try:
         return store.end_exam(exam_id)
-    exam = get_exam(exam_id)
-    exam["status"] = "ended"
-    return exam
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="exam not found") from exc
 
 
 @app.get("/api/v1/exams/{exam_id}/students")
@@ -250,6 +339,57 @@ def exam_reports(exam_id: str) -> dict[str, object]:
     }
 
 
+@app.get("/api/v1/exams/{exam_id}/reports/csv")
+def exam_reports_csv(exam_id: str) -> StreamingResponse:
+    """Export exam reports as CSV download."""
+    sessions = exam_students(exam_id)
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["student_name", "student_id", "integrity_score", "integrity_status", "status", "review_status", "grade_released"])
+    for s in sessions:
+        integrity = s.get("integrity", {})
+        writer.writerow([
+            s.get("student_name", ""),
+            s.get("student_id", ""),
+            integrity.get("score", ""),
+            integrity.get("status", ""),
+            s.get("status", ""),
+            s.get("review_status", ""),
+            s.get("grade_released", False),
+        ])
+    output.seek(0)
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename=examguard_{exam_id}_report.csv"},
+    )
+
+
+@app.get("/api/v1/exams/{exam_id}/reports/summary")
+def exam_summary(exam_id: str) -> dict[str, object]:
+    """Summary statistics for an exam."""
+    sessions = exam_students(exam_id)
+    if not sessions:
+        return {"exam_id": exam_id, "total_students": 0, "average_integrity": 0, "status_counts": {}, "appeals_open": 0}
+    scores = [s["integrity"]["score"] for s in sessions if s.get("integrity", {}).get("score") is not None]
+    status_counts: dict[str, int] = {}
+    appeals_open = 0
+    for s in sessions:
+        st = s.get("integrity", {}).get("status", "UNKNOWN")
+        status_counts[st] = status_counts.get(st, 0) + 1
+        if s.get("review_status") in ("awaiting_response", "appeal_submitted"):
+            appeals_open += 1
+    return {
+        "exam_id": exam_id,
+        "total_students": len(sessions),
+        "average_integrity": round(sum(scores) / len(scores), 2) if scores else 0,
+        "min_integrity": min(scores) if scores else 0,
+        "max_integrity": max(scores) if scores else 0,
+        "status_counts": status_counts,
+        "appeals_open": appeals_open,
+    }
+
+
 @app.get("/api/v1/exams/{exam_id}/live-events")
 def live_events(exam_id: str) -> dict[str, object]:
     return {
@@ -259,8 +399,12 @@ def live_events(exam_id: str) -> dict[str, object]:
     }
 
 
+# --- Materials ---------------------------------------------------------------
+
+
 @app.post("/api/v1/materials/upload")
-async def upload_material(exam_id: str, file: UploadFile = File(...)) -> dict[str, object]:
+@limiter.limit("10/minute")
+async def upload_material(request: Request, exam_id: str, file: UploadFile = File(...)) -> dict[str, object]:
     get_exam(exam_id)
     if not file.filename:
         raise HTTPException(status_code=422, detail="filename is required")
@@ -274,19 +418,29 @@ async def upload_material(exam_id: str, file: UploadFile = File(...)) -> dict[st
 
 @app.get("/api/v1/materials/{material_id}/status")
 def material_status(material_id: str) -> dict[str, object]:
-    if hasattr(store, "get_material"):
-        try:
-            return store.get_material(material_id)
-        except KeyError as exc:
-            raise HTTPException(status_code=404, detail="material not found") from exc
-    if material_id not in store.materials:
-        raise HTTPException(status_code=404, detail="material not found")
-    material = store.materials[material_id]
-    return {key: value for key, value in material.items() if key != "chunks"}
+    try:
+        material = store.get_material(material_id)
+        return {key: value for key, value in material.items() if key != "chunks"}
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="material not found") from exc
+
+
+@app.delete("/api/v1/materials/{material_id}")
+def delete_material(material_id: str) -> dict[str, str]:
+    """Delete uploaded material."""
+    try:
+        store.delete_material(material_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="material not found") from exc
+    return {"status": "deleted"}
+
+
+# --- Sessions ----------------------------------------------------------------
 
 
 @app.post("/api/v1/sessions/join")
-def join_session(payload: JoinRequest) -> dict[str, object]:
+@limiter.limit("15/minute")
+def join_session(request: Request, payload: JoinRequest) -> dict[str, object]:
     try:
         session = store.join_session(payload.join_code.upper(), payload.student_name, str(payload.email) if payload.email else None)
         redis_hot_state.set_json(f"session:{session['id']}:state", session, ttl_seconds=10800)
@@ -299,49 +453,36 @@ def join_session(payload: JoinRequest) -> dict[str, object]:
 @app.post("/api/v1/sessions/{session_id}/consent")
 def save_consent(session_id: str) -> dict[str, object]:
     session = require_session(session_id)
-    if hasattr(store, "update_session"):
-        updated = store.update_session(session_id, {"consent_given": True, "consent_given_at": store.appeal_deadline(), "status": "consented"})
-        normalized = store.normalize_session(updated) if hasattr(store, "normalize_session") else updated
-        redis_hot_state.set_json(f"session:{session_id}:state", normalized, ttl_seconds=10800)
-        redis_hot_state.push_event(f"exam:{normalized['exam_id']}:events", {"type": "consent_given", "session_id": session_id}, ttl_seconds=10800)
-        return normalized
-    session["consent"] = True
-    session["status"] = "consented"
-    redis_hot_state.set_json(f"session:{session_id}:state", session, ttl_seconds=10800)
-    redis_hot_state.push_event(f"exam:{session['exam_id']}:events", {"type": "consent_given", "session_id": session_id}, ttl_seconds=10800)
-    return session
+    updated = store.update_session(session_id, {"consent_given": True, "consent_given_at": store.appeal_deadline(), "status": "consented"})
+    normalized = store.normalize_session(updated)
+    redis_hot_state.set_json(f"session:{session_id}:state", normalized, ttl_seconds=10800)
+    redis_hot_state.push_event(f"exam:{normalized['exam_id']}:events", {"type": "consent_given", "session_id": session_id}, ttl_seconds=10800)
+    return normalized
 
 
 @app.post("/api/v1/sessions/{session_id}/liveness")
 def save_liveness(session_id: str) -> dict[str, object]:
     session = require_session(session_id)
-    if not session["consent"]:
+    if not _get_session_field(session, "consent"):
         raise HTTPException(status_code=422, detail="consent is required before liveness")
-    if hasattr(store, "update_session"):
-        updated = store.update_session(session_id, {"liveness_verified": True, "status": "active", "started_at": store.appeal_deadline()})
-        normalized = store.normalize_session(updated) if hasattr(store, "normalize_session") else updated
-        redis_hot_state.set_json(f"session:{session_id}:state", normalized, ttl_seconds=10800)
-        redis_hot_state.push_event(f"exam:{normalized['exam_id']}:events", {"type": "liveness_verified", "session_id": session_id}, ttl_seconds=10800)
-        return normalized
-    session["liveness"] = True
-    session["status"] = "ready"
-    redis_hot_state.set_json(f"session:{session_id}:state", session, ttl_seconds=10800)
-    redis_hot_state.push_event(f"exam:{session['exam_id']}:events", {"type": "liveness_verified", "session_id": session_id}, ttl_seconds=10800)
-    return session
+    updated = store.update_session(session_id, {"liveness_verified": True, "status": "active", "started_at": store.appeal_deadline()})
+    normalized = store.normalize_session(updated)
+    redis_hot_state.set_json(f"session:{session_id}:state", normalized, ttl_seconds=10800)
+    redis_hot_state.push_event(f"exam:{normalized['exam_id']}:events", {"type": "liveness_verified", "session_id": session_id}, ttl_seconds=10800)
+    return normalized
 
 
 @app.get("/api/v1/sessions/{session_id}/questions")
 def session_questions(session_id: str) -> list[dict[str, object]]:
     session = require_session(session_id)
-    if not session["liveness"]:
+    if not _get_session_field(session, "liveness"):
         raise HTTPException(status_code=422, detail="liveness is required before questions")
-    if hasattr(store, "session_questions"):
-        return store.session_questions(session_id)
-    return store.questions.get(session["exam_id"], [])
+    return store.session_questions(session_id)
 
 
 @app.post("/api/v1/sessions/{session_id}/answers")
-def save_answer(session_id: str, payload: AnswerRequest) -> dict[str, object]:
+@limiter.limit("60/minute")
+def save_answer(request: Request, session_id: str, payload: AnswerRequest) -> dict[str, object]:
     session = require_session(session_id)
     if not payload.answer_text and not payload.selected_option:
         raise HTTPException(status_code=422, detail="answer text or selected option is required")
@@ -353,11 +494,8 @@ def save_answer(session_id: str, payload: AnswerRequest) -> dict[str, object]:
 @app.post("/api/v1/sessions/{session_id}/end")
 def end_session(session_id: str) -> dict[str, object]:
     session = require_session(session_id)
-    if hasattr(store, "update_session"):
-        updated = store.update_session(session_id, {"status": "ended", "ended_at": store.appeal_deadline()})
-        return store.normalize_session(updated) if hasattr(store, "normalize_session") else updated
-    session["status"] = "ended"
-    return session
+    updated = store.update_session(session_id, {"status": "ended", "ended_at": store.appeal_deadline()})
+    return store.normalize_session(updated)
 
 
 @app.get("/api/v1/sessions/{session_id}/integrity")
@@ -365,44 +503,56 @@ def session_integrity(session_id: str) -> dict[str, object]:
     return require_session(session_id)["integrity"]
 
 
+@app.get("/api/v1/sessions/{session_id}/result")
+def session_result(session_id: str) -> dict[str, object]:
+    """Get session result with answers, integrity, and review status."""
+    try:
+        return store.get_session_result(session_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="session not found") from exc
+
+
 @app.post("/api/v1/sessions/{session_id}/appeal")
 def submit_appeal(session_id: str, payload: AppealRequest) -> dict[str, object]:
-    session = require_session(session_id)
-    if hasattr(store, "rest"):
-        deadline = store.appeal_deadline()
-        appeal = store.rest("POST", "integrity_appeals", {
-            "session_id": session_id,
-            "student_response": payload.response,
-            "submitted_at": deadline,
-            "deadline_at": deadline,
-        })[0]
-        store.update_session(session_id, {"review_status": "awaiting_response"})
-        return {"response": appeal["student_response"], "submitted_at": appeal["submitted_at"], "status": "submitted"}
-    session["appeal"] = {
-        "response": payload.response,
-        "submitted_at": store.appeal_deadline(),
-        "status": "submitted",
-    }
-    session["review_status"] = "appeal_submitted"
-    return session["appeal"]
+    try:
+        return store.submit_appeal(session_id, payload.response)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="session not found") from exc
 
 
 @app.put("/api/v1/sessions/{session_id}/decision")
 def teacher_decision(session_id: str, payload: DecisionRequest) -> dict[str, object]:
+    try:
+        return store.teacher_decision(session_id, payload.decision, payload.teacher_note)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="session not found") from exc
+
+
+# --- Proctoring Events -------------------------------------------------------
+
+
+@app.post("/api/v1/sessions/{session_id}/events")
+def log_proctoring_event(session_id: str, payload: ProctoringEventRequest) -> dict[str, str]:
+    """Log a browser-side proctoring event (tab switch, paste, gaze, etc.)."""
     session = require_session(session_id)
-    if hasattr(store, "update_session"):
-        updated = store.update_session(session_id, {
-            "teacher_decision": "cleared" if payload.decision == "clear" else "confirmed_flag",
-            "decision_at": store.appeal_deadline(),
-            "grade_released": True,
-            "review_status": "decided",
-        })
-        return store.normalize_session(updated) if hasattr(store, "normalize_session") else updated
-    session["teacher_decision"] = payload.decision
-    session["teacher_note"] = payload.teacher_note
-    session["grade_released"] = True
-    session["review_status"] = "resolved"
-    return session
+    event = {"type": payload.event_type, **payload.metadata, "session_id": session_id}
+    redis_hot_state.push_event(f"exam:{session['exam_id']}:events", event, ttl_seconds=10800)
+    return {"status": "logged"}
+
+
+# --- Settings ----------------------------------------------------------------
+
+
+@app.put("/api/v1/users/{user_id}/settings")
+def save_settings(user_id: str, payload: SettingsRequest) -> dict[str, object]:
+    """Save user settings (display name, institute, notifications)."""
+    try:
+        return store.save_settings(user_id, payload.display_name, payload.institute_name)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="user not found") from exc
+
+
+# --- Reports -----------------------------------------------------------------
 
 
 @app.post("/api/v1/sessions/{session_id}/reports/generate")
@@ -420,12 +570,12 @@ def report_pdf(session_id: str) -> Response:
     return Response(content=data, media_type="application/pdf")
 
 
+# --- Internal ----------------------------------------------------------------
+
+
 def require_session(session_id: str) -> dict[str, object]:
-    if hasattr(store, "require_session"):
-        try:
-            return store.normalize_session(store.require_session(session_id)) if hasattr(store, "normalize_session") else store.require_session(session_id)
-        except KeyError as exc:
-            raise HTTPException(status_code=404, detail="session not found") from exc
-    if session_id not in store.sessions:
-        raise HTTPException(status_code=404, detail="session not found")
-    return store.sessions[session_id]
+    try:
+        raw = store.require_session(session_id)
+        return store.normalize_session(raw)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="session not found") from exc
