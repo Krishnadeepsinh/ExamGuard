@@ -1,0 +1,31 @@
+# dependencies
+node_modules/
+frontend/node_modules/
+
+# build outputs
+dist/
+frontend/dist/
+
+# caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# local/generated demo state
+demo/demo_ready.json
+
+# env files
+.env
+.env.local
+backend/.env
+backend/.env.local
+frontend/.env
+frontend/.env.local
+
+# OS/editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

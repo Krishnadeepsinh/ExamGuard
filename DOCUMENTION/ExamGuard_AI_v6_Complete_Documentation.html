@@ -1,0 +1,2107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ExamGuard AI v6 — Complete Industry Documentation Suite · FAR AWAY 2026</title>
+<style>
+  /* ── RESET & BASE ── */
+  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+  :root{
+    --navy:#0b1437;--navy2:#1a2650;--navy3:#2d3d70;
+    --ink:#0d0f1a;--ink2:#252840;--ink3:#5c5f80;--ink4:#9a9db8;
+    --surface:#f8f8f6;--surface2:#f1f1ee;--surface3:#e6e6e0;--border:#d8d8ce;
+    --red:#c0291b;--red-bg:#fdf1f0;--red-mid:#f0a09a;
+    --orange:#b85212;--orange-bg:#fdf2e8;
+    --amber:#9a6f00;--amber-bg:#fdf8e6;--amber-mid:#e8cc70;
+    --green:#0f6e38;--green-bg:#ecf7f2;--green-mid:#7ecaa0;
+    --blue:#1240a8;--blue-bg:#edf2fc;--blue-mid:#88aaee;
+    --purple:#4e229a;--purple-bg:#f2eefe;--purple-mid:#b898f0;
+    --teal:#0a6a52;--teal-bg:#e6f5f0;--teal-mid:#70c4a8;
+    --gold:#c9a227;
+    --ff-head:'Georgia',serif;
+    --ff-body:'Arial',sans-serif;
+    --ff-mono:'Courier New',monospace;
+    --radius:10px;
+    --shadow:0 2px 12px rgba(0,0,0,.08);
+  }
+  html{scroll-behavior:smooth;}
+  body{font-family:var(--ff-body);font-size:14px;color:var(--ink);background:var(--surface);line-height:1.7;}
+  a{color:var(--blue);text-decoration:none;}
+
+  /* ── PRINT ── */
+  @media print{
+    .no-print{display:none!important;}
+    .page-break{page-break-before:always;}
+    body{font-size:12px;}
+  }
+
+  /* ── COVER PAGE ── */
+  .cover{
+    background:linear-gradient(135deg,var(--navy) 0%,var(--navy3) 50%,#1e3070 100%);
+    min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;
+    padding:60px 40px;position:relative;overflow:hidden;
+  }
+  .cover::before{
+    content:'';position:absolute;inset:0;
+    background:radial-gradient(ellipse 60% 50% at 90% 20%,rgba(78,34,154,.3),transparent),
+              radial-gradient(ellipse 40% 40% at 10% 80%,rgba(18,64,168,.25),transparent);
+  }
+  .cover-inner{position:relative;z-index:1;text-align:center;max-width:900px;}
+  .cover-eyebrow{font-family:var(--ff-mono);font-size:11px;letter-spacing:.25em;text-transform:uppercase;
+    color:rgba(255,255,255,.5);margin-bottom:20px;}
+  .cover-logo{font-size:72px;font-weight:700;font-family:var(--ff-head);color:#fff;line-height:1;
+    margin-bottom:8px;letter-spacing:-2px;}
+  .cover-logo span{color:#a78bfa;}
+  .cover-sub{font-size:18px;color:rgba(255,255,255,.7);font-weight:300;margin-bottom:40px;letter-spacing:.05em;}
+  .cover-tags{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin-bottom:50px;}
+  .ctag{padding:6px 16px;border-radius:4px;font-family:var(--ff-mono);font-size:11px;
+    letter-spacing:.06em;text-transform:uppercase;}
+  .ctag-p{border:1px solid rgba(167,139,250,.5);color:#c4b5fd;background:rgba(167,139,250,.1);}
+  .ctag-g{border:1px solid rgba(52,211,153,.4);color:#6ee7b7;background:rgba(52,211,153,.08);}
+  .ctag-b{border:1px solid rgba(96,165,250,.4);color:#93c5fd;background:rgba(96,165,250,.08);}
+  .ctag-r{border:1px solid rgba(248,113,113,.4);color:#fca5a5;background:rgba(248,113,113,.08);}
+  .cover-meta{border-top:1px solid rgba(255,255,255,.1);padding-top:30px;
+    display:grid;grid-template-columns:repeat(4,1fr);gap:20px;text-align:center;}
+  .cm-item{color:rgba(255,255,255,.5);}
+  .cm-label{font-family:var(--ff-mono);font-size:9px;letter-spacing:.15em;text-transform:uppercase;margin-bottom:4px;}
+  .cm-val{font-size:14px;color:#fff;font-weight:600;}
+
+  /* ── NAV ── */
+  .toc-nav{
+    position:sticky;top:0;z-index:100;background:var(--navy);
+    padding:0 40px;border-bottom:2px solid var(--navy3);
+    display:flex;align-items:center;gap:0;overflow-x:auto;no-print;
+  }
+  .toc-nav a{
+    font-family:var(--ff-mono);font-size:10px;letter-spacing:.08em;text-transform:uppercase;
+    color:rgba(255,255,255,.55);padding:14px 14px;white-space:nowrap;
+    border-bottom:2px solid transparent;margin-bottom:-2px;transition:all .2s;
+  }
+  .toc-nav a:hover{color:#a78bfa;border-bottom-color:#a78bfa;}
+
+  /* ── LAYOUT ── */
+  .container{max-width:1100px;margin:0 auto;padding:0 40px 80px;}
+
+  /* ── SECTION HEADERS ── */
+  .section{margin:60px 0;}
+  .doc-divider{
+    background:linear-gradient(135deg,var(--navy) 0%,var(--navy3) 100%);
+    margin:0 -40px;padding:40px 40px 35px;color:#fff;
+    position:relative;overflow:hidden;
+  }
+  .doc-divider::before{content:'';position:absolute;right:-60px;top:-60px;
+    width:200px;height:200px;border-radius:50%;background:rgba(167,139,250,.12);}
+  .doc-divider::after{content:'';position:absolute;left:30%;bottom:-30px;
+    width:120px;height:120px;border-radius:50%;background:rgba(52,211,153,.08);}
+  .doc-divider-inner{position:relative;z-index:1;}
+  .doc-code{font-family:var(--ff-mono);font-size:10px;letter-spacing:.2em;text-transform:uppercase;
+    color:rgba(255,255,255,.4);margin-bottom:10px;}
+  .doc-title{font-family:var(--ff-head);font-size:32px;font-style:italic;color:#fff;margin-bottom:6px;}
+  .doc-desc{font-size:13px;color:rgba(255,255,255,.6);max-width:700px;line-height:1.6;}
+
+  .sec-label{font-family:var(--ff-mono);font-size:10px;letter-spacing:.2em;text-transform:uppercase;
+    color:var(--ink3);margin-bottom:12px;display:flex;align-items:center;gap:10px;}
+  .sec-label::after{content:'';flex:1;height:1px;background:var(--border);}
+  .sec-title{font-family:var(--ff-head);font-size:22px;font-style:italic;color:var(--ink);margin-bottom:6px;}
+  .sec-desc{font-size:13px;color:var(--ink3);margin-bottom:20px;max-width:720px;line-height:1.6;}
+
+  h3{font-size:15px;font-weight:700;color:var(--ink);margin:22px 0 10px;}
+  h4{font-size:13px;font-weight:700;color:var(--ink2);margin:16px 0 8px;
+    font-family:var(--ff-mono);letter-spacing:.04em;text-transform:uppercase;}
+  p{color:var(--ink2);line-height:1.7;margin-bottom:12px;}
+
+  /* ── CALLOUTS ── */
+  .callout{border-radius:8px;padding:14px 18px;margin:12px 0;border-left:3px solid;}
+  .callout .ct{font-family:var(--ff-mono);font-size:10px;font-weight:700;letter-spacing:.08em;
+    text-transform:uppercase;margin-bottom:5px;}
+  .callout .cb{font-size:13px;color:var(--ink2);line-height:1.6;}
+  .cl-red{background:var(--red-bg);border-color:var(--red);}.cl-red .ct{color:var(--red);}
+  .cl-blue{background:var(--blue-bg);border-color:var(--blue);}.cl-blue .ct{color:var(--blue);}
+  .cl-green{background:var(--green-bg);border-color:var(--green);}.cl-green .ct{color:var(--green);}
+  .cl-amber{background:var(--amber-bg);border-color:var(--amber);}.cl-amber .ct{color:var(--amber);}
+  .cl-purple{background:var(--purple-bg);border-color:var(--purple);}.cl-purple .ct{color:var(--purple);}
+  .cl-teal{background:var(--teal-bg);border-color:var(--teal);}.cl-teal .ct{color:var(--teal);}
+  .cl-navy{background:#eef0f8;border-color:var(--navy);}.cl-navy .ct{color:var(--navy);}
+
+  /* ── TABLES ── */
+  .doc-table{width:100%;border-collapse:collapse;margin:16px 0;font-size:13px;}
+  .doc-table th{background:var(--navy);color:#fff;padding:10px 14px;text-align:left;
+    font-family:var(--ff-mono);font-size:10px;letter-spacing:.07em;text-transform:uppercase;}
+  .doc-table td{padding:9px 14px;border-bottom:1px solid var(--surface3);color:var(--ink2);vertical-align:top;}
+  .doc-table tr:hover td{background:var(--surface2);}
+  .doc-table tr:nth-child(even) td{background:rgba(0,0,0,.02);}
+
+  /* ── BADGES ── */
+  .badge{display:inline-block;font-family:var(--ff-mono);font-size:10px;padding:2px 8px;
+    border-radius:3px;font-weight:700;letter-spacing:.04em;}
+  .b-must{background:#fde68a;color:#78350f;}
+  .b-should{background:#bfdbfe;color:#1e3a8a;}
+  .b-could{background:#d1fae5;color:#065f46;}
+  .b-wont{background:#fee2e2;color:#7f1d1d;}
+  .b-high{background:#fecaca;color:#7f1d1d;}
+  .b-med{background:#fed7aa;color:#7c2d12;}
+  .b-low{background:#d1fae5;color:#065f46;}
+  .b-done{background:#d1fae5;color:#065f46;}
+  .b-wip{background:#fef3c7;color:#78350f;}
+  .b-todo{background:#e0e7ff;color:#312e81;}
+  .b-critical{background:#fca5a5;color:#7f1d1d;}
+  .b-new{background:#6ee7b7;color:#065f46;}
+  .b-v6{background:#ef4444;color:#fff;}
+
+  /* ── CARDS ── */
+  .card-grid{display:grid;gap:12px;margin:16px 0;}
+  .g2{grid-template-columns:repeat(2,1fr);}
+  .g3{grid-template-columns:repeat(3,1fr);}
+  .g4{grid-template-columns:repeat(4,1fr);}
+  .card{border:1px solid var(--border);border-radius:var(--radius);padding:18px;background:#fff;
+    box-shadow:var(--shadow);}
+  .card-title{font-weight:700;font-size:13px;color:var(--ink);margin-bottom:6px;}
+  .card-sub{font-size:12px;color:var(--ink3);line-height:1.5;}
+
+  /* ── METRIC CARDS ── */
+  .metric-card{border-radius:var(--radius);padding:20px;border:1px solid var(--border);background:#fff;}
+  .metric-label{font-family:var(--ff-mono);font-size:10px;color:var(--ink4);text-transform:uppercase;
+    letter-spacing:.1em;margin-bottom:4px;}
+  .metric-val{font-family:var(--ff-head);font-size:28px;font-style:italic;font-weight:600;color:var(--ink);}
+  .metric-sub{font-size:11px;color:var(--ink3);margin-top:4px;}
+
+  /* ── AGENT CARDS ── */
+  .agent-card{border-radius:var(--radius);padding:18px;border:1px solid;}
+  .ac-num{font-family:var(--ff-mono);font-size:9px;font-weight:700;letter-spacing:.15em;
+    text-transform:uppercase;margin-bottom:4px;}
+  .ac-name{font-size:14px;font-weight:700;margin-bottom:3px;}
+  .ac-model{font-family:var(--ff-mono);font-size:10px;color:var(--ink3);margin-bottom:8px;}
+  .ac-desc{font-size:12px;color:var(--ink2);line-height:1.5;margin-bottom:10px;}
+  .tool-chips{display:flex;flex-wrap:wrap;gap:4px;}
+  .tool-chip{font-family:var(--ff-mono);font-size:10px;padding:2px 7px;border-radius:3px;
+    background:rgba(0,0,0,.06);color:var(--ink2);}
+
+  /* ── FLOW STEPS ── */
+  .flow-steps{display:flex;flex-direction:column;gap:0;}
+  .flow-step{display:grid;grid-template-columns:80px 1fr;gap:0;position:relative;}
+  .flow-step:not(:last-child)::after{content:'';position:absolute;left:39px;top:52px;
+    width:2px;bottom:0;background:var(--border);}
+  .fs-num{display:flex;flex-direction:column;align-items:center;padding-top:12px;}
+  .fs-circle{width:40px;height:40px;border-radius:50%;display:flex;align-items:center;
+    justify-content:center;font-family:var(--ff-head);font-size:15px;font-style:italic;
+    font-weight:700;border:2px solid;flex-shrink:0;}
+  .fs-body{padding:12px 0 28px 0;}
+  .fs-title{font-weight:700;font-size:13px;color:var(--ink);margin-bottom:4px;}
+  .fs-desc{font-size:12px;color:var(--ink3);line-height:1.5;}
+
+  /* ── REQUIREMENT ROWS ── */
+  .req-row{padding:10px 14px;border-bottom:1px solid var(--surface3);display:grid;
+    grid-template-columns:80px 60px 1fr 80px;gap:10px;align-items:start;font-size:12.5px;}
+  .req-row:hover{background:var(--surface2);}
+  .req-id{font-family:var(--ff-mono);font-size:10px;color:var(--ink3);}
+  .req-desc{color:var(--ink2);line-height:1.5;}
+  .req-head{background:var(--navy);color:#fff;border-radius:var(--radius) var(--radius) 0 0;padding:10px 14px;
+    display:grid;grid-template-columns:80px 60px 1fr 80px;gap:10px;
+    font-family:var(--ff-mono);font-size:10px;letter-spacing:.07em;text-transform:uppercase;}
+
+  /* ── TIMELINE ── */
+  .timeline{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin:20px 0;}
+  .tl-day{border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;}
+  .tl-head{padding:10px 12px;font-family:var(--ff-mono);font-size:10px;font-weight:700;
+    letter-spacing:.1em;text-transform:uppercase;color:#fff;}
+  .tl-body{padding:10px 12px;}
+  .tl-item{font-size:11px;color:var(--ink2);padding:3px 0;border-bottom:1px dashed var(--surface3);}
+  .tl-item:last-child{border-bottom:none;}
+
+  /* ── DATABASE SCHEMA ── */
+  .schema-card{border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;margin-bottom:12px;}
+  .schema-head{background:var(--surface2);padding:10px 16px;display:flex;justify-content:space-between;
+    align-items:center;border-bottom:1px solid var(--border);}
+  .schema-name{font-family:var(--ff-mono);font-size:13px;font-weight:700;color:var(--navy);}
+  .schema-note{font-size:11px;color:var(--ink3);}
+  .schema-body{padding:0;}
+  .col-row{display:grid;grid-template-columns:30px 200px 140px 1fr;gap:8px;padding:7px 16px;
+    border-bottom:1px solid var(--surface3);align-items:baseline;font-size:12px;}
+  .col-row:last-child{border-bottom:none;}
+  .col-pk{font-family:var(--ff-mono);font-size:9px;font-weight:700;color:var(--gold);}
+  .col-fk{font-family:var(--ff-mono);font-size:9px;font-weight:700;color:var(--blue);}
+  .col-name{font-family:var(--ff-mono);color:var(--ink);}
+  .col-type{font-family:var(--ff-mono);color:var(--blue);font-size:11px;}
+  .col-note{color:var(--ink3);font-size:11px;}
+
+  /* ── API SPEC ── */
+  .api-card{border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;margin-bottom:10px;}
+  .api-head{padding:10px 16px;display:flex;align-items:center;gap:10px;background:var(--surface2);
+    border-bottom:1px solid var(--border);}
+  .method{font-family:var(--ff-mono);font-size:10px;font-weight:700;padding:3px 8px;border-radius:3px;}
+  .m-get{background:#dcfce7;color:#166534;}
+  .m-post{background:#dbeafe;color:#1e3a8a;}
+  .m-put{background:#fef3c7;color:#78350f;}
+  .m-del{background:#fee2e2;color:#7f1d1d;}
+  .api-path{font-family:var(--ff-mono);font-size:12px;color:var(--ink);}
+  .api-desc{font-size:12px;color:var(--ink3);margin-left:auto;}
+  .api-body{padding:12px 16px;font-size:12px;color:var(--ink2);}
+
+  /* ── INTEGRITY SCORE ── */
+  .integrity-outer{border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;margin:16px 0;}
+  .integrity-head{background:var(--navy);color:#fff;padding:16px 20px;
+    display:flex;justify-content:space-between;align-items:center;}
+  .integrity-score{font-family:var(--ff-head);font-size:42px;font-style:italic;font-weight:700;}
+  .i-factor{padding:12px 20px;border-bottom:1px solid var(--surface3);}
+  .i-factor:last-child{border-bottom:none;}
+  .if-top{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px;}
+  .if-label{font-size:12px;font-weight:600;color:var(--ink);}
+  .if-val{font-family:var(--ff-head);font-size:18px;font-style:italic;font-weight:700;}
+  .if-bar{height:6px;border-radius:3px;background:var(--surface3);overflow:hidden;margin-bottom:4px;}
+  .if-fill{height:100%;border-radius:3px;}
+  .if-note{font-size:11px;color:var(--ink3);}
+
+  /* ── UI SCREENS ── */
+  .ui-mockup{border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;
+    box-shadow:var(--shadow);margin:16px 0;}
+  .ui-chrome{background:var(--surface3);padding:10px 14px;display:flex;align-items:center;gap:8px;}
+  .ui-dot{width:10px;height:10px;border-radius:50%;}
+  .ui-url{flex:1;background:#fff;border-radius:4px;padding:3px 10px;
+    font-family:var(--ff-mono);font-size:10px;color:var(--ink3);border:1px solid var(--border);}
+  .ui-body{background:#fff;padding:24px;}
+
+  /* ── STACK TABLE ── */
+  .stack-group{border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;margin-bottom:12px;}
+  .sg-head{background:var(--surface2);padding:10px 16px;border-bottom:1px solid var(--border);
+    font-family:var(--ff-mono);font-size:10px;font-weight:700;text-transform:uppercase;
+    letter-spacing:.1em;color:var(--ink3);}
+  .si{display:flex;justify-content:space-between;align-items:flex-start;padding:9px 16px;
+    border-bottom:1px solid var(--surface3);gap:12px;}
+  .si:last-child{border-bottom:none;}
+  .si-name{font-weight:600;font-size:13px;color:var(--ink);min-width:180px;}
+  .si-why{font-size:12px;color:var(--ink3);flex:1;line-height:1.5;}
+  .si-badges{display:flex;gap:4px;flex-wrap:wrap;min-width:80px;justify-content:flex-end;}
+
+  /* ── BLOOM ── */
+  .bloom-grid{display:grid;grid-template-columns:repeat(6,1fr);gap:8px;margin:16px 0;}
+  .bloom-card{border-radius:8px;padding:14px;text-align:center;}
+  .bloom-level{font-family:var(--ff-mono);font-size:9px;font-weight:700;letter-spacing:.1em;
+    text-transform:uppercase;margin-bottom:4px;}
+  .bloom-name{font-size:13px;font-weight:700;color:var(--ink);margin-bottom:8px;}
+  .bloom-template{font-size:11px;color:var(--ink3);line-height:1.5;}
+  .bl1{background:#fef2f2;}.bl1 .bloom-level{color:#dc2626;}
+  .bl2{background:#fff7ed;}.bl2 .bloom-level{color:#ea580c;}
+  .bl3{background:#fefce8;}.bl3 .bloom-level{color:#ca8a04;}
+  .bl4{background:#f0fdf4;}.bl4 .bloom-level{color:#16a34a;}
+  .bl5{background:#eff6ff;}.bl5 .bloom-level{color:#2563eb;}
+  .bl6{background:#f5f3ff;}.bl6 .bloom-level{color:#7c3aed;}
+
+  /* ── OSM TIER ── */
+  .tier-card{border-radius:var(--radius);padding:16px;border:1px solid;}
+  .tier-badge{font-family:var(--ff-mono);font-size:10px;font-weight:700;letter-spacing:.08em;
+    text-transform:uppercase;margin-bottom:6px;}
+  .tier-1{background:var(--green-bg);border-color:var(--green-mid);}
+  .tier-1 .tier-badge{color:var(--green);}
+  .tier-2{background:var(--amber-bg);border-color:var(--amber-mid);}
+  .tier-2 .tier-badge{color:var(--amber);}
+  .tier-3{background:var(--red-bg);border-color:var(--red-mid);}
+  .tier-3 .tier-badge{color:var(--red);}
+  .tier-cond{font-size:12px;font-weight:600;color:var(--ink);margin-bottom:8px;}
+  .tier-detail{font-size:12px;color:var(--ink2);line-height:1.55;}
+
+  /* ── RISK TABLE ── */
+  .risk-row{display:grid;grid-template-columns:200px 70px 70px 1fr;gap:10px;padding:9px 14px;
+    border-bottom:1px solid var(--surface3);align-items:start;font-size:12.5px;}
+  .risk-head{background:var(--navy);color:#fff;border-radius:var(--radius) var(--radius) 0 0;
+    padding:10px 14px;display:grid;grid-template-columns:200px 70px 70px 1fr;gap:10px;
+    font-family:var(--ff-mono);font-size:10px;letter-spacing:.07em;text-transform:uppercase;}
+
+  /* ── CHECKLIST ── */
+  .check-item{display:flex;gap:10px;padding:7px 0;border-bottom:1px solid var(--surface3);font-size:12.5px;}
+  .check-item:last-child{border-bottom:none;}
+  .ci-box{width:18px;height:18px;border-radius:4px;background:var(--green-bg);border:1px solid var(--green-mid);
+    display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:1px;
+    font-size:10px;color:var(--green);}
+
+  /* ── PERSONA CARDS ── */
+  .persona{border-radius:var(--radius);border:1px solid var(--border);overflow:hidden;background:#fff;}
+  .persona-head{padding:16px;display:flex;align-items:center;gap:12px;}
+  .persona-avatar{width:48px;height:48px;border-radius:50%;display:flex;align-items:center;
+    justify-content:center;font-size:22px;flex-shrink:0;}
+  .persona-name{font-weight:700;font-size:14px;color:var(--ink);}
+  .persona-role{font-size:11px;color:var(--ink3);font-family:var(--ff-mono);}
+  .persona-body{padding:0 16px 16px;}
+  .persona-row{font-size:12px;color:var(--ink2);padding:4px 0;display:flex;gap:8px;}
+  .persona-key{font-weight:600;min-width:90px;color:var(--ink3);}
+
+  /* ── COMMIT TRACK ── */
+  .commit-track{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin:16px 0;}
+  .commit-day{border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;}
+  .cd-head{padding:10px 12px;color:#fff;}
+  .cd-num{font-family:var(--ff-mono);font-size:9px;font-weight:700;letter-spacing:.1em;
+    text-transform:uppercase;opacity:.7;margin-bottom:2px;}
+  .cd-title{font-size:12px;font-weight:700;}
+  .cd-body{padding:8px 12px;}
+  .cd-commit{font-family:var(--ff-mono);font-size:10px;color:var(--ink2);padding:3px 0;
+    border-bottom:1px dashed var(--surface3);}
+  .cd-commit:last-child{border-bottom:none;}
+
+  /* ── DESIGN TOKENS ── */
+  .color-swatch{display:flex;flex-direction:column;align-items:center;gap:6px;}
+  .cs-box{width:60px;height:60px;border-radius:8px;border:1px solid rgba(0,0,0,.1);}
+  .cs-name{font-family:var(--ff-mono);font-size:9px;color:var(--ink3);text-align:center;}
+  .cs-hex{font-family:var(--ff-mono);font-size:8px;color:var(--ink4);text-align:center;}
+
+  /* ── COMPONENT SPEC ── */
+  .comp-spec{border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;margin-bottom:12px;}
+  .comp-head{background:var(--surface2);padding:10px 16px;border-bottom:1px solid var(--border);
+    font-weight:700;font-size:13px;color:var(--ink);}
+  .comp-body{padding:14px 16px;font-size:12px;color:var(--ink2);line-height:1.6;}
+
+  /* ── UTILS ── */
+  .mono{font-family:var(--ff-mono);font-size:12px;}
+  .tag{font-family:var(--ff-mono);font-size:10px;padding:2px 7px;border-radius:3px;
+    background:var(--surface3);color:var(--ink2);}
+  code{font-family:var(--ff-mono);font-size:12px;background:var(--surface3);padding:1px 5px;border-radius:3px;}
+  .two-col{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
+  .three-col{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;}
+  .divider{border:none;border-top:2px solid var(--border);margin:40px 0;}
+  .pill{display:inline-flex;align-items:center;gap:5px;padding:4px 12px;border-radius:20px;
+    font-family:var(--ff-mono);font-size:11px;}
+  .highlight-box{background:linear-gradient(135deg,var(--navy) 0%,var(--navy3) 100%);
+    border-radius:var(--radius);padding:20px 24px;color:#fff;margin:16px 0;}
+  .hb-title{font-family:var(--ff-head);font-size:16px;font-style:italic;margin-bottom:8px;color:#a78bfa;}
+  .hb-body{font-size:13px;color:rgba(255,255,255,.75);line-height:1.6;}
+  .page-num{font-family:var(--ff-mono);font-size:10px;color:var(--ink4);text-align:right;
+    padding:8px 0;border-top:1px solid var(--border);margin-top:40px;}
+</style>
+</head>
+<body>
+
+<!-- ═══════════════════════════════════════ COVER PAGE ═══════════════════════════════════════ -->
+<div class="cover">
+  <div class="cover-inner">
+    <div class="cover-eyebrow">Far Away 2026 · India's Biggest International Hackathon</div>
+    <div class="cover-logo">Exam<span>Guard</span> AI</div>
+    <div style="font-family:var(--ff-mono);font-size:12px;letter-spacing:.2em;color:rgba(255,255,255,.4);margin-bottom:8px;">VERSION 6.0 · COMPLETE MASTER DOCUMENTATION</div>
+    <div class="cover-sub">Intelligent Exam Platform · Examinations + Agentic & Autonomous Systems</div>
+    <div class="cover-tags">
+      <span class="ctag ctag-p">PRD · Product Requirements</span>
+      <span class="ctag ctag-g">FRD · Functional Requirements</span>
+      <span class="ctag ctag-b">TRD · Technical Requirements</span>
+      <span class="ctag ctag-r">System Stack & Architecture</span>
+      <span class="ctag ctag-p">App & Data Flow</span>
+      <span class="ctag ctag-g">Strategic Plan</span>
+      <span class="ctag ctag-b">Implementation Roadmap</span>
+      <span class="ctag ctag-r">UI/UX Design System</span>
+    </div>
+    <div class="cover-meta">
+      <div class="cm-item"><div class="cm-label">Document Version</div><div class="cm-val">v6.0 Final</div></div>
+      <div class="cm-item"><div class="cm-label">Hackathon Theme</div><div class="cm-val">Examinations + Agentic AI</div></div>
+      <div class="cm-item"><div class="cm-label">AI Agents</div><div class="cm-val">10 Agents</div></div>
+      <div class="cm-item"><div class="cm-label">Status</div><div class="cm-val">Production Ready</div></div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════ NAV ═══════════════════════════════════════ -->
+<nav class="toc-nav no-print">
+  <a href="#exec">Executive Summary</a>
+  <a href="#prd">PRD</a>
+  <a href="#frd">FRD</a>
+  <a href="#trd">TRD</a>
+  <a href="#stack">System Stack</a>
+  <a href="#flow">App Flow</a>
+  <a href="#agents">AI Agents</a>
+  <a href="#db">Database</a>
+  <a href="#api">API Spec</a>
+  <a href="#integrity">Integrity Engine</a>
+  <a href="#strategy">Strategy</a>
+  <a href="#impl">Implementation</a>
+  <a href="#uiux">UI/UX Design</a>
+  <a href="#github">GitHub Checklist</a>
+</nav>
+
+<!-- ═══════════════════════════════════════ MAIN CONTAINER ═══════════════════════════════════════ -->
+<div class="container">
+
+<!-- ─────────────────────────── 0. EXECUTIVE SUMMARY ─────────────────────────── -->
+<div id="exec" class="section">
+  <div class="doc-divider">
+    <div class="doc-divider-inner">
+      <div class="doc-code">§ 0 · Executive Summary</div>
+      <div class="doc-title">ExamGuard AI — Project Overview</div>
+      <div class="doc-desc">A comprehensive overview of the product vision, problem statement, solution, and high-level metrics for ExamGuard AI v6.</div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="sec-label">Problem Statement</div>
+    <div class="sec-title">Three critical failures in India's exam ecosystem</div>
+    <div class="card-grid g3">
+      <div class="card" style="border-top:3px solid var(--red);">
+        <div class="card-title">⏱ 8-Hour Paper Creation</div>
+        <div class="card-sub">Teachers spend 6–10 hours manually typing and formatting exam papers, searching question banks, and ensuring curriculum alignment. No intelligent automation exists for Indian schools.</div>
+      </div>
+      <div class="card" style="border-top:3px solid var(--amber);">
+        <div class="card-title">🤖 AI Cheating Is Invisible</div>
+        <div class="card-sub">Students can submit GPT-generated answers with zero detection. Existing proctoring tools check only behavioral signals — they cannot detect AI-written text at all. FPR of legacy tools exceeds 30%.</div>
+      </div>
+      <div class="card" style="border-top:3px solid var(--purple);">
+        <div class="card-title">💸 Proctorio Costs Are Prohibitive</div>
+        <div class="card-sub">Enterprise proctoring solutions like Proctorio cost ₹2,000–5,000 per student per exam. For India's 90 million exam-takers, this is economically out of reach for 95% of institutions.</div>
+      </div>
+    </div>
+
+    <div class="sec-label" style="margin-top:32px;">Solution</div>
+    <div class="sec-title">ExamGuard AI — One platform. Three superpowers.</div>
+    <div class="highlight-box">
+      <div class="hb-title">What ExamGuard AI Does</div>
+      <div class="hb-body">
+        <strong style="color:#a78bfa;">1. Automated Paper Generation</strong> — Teachers upload their own textbook PDFs. A 10-agent LangGraph pipeline ingests, chunks, embeds, and generates a fully customized exam paper with configurable sections, question types, marks per question, Bloom's taxonomy levels, and chapter weightage — all from the teacher's actual material, not generic question banks.<br><br>
+        <strong style="color:#6ee7b7;">2. Multi-Signal AI Cheat Detection</strong> — A 5-factor integrity scoring engine combining behavioral proctoring (gaze, tab, audio), perplexity/burstiness scoring for AI-written text, stylometric baseline comparison, answer quality evaluation, and time anomaly detection. 91% TPR, 8% FPR, validated on N=60 dataset.<br><br>
+        <strong style="color:#93c5fd;">3. Fair & Transparent Review Flow</strong> — Flagged students see an anonymized integrity summary and have a 24-hour appeal window. Teachers receive both sides and make the final decision. Grade appeals are tracked and auditable. Built on DPDP-compliant consent architecture.
+      </div>
+    </div>
+
+    <div class="card-grid g4" style="margin-top:20px;">
+      <div class="metric-card">
+        <div class="metric-label">AI Agents</div>
+        <div class="metric-val">10</div>
+        <div class="metric-sub">LangGraph StateGraph</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label">Detection TPR</div>
+        <div class="metric-val">91%</div>
+        <div class="metric-sub">N=60 calibration dataset</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label">False Positive Rate</div>
+        <div class="metric-val">8%</div>
+        <div class="metric-sub">Below 10% target</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label">Paper Gen Speed</div>
+        <div class="metric-val">&lt;90s</div>
+        <div class="metric-sub">80-question paper</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ─────────────────────────── 1. PRD ─────────────────────────── -->
+<div id="prd" class="section page-break">
+  <div class="doc-divider">
+    <div class="doc-divider-inner">
+      <div class="doc-code">§ 1 · Product Requirements Document (PRD)</div>
+      <div class="doc-title">Product Vision, Goals & Requirements</div>
+      <div class="doc-desc">Defines what we are building, who it is for, and the measurable success criteria. This is the source of truth for product scope and prioritization.</div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="sec-label">Product Vision</div>
+    <div class="sec-title">Mission & Strategic Goals</div>
+
+    <div class="callout cl-navy">
+      <div class="ct">Product Vision Statement</div>
+      <div class="cb">To become the default intelligent examination infrastructure for India's educational institutions — making AI-powered, fair, and affordable exam creation and proctoring accessible to every school and college, from Delhi's elite universities to rural Gujarat's government schools.</div>
+    </div>
+
+    <div class="two-col" style="margin-top:20px;">
+      <div>
+        <h3>Strategic Goals (Round 1 · Hackathon)</h3>
+        <table class="doc-table">
+          <thead><tr><th>Goal</th><th>Metric</th><th>Target</th></tr></thead>
+          <tbody>
+            <tr><td>Demonstrate 10-agent pipeline</td><td>Agents firing visibly in LangGraph Studio</td><td>All 10 agents shown in demo</td></tr>
+            <tr><td>Paper Config Engine</td><td>80-question NCERT paper generated</td><td>&lt;90 seconds</td></tr>
+            <tr><td>AI Cheat Detection</td><td>TPR on calibration dataset</td><td>≥90%</td></tr>
+            <tr><td>False Positive Rate</td><td>Clean answers incorrectly flagged</td><td>≤10%</td></tr>
+            <tr><td>Live demo reliability</td><td>seed_demo.py completes without error</td><td>5-min run, 100% success</td></tr>
+            <tr><td>GitHub quality</td><td>Daily commits, CI green, docs complete</td><td>40+ commits over 10 days</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div>
+        <h3>Strategic Goals (Round 2 · Delhi)</h3>
+        <table class="doc-table">
+          <thead><tr><th>Goal</th><th>Metric</th><th>Target</th></tr></thead>
+          <tbody>
+            <tr><td>Hardware proctoring</td><td>Raspberry Pi 4 + KiCad PCB</td><td>Working prototype</td></tr>
+            <tr><td>Multi-language support</td><td>Hindi, Gujarati, Tamil paper gen</td><td>IndicBERT integration</td></tr>
+            <tr><td>LMS integration</td><td>Moodle + Google Classroom LTI 1.3</td><td>OAuth SSO working</td></tr>
+            <tr><td>Adaptive difficulty</td><td>Post-exam analytics → next paper config</td><td>End-to-end loop</td></tr>
+            <tr><td>Concurrent sessions</td><td>Simultaneous exams</td><td>100+ students</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="sec-label" style="margin-top:32px;">User Personas</div>
+    <div class="sec-title">Three primary users</div>
+
+    <div class="card-grid g3">
+      <div class="persona">
+        <div class="persona-head">
+          <div class="persona-avatar" style="background:#edf2fc;">📚</div>
+          <div><div class="persona-name">Priya Sharma</div><div class="persona-role">TEACHER / EXAMINER</div></div>
+        </div>
+        <div class="persona-body">
+          <div class="persona-row"><div class="persona-key">Institution:</div>Government Higher Secondary School, Ahmedabad</div>
+          <div class="persona-row"><div class="persona-key">Tech Level:</div>Moderate (uses WhatsApp, basic spreadsheets)</div>
+          <div class="persona-row"><div class="persona-key">Pain Point:</div>Spends entire Sunday creating Physics paper from NCERT</div>
+          <div class="persona-row"><div class="persona-key">Goal:</div>Generate a syllabus-aligned, marks-balanced paper in minutes</div>
+          <div class="persona-row"><div class="persona-key">Fear:</div>Students cheating during online exams she cannot monitor</div>
+        </div>
+      </div>
+      <div class="persona">
+        <div class="persona-head">
+          <div class="persona-avatar" style="background:#f5f3ff;">🎓</div>
+          <div><div class="persona-name">Arjun Mehta</div><div class="persona-role">STUDENT / EXAMINEE</div></div>
+        </div>
+        <div class="persona-body">
+          <div class="persona-row"><div class="persona-key">Institution:</div>Class 12, Gujarat Board student</div>
+          <div class="persona-row"><div class="persona-key">Tech Level:</div>High (smartphone native, aware of ChatGPT)</div>
+          <div class="persona-row"><div class="persona-key">Pain Point:</div>Nervous about unfair detection flagging him incorrectly</div>
+          <div class="persona-row"><div class="persona-key">Goal:</div>Take a fair exam, know exactly what is monitored upfront</div>
+          <div class="persona-row"><div class="persona-key">Fear:</div>Being accused of cheating for writing well without prior history</div>
+        </div>
+      </div>
+      <div class="persona">
+        <div class="persona-head">
+          <div class="persona-avatar" style="background:#ecf7f2;">🏛️</div>
+          <div><div class="persona-name">Dr. Ramesh Iyer</div><div class="persona-role">INSTITUTION ADMIN</div></div>
+        </div>
+        <div class="persona-body">
+          <div class="persona-row"><div class="persona-key">Institution:</div>Principal, Private College, Mumbai</div>
+          <div class="persona-row"><div class="persona-key">Tech Level:</div>Low-moderate (relies on IT department)</div>
+          <div class="persona-row"><div class="persona-key">Pain Point:</div>Cannot afford Proctorio; students complain about Zoom invigilators</div>
+          <div class="persona-row"><div class="persona-key">Goal:</div>Deploy affordable proctoring that faculty can use without training</div>
+          <div class="persona-row"><div class="persona-key">Fear:</div>Legal liability if system incorrectly flags students en masse</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="sec-label" style="margin-top:32px;">Feature Requirements (MoSCoW)</div>
+    <div class="sec-title">All product requirements prioritized by MoSCoW method</div>
+
+    <div class="req-head"><span>Req ID</span><span>Priority</span><span>Requirement</span><span>Status</span></div>
+    <div style="border:1px solid var(--border);border-radius:0 0 var(--radius) var(--radius);overflow:hidden;">
+      <!-- Must Have -->
+      <div style="background:var(--amber-bg);padding:6px 14px;font-family:var(--ff-mono);font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--amber);border-bottom:1px solid var(--border);">MUST HAVE</div>
+      <div class="req-row"><div class="req-id">PRD-001</div><div><span class="badge b-must">Must</span></div><div class="req-desc"><strong>PDF/DOCX Material Upload</strong> — Teachers must be able to upload course material in PDF or DOCX format. System must extract text, run OCR on scanned PDFs, detect chapter boundaries, and embed into vector store within 60 seconds for a 50-page document.</div><div><span class="badge b-done">✓ Done</span></div></div>
+      <div class="req-row"><div class="req-id">PRD-002</div><div><span class="badge b-must">Must</span></div><div class="req-desc"><strong>Paper Configuration Engine</strong> — Teachers must be able to configure sections with: question type (MCQ, Fill-in-blank, True/False, Short Answer, Long Answer, Essay), question count, marks per question, Bloom's taxonomy level (1–6), and chapter weightage (proportional or custom %). Total marks must be validated before paper generation.</div><div><span class="badge b-done">✓ Done</span></div></div>
+      <div class="req-row"><div class="req-id">PRD-003</div><div><span class="badge b-must">Must</span></div><div class="req-desc"><strong>AI Question Generation (RAG)</strong> — Questions must be generated from the teacher's uploaded material using retrieval-augmented generation. Each question must be traceable to a specific chunk and page of the source document. Bloom's taxonomy level must change the actual generation prompt, not just be a label.</div><div><span class="badge b-done">✓ Done</span></div></div>
+      <div class="req-row"><div class="req-id">PRD-004</div><div><span class="badge b-must">Must</span></div><div class="req-desc"><strong>Student Consent Screen</strong> — Before every exam, students must see an explicit consent screen listing exactly what is monitored: (1) webcam for gaze tracking, (2) microphone for audio level only, (3) answer text for AI writing detection, (4) tab-switch events. Student must actively confirm. No monitoring begins before confirmation.</div><div><span class="badge b-done">✓ Done</span></div></div>
+      <div class="req-row"><div class="req-id">PRD-005</div><div><span class="badge b-must">Must</span></div><div class="req-desc"><strong>Blink Liveness Challenge</strong> — After consent, student must complete a blink-twice liveness check (EAR &lt; 0.25 for 2 consecutive frames). Both blinks must occur within 8 seconds or session is blocked. Anti-photo-spoof mechanism that requires a live human face.</div><div><span class="badge b-done">✓ Done</span></div></div>
+      <div class="req-row"><div class="req-id">PRD-006</div><div><span class="badge b-must">Must</span></div><div class="req-desc"><strong>5-Factor Integrity Scoring</strong> — System must compute a 0–100 integrity score per student per exam using: behavioral (30%), AI-perplexity (15%), stylometric (25%), answer quality (25%), time anomaly (5%). Score must include a 95% confidence interval. Thresholds: WATCH ≥80, WARN 60–79, FLAGGED &lt;60.</div><div><span class="badge b-done">✓ Done</span></div></div>
+      <div class="req-row"><div class="req-id">PRD-007</div><div><span class="badge b-must">Must</span></div><div class="req-desc"><strong>3-Tier Stylometric Baseline</strong> — System must handle new students gracefully. Tier 1 (3+ prior exams): full stylometric detection at 25% weight. Tier 2 (1–2 prior exams): downweighted to 10%, wider CI ±15. Tier 3 (first exam): stylometric disabled, score recalculated as 4-factor. Teacher must see which tier applies on every report.</div><div><span class="badge b-done">✓ Done</span></div></div>
+      <div class="req-row"><div class="req-id">PRD-008</div><div><span class="badge b-must">Must</span></div><div class="req-desc"><strong>Grade Appeal Flow</strong> — Flagged students must receive an anonymized integrity summary and a 24-hour appeal window to submit a written response. Teachers must see both the integrity report and the student response side-by-side. Teacher decision (confirm/clear) must release the grade. All actions must be logged with timestamps.</div><div><span class="badge b-done">✓ Done</span></div></div>
+      <div class="req-row"><div class="req-id">PRD-009</div><div><span class="badge b-must">Must</span></div><div class="req-desc"><strong>LLM Routing & Fallback</strong> — Every LLM task must have a documented preferred model, fallback model, and degraded mode. Gemini 1.5 Flash (cloud) → Ollama mistral:7b (local) → cached/template fallback. Biometric tasks (gaze, EAR) must always stay local — never routed to cloud API.</div><div><span class="badge b-done">✓ Done</span></div></div>
+      <div class="req-row"><div class="req-id">PRD-010</div><div><span class="badge b-must">Must</span></div><div class="req-desc"><strong>PDF Integrity Report Generation</strong> — After each exam, system must generate a downloadable PDF integrity report per student including: 5-factor score breakdown with confidence interval, event timeline, baseline tier, per-question analysis with source citations, and (if flagged) plain-language flag explanation for student version.</div><div><span class="badge b-done">✓ Done</span></div></div>
+      <!-- Should Have -->
+      <div style="background:var(--blue-bg);padding:6px 14px;font-family:var(--ff-mono);font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--blue);border-bottom:1px solid var(--border);border-top:1px solid var(--border);">SHOULD HAVE</div>
+      <div class="req-row"><div class="req-id">PRD-011</div><div><span class="badge b-should">Should</span></div><div class="req-desc"><strong>Offline Resilience</strong> — Student exam answers must be auto-saved to localStorage every 30 seconds. On reconnect, system must diff local vs server state and resync. Disconnection &gt;5 minutes pauses session and notifies teacher (not auto-terminates) — grace period for Indian network conditions.</div><div><span class="badge b-done">✓ Done</span></div></div>
+      <div class="req-row"><div class="req-id">PRD-012</div><div><span class="badge b-should">Should</span></div><div class="req-desc"><strong>Paper Preview Before Activation</strong> — Teachers must see one sample question per section before activating an exam. System must show marks distribution, chapter coverage heatmap, and question type breakdown. Teacher must explicitly approve before exam goes live.</div><div><span class="badge b-done">✓ Done</span></div></div>
+      <div class="req-row"><div class="req-id">PRD-013</div><div><span class="badge b-should">Should</span></div><div class="req-desc"><strong>Logprobs Entropy Fallback</strong> — If Ollama logprobs API returns null (model-dependent), system must fall back to sliding-window Shannon entropy estimation on the answer text. Must never silently return perplexity = 0. Must log fallback state and show warning in report.</div><div><span class="badge b-done">✓ Done</span></div></div>
+      <div class="req-row"><div class="req-id">PRD-014</div><div><span class="badge b-should">Should</span></div><div class="req-desc"><strong>Teacher Live Dashboard</strong> — During an active exam, teacher must see real-time student tiles showing: integrity score (color-coded), current question number, time elapsed, and any active alerts. Score updates must appear within 3 seconds of a student submission.</div><div><span class="badge b-done">✓ Done</span></div></div>
+      <!-- Could Have -->
+      <div style="background:var(--green-bg);padding:6px 14px;font-family:var(--ff-mono);font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--green);border-bottom:1px solid var(--border);border-top:1px solid var(--border);">COULD HAVE (Round 2 / Post-Hackathon)</div>
+      <div class="req-row"><div class="req-id">PRD-015</div><div><span class="badge b-could">Could</span></div><div class="req-desc"><strong>Raspberry Pi Hardware Proctor</strong> — Pi 4 + camera module running Ollama quantized Llama 3.2 1B. Dedicated per-seat proctor device with KiCad PCB design. No dependency on student's webcam. Eligible for FAR AWAY hardware prize.</div><div><span class="badge b-todo">Round 2</span></div></div>
+      <div class="req-row"><div class="req-id">PRD-016</div><div><span class="badge b-could">Could</span></div><div class="req-desc"><strong>Multi-Language Support</strong> — IndicBERT or multilingual-e5 for embeddings. Questions generated in Hindi, Gujarati, Tamil for regional-medium schools. Massive underserved market segment that Proctorio ignores entirely.</div><div><span class="badge b-todo">Round 2</span></div></div>
+      <div class="req-row"><div class="req-id">PRD-017</div><div><span class="badge b-could">Could</span></div><div class="req-desc"><strong>LMS Integration (Moodle, Google Classroom, LTI 1.3)</strong> — ExamGuard becomes a proctoring and paper-config add-on layer. Teachers stay in their existing LMS. Single SSO via institutional identity provider.</div><div><span class="badge b-todo">Round 2</span></div></div>
+      <div class="req-row"><div class="req-id">PRD-018</div><div><span class="badge b-could">Could</span></div><div class="req-desc"><strong>Adaptive Paper Difficulty</strong> — After each exam, analyze class performance per chapter and section type. Suggest adjusted difficulty distribution for next paper. "Section D average was 92% — increase to Hard next time." Closes the pedagogical feedback loop.</div><div><span class="badge b-todo">Round 2</span></div></div>
+    </div>
+  </div>
+</div>
+
+<!-- ─────────────────────────── 2. FRD ─────────────────────────── -->
+<div id="frd" class="section page-break">
+  <div class="doc-divider">
+    <div class="doc-divider-inner">
+      <div class="doc-code">§ 2 · Functional Requirements Document (FRD)</div>
+      <div class="doc-title">System Functions, Modules & Business Logic</div>
+      <div class="doc-desc">Detailed functional specification of every system module, input/output behavior, validation rules, and business logic. This document drives development implementation.</div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="sec-label">Module 1 · Authentication & Authorization</div>
+    <h3>FR-AUTH: Authentication System</h3>
+    <table class="doc-table">
+      <thead><tr><th>Function</th><th>Input</th><th>Processing</th><th>Output</th><th>Error Handling</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Sign Up (Teacher)</strong></td><td>email, password, institution_name, role='teacher'</td><td>Supabase Auth create user; insert into users table; assign teacher role via RLS</td><td>JWT token, user record</td><td>Email already in use → 409 conflict</td></tr>
+        <tr><td><strong>Sign Up (Student)</strong></td><td>name, join_code</td><td>Validate join_code exists and exam is active; create or link student record</td><td>Anonymous session token</td><td>Invalid join code → 404; Exam full → 403</td></tr>
+        <tr><td><strong>Login</strong></td><td>email, password</td><td>Supabase Auth signIn; validate role; return JWT</td><td>JWT + role + user_id</td><td>Wrong credentials → 401; Account locked → 403</td></tr>
+        <tr><td><strong>RLS Policy</strong></td><td>Any DB query</td><td>Row-Level Security: teacher sees only their exams; student sees only their session</td><td>Filtered results</td><td>Policy violation → 403 Forbidden</td></tr>
+      </tbody>
+    </table>
+
+    <div class="sec-label" style="margin-top:28px;">Module 2 · Material Ingestion (RAG Pipeline)</div>
+    <h3>FR-MAT: Material Upload & Embedding</h3>
+    <div class="flow-steps">
+      <div class="flow-step">
+        <div class="fs-num"><div class="fs-circle c1">1</div></div>
+        <div class="fs-body">
+          <div class="fs-title">File Upload & Validation</div>
+          <div class="fs-desc">Accepts PDF, DOCX, TXT. Max size: 50MB. Validates MIME type and file header. Extracts text via PyMuPDF for text-based PDFs. Detects if PDF is scanned (text layer &lt;50 chars/page) and routes to OCR path.</div>
+        </div>
+      </div>
+      <div class="flow-step">
+        <div class="fs-num"><div class="fs-circle c2">2</div></div>
+        <div class="fs-body">
+          <div class="fs-title">OCR Processing (Scanned PDFs)</div>
+          <div class="fs-desc">pytesseract (local, primary) or Google Vision API (if GOOGLE_API key set, fallback). If both fail, teacher is prompted to paste text manually. OCR output undergoes post-processing to remove artifact characters. Processing time displayed to teacher in real-time.</div>
+        </div>
+      </div>
+      <div class="flow-step">
+        <div class="fs-num"><div class="fs-circle c3">3</div></div>
+        <div class="fs-body">
+          <div class="fs-title">Chapter Detection & Chunking</div>
+          <div class="fs-desc">Regex + heuristic heading detector identifies chapter boundaries. Text chunked at 512 tokens with 64-token overlap. Each chunk tagged with: chapter_id, page_start, page_end, chunk_index. Teacher sees chunk count and chapter map preview before confirming.</div>
+        </div>
+      </div>
+      <div class="flow-step">
+        <div class="fs-num"><div class="fs-circle c4">4</div></div>
+        <div class="fs-body">
+          <div class="fs-title">Embedding & Vector Storage</div>
+          <div class="fs-desc">sentence-transformers (all-MiniLM-L6-v2) generates 384-dim embeddings locally. Stored in Supabase pgvector extension. Similarity search uses cosine distance (ivfflat index). Embedding time: ~2s per page on CPU. Full 50-page NCERT chapter: &lt;90 seconds total pipeline.</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="sec-label" style="margin-top:28px;">Module 3 · Paper Configuration Engine</div>
+    <h3>FR-PCE: Paper Configuration Rules & Validation</h3>
+    <table class="doc-table">
+      <thead><tr><th>Rule</th><th>Logic</th><th>Error</th></tr></thead>
+      <tbody>
+        <tr><td>Marks Budget Guard</td><td>Σ(count × marks_each) for all sections must equal total_marks declared by teacher</td><td>"Marks budget mismatch: configured 82 marks vs declared 80. Adjust a section."</td></tr>
+        <tr><td>Question Type Validation</td><td>Allowed types: mcq, fill_blank, true_false, short_answer, long_answer, essay</td><td>"Unknown question type 'case_study'. Use supported types."</td></tr>
+        <tr><td>Chapter Weight Validation</td><td>Chapter weights per section must sum to 100% if custom mode is selected</td><td>"Chapter weights for Section D sum to 90%. Remaining 10% must be assigned."</td></tr>
+        <tr><td>Bloom Level Validation</td><td>Valid values: remember, understand, apply, analyse, evaluate, create</td><td>"Invalid Bloom level 'recall'. Use 'remember'."</td></tr>
+        <tr><td>Diversity Guarantee</td><td>max_shared_questions: 2 — no more than 2 identical questions across different student papers</td><td>System retries generation with different chunk context if duplicate detected</td></tr>
+        <tr><td>Negative Marking</td><td>Optional field. If set: negative_marks_per_wrong FLOAT. Applied only to MCQ and True/False sections.</td><td>"Negative marking defined but no MCQ/T-F sections exist. Ignored."</td></tr>
+      </tbody>
+    </table>
+
+    <div class="sec-label" style="margin-top:28px;">Module 4 · Proctoring System</div>
+    <h3>FR-PROC: Real-time Behavioral Monitoring</h3>
+    <div class="card-grid g3">
+      <div class="card" style="border-top:3px solid var(--red);">
+        <div class="card-title">Signal 1 · Gaze Tracking</div>
+        <div class="card-sub"><strong>Tool:</strong> MediaPipe FaceMesh (WASM, runs in browser)<br><strong>Metric:</strong> Eye Aspect Ratio (EAR) for blink + gaze vector for off-screen look<br><strong>Threshold:</strong> Gaze away &gt;4 consecutive seconds = 1 gaze event<br><strong>Escalation:</strong> 3+ gaze events in exam → behavioral score drops 15pts per event</div>
+      </div>
+      <div class="card" style="border-top:3px solid var(--amber);">
+        <div class="card-title">Signal 2 · Tab Switch Detection</div>
+        <div class="card-sub"><strong>Tool:</strong> document.visibilityState + focus/blur events (browser JS)<br><strong>Metric:</strong> Count of tab-away events, duration per absence<br><strong>Threshold:</strong> Any tab switch = 1 event. &gt;3 events → WARN trigger<br><strong>Note:</strong> Students informed of this in consent screen. No silent detection.</div>
+      </div>
+      <div class="card" style="border-top:3px solid var(--blue);">
+        <div class="card-title">Signal 3 · Audio Level</div>
+        <div class="card-sub"><strong>Tool:</strong> Web Audio API (browser, microphone access)<br><strong>Metric:</strong> RMS amplitude level; whisper spikes above threshold<br><strong>Threshold:</strong> Audio level &gt;0.45 RMS for &gt;2 seconds = 1 audio spike<br><strong>Privacy:</strong> Audio NOT recorded. Level only. Processed locally in browser.</div>
+      </div>
+    </div>
+    <div class="callout cl-green" style="margin-top:12px;">
+      <div class="ct">Privacy Architecture — All biometric processing is local-only</div>
+      <div class="cb">MediaPipe WASM runs entirely in the student's browser. No webcam frames are sent to the server. No audio is recorded. Only numerical signals (gaze vector coordinates, EAR values, audio RMS levels) are transmitted as structured events. This is documented in the DPDP compliance checklist and shown to students on the consent screen. No exceptions — biometric data never leaves the student's device.</div>
+    </div>
+
+    <div class="sec-label" style="margin-top:28px;">Module 5 · Integrity Scoring Engine (Deterministic)</div>
+    <h3>FR-INT: 5-Factor Score Calculation</h3>
+    <div class="integrity-outer">
+      <div class="integrity-head">
+        <div>
+          <div style="font-family:var(--ff-mono);font-size:10px;color:rgba(255,255,255,.5);margin-bottom:4px;">INTEGRITY ENGINE SPECIFICATION</div>
+          <div style="font-size:13px;color:rgba(255,255,255,.7);">5-Factor Weighted Score · Deterministic Thresholds · No LLM for Escalation Decisions</div>
+        </div>
+        <div style="text-align:right;">
+          <div class="integrity-score" style="color:#fcd34d;">54</div>
+          <div style="font-size:11px;color:rgba(255,255,255,.5);">Example Score · FLAGGED State</div>
+        </div>
+      </div>
+      <div class="i-factor">
+        <div class="if-top"><div class="if-label">Factor 1: Behavioral (weight: 30%) — Baker 2019 methodology</div><div class="if-val" style="color:var(--amber);">65</div></div>
+        <div class="if-bar"><div class="if-fill" style="width:65%;background:var(--amber);"></div></div>
+        <div class="if-note">Score = 100 − (gaze_events×15) − (tab_events×10) − (audio_spikes×8). Floor at 0. 2× gaze away, 1× tab, 1× audio spike → 65.</div>
+      </div>
+      <div class="i-factor">
+        <div class="if-top"><div class="if-label">Factor 2: AI-Cheat Perplexity (weight: 15%) — Perkins 2023 methodology</div><div class="if-val" style="color:var(--red);">28</div></div>
+        <div class="if-bar"><div class="if-fill" style="width:28%;background:var(--red);"></div></div>
+        <div class="if-note">Ollama logprobs → perplexity score per answer. Low perplexity (AI text) = low score. Burstiness metric for sentence-length variance. Q3: perplexity 18.4, burstiness 0.19. Fallback: Shannon entropy if logprobs unavailable.</div>
+      </div>
+      <div class="i-factor">
+        <div class="if-top"><div class="if-label">Factor 3: Stylometric Baseline (weight: 25% Tier1 / 10% Tier2 / 0% Tier3)</div><div class="if-val" style="color:var(--red);">38</div></div>
+        <div class="if-bar"><div class="if-fill" style="width:38%;background:var(--red);"></div></div>
+        <div class="if-note">sentence-transformers cosine similarity vs student's baseline. Distance threshold: &gt;0.60 = outlier. Q3 style_dist 0.73 vs baseline 0.11. Tier 1 CI: ±7. Tier 2 CI: ±15.</div>
+      </div>
+      <div class="i-factor">
+        <div class="if-top"><div class="if-label">Factor 4: Answer Quality — Gemini rubric evaluation</div><div class="if-val" style="color:var(--green);">85</div></div>
+        <div class="if-bar"><div class="if-fill" style="width:85%;background:var(--green);"></div></div>
+        <div class="if-note">Gemini 1.5 Flash evaluates factual accuracy, coherence, and rubric alignment (0–100). High quality alone does not trigger flag. Used in context with other factors.</div>
+      </div>
+      <div class="i-factor">
+        <div class="if-top"><div class="if-label">Factor 5: Time Anomaly (weight: 5%) — Added in v5</div><div class="if-val" style="color:var(--red);">20</div></div>
+        <div class="if-bar"><div class="if-fill" style="width:20%;background:var(--red);"></div></div>
+        <div class="if-note">If marks ≥ 5 AND time_spent_seconds &lt; 60 → auto-WARN trigger. Q3 (10m essay) answered in 42 seconds. Score = max(0, 100 − (expected_min_time/actual_time)×100).</div>
+      </div>
+    </div>
+
+    <table class="doc-table" style="margin-top:12px;">
+      <thead><tr><th>State</th><th>Score Range</th><th>Color</th><th>Action</th><th>Grade</th></tr></thead>
+      <tbody>
+        <tr><td><strong>WATCH</strong></td><td>80–100</td><td>Green</td><td>No action. Normal monitoring continues.</td><td>Released immediately after exam</td></tr>
+        <tr><td><strong>WARN</strong></td><td>60–79</td><td>Amber</td><td>Teacher notified. Teacher may choose to review manually.</td><td>Teacher can release or flag for review</td></tr>
+        <tr><td><strong>FLAGGED</strong></td><td>0–59</td><td>Red</td><td>Grade held. Student receives anonymized summary + appeal window (24hr). Teacher must confirm or clear.</td><td>Held until teacher decision</td></tr>
+      </tbody>
+    </table>
+
+    <div class="callout cl-amber">
+      <div class="ct">Critical Design Decision — LLM Never Makes Escalation Decisions</div>
+      <div class="cb">The WATCH/WARN/FLAGGED thresholds are deterministic and numeric. No LLM decides whether to flag a student. LLMs are used only for: (1) generating human-readable explanation text in the report, (2) evaluating answer quality rubric scores. The escalation decision is always rule-based and auditable. This is a deliberate design choice to prevent AI hallucinations from creating unfair outcomes for students.</div>
+    </div>
+
+    <div class="sec-label" style="margin-top:28px;">Module 6 · Grade Appeal Flow</div>
+    <h3>FR-APPEAL: Student Appeal & Teacher Review</h3>
+    <div class="flow-steps">
+      <div class="flow-step">
+        <div class="fs-num"><div class="fs-circle" style="background:var(--red-bg);border-color:var(--red);color:var(--red);">F</div></div>
+        <div class="fs-body">
+          <div class="fs-title">Trigger: Student FLAGGED</div>
+          <div class="fs-desc">Integrity score &lt;60. Grade held. review_status = 'pending'. System generates anonymized integrity PDF (student version — no raw biometric data, plain-language flags only).</div>
+        </div>
+      </div>
+      <div class="flow-step">
+        <div class="fs-num"><div class="fs-circle" style="background:var(--blue-bg);border-color:var(--blue);color:var(--blue);">N</div></div>
+        <div class="fs-body">
+          <div class="fs-title">Student Notification</div>
+          <div class="fs-desc">Student receives anonymized summary in their student portal. Shows: which signals triggered, Bloom's level of flagged questions, 24-hour countdown timer to submit appeal. Student submits written response (max 500 words) via integrity_appeals table.</div>
+        </div>
+      </div>
+      <div class="flow-step">
+        <div class="fs-num"><div class="fs-circle" style="background:var(--amber-bg);border-color:var(--amber);color:var(--amber);">R</div></div>
+        <div class="fs-body">
+          <div class="fs-title">Teacher Review Interface</div>
+          <div class="fs-desc">Teacher sees: full integrity report (with raw data) on left panel, student appeal response on right. Teacher makes decision: CONFIRMED (flag stands, grade deducted per institution policy) or CLEARED (flag removed, original grade released). Decision logged with timestamp.</div>
+        </div>
+      </div>
+      <div class="flow-step">
+        <div class="fs-num"><div class="fs-circle" style="background:var(--green-bg);border-color:var(--green);color:var(--green);">G</div></div>
+        <div class="fs-body">
+          <div class="fs-title">Grade Release</div>
+          <div class="fs-desc">teacher_decision set to 'confirmed' or 'cleared'. decision_at timestamp logged. Grade released to student. review_status = 'resolved'. If no teacher decision within 48 hours, system sends escalation reminder. Appeal records retained for 6 months per DPDP compliance.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ─────────────────────────── 3. TRD ─────────────────────────── -->
+<div id="trd" class="section page-break">
+  <div class="doc-divider">
+    <div class="doc-divider-inner">
+      <div class="doc-code">§ 3 · Technical Requirements Document (TRD)</div>
+      <div class="doc-title">Architecture, Performance & Security Requirements</div>
+      <div class="doc-desc">Defines all technical constraints, performance targets, security posture, scalability requirements, and infrastructure decisions for ExamGuard AI v6.</div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="sec-label">Architecture Overview</div>
+    <div class="sec-title">Multi-tier distributed architecture with local-first AI</div>
+
+    <!-- Architecture Diagram as HTML -->
+    <div style="border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;margin:16px 0;">
+      <div style="background:var(--navy);padding:12px 20px;font-family:var(--ff-mono);font-size:10px;color:rgba(255,255,255,.6);letter-spacing:.1em;text-transform:uppercase;">System Architecture Diagram</div>
+      <div style="padding:24px;background:var(--surface2);">
+        <!-- Browser Layer -->
+        <div style="border:2px solid var(--blue);border-radius:10px;padding:16px;margin-bottom:12px;background:var(--blue-bg);">
+          <div style="font-family:var(--ff-mono);font-size:10px;color:var(--blue);font-weight:700;margin-bottom:10px;">BROWSER LAYER — Client-side only (no data leaves device)</div>
+          <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;">
+            <div style="background:#fff;border-radius:6px;padding:10px;border:1px solid var(--blue-mid);text-align:center;">
+              <div style="font-size:18px;margin-bottom:4px;">📷</div>
+              <div style="font-size:11px;font-weight:700;">MediaPipe WASM</div>
+              <div style="font-size:10px;color:var(--ink3);">Gaze + EAR</div>
+            </div>
+            <div style="background:#fff;border-radius:6px;padding:10px;border:1px solid var(--blue-mid);text-align:center;">
+              <div style="font-size:18px;margin-bottom:4px;">🎤</div>
+              <div style="font-size:11px;font-weight:700;">Web Audio API</div>
+              <div style="font-size:10px;color:var(--ink3);">RMS level only</div>
+            </div>
+            <div style="background:#fff;border-radius:6px;padding:10px;border:1px solid var(--blue-mid);text-align:center;">
+              <div style="font-size:18px;margin-bottom:4px;">📄</div>
+              <div style="font-size:11px;font-weight:700;">React / Vite</div>
+              <div style="font-size:10px;color:var(--ink3);">Student + Teacher UI</div>
+            </div>
+            <div style="background:#fff;border-radius:6px;padding:10px;border:1px solid var(--blue-mid);text-align:center;">
+              <div style="font-size:18px;margin-bottom:4px;">💾</div>
+              <div style="font-size:11px;font-weight:700;">localStorage</div>
+              <div style="font-size:10px;color:var(--ink3);">30s answer backup</div>
+            </div>
+          </div>
+        </div>
+        <!-- Arrow -->
+        <div style="text-align:center;margin:4px 0;font-size:20px;color:var(--ink3);">↕ HTTPS + WebSocket</div>
+        <!-- API Layer -->
+        <div style="border:2px solid var(--purple);border-radius:10px;padding:16px;margin-bottom:12px;background:var(--purple-bg);">
+          <div style="font-family:var(--ff-mono);font-size:10px;color:var(--purple);font-weight:700;margin-bottom:10px;">API LAYER — FastAPI (Python 3.11) · Render Free Tier · Docker Container</div>
+          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;">
+            <div style="background:#fff;border-radius:6px;padding:10px;border:1px solid var(--purple-mid);">
+              <div style="font-size:11px;font-weight:700;margin-bottom:4px;">REST API Endpoints</div>
+              <div style="font-size:10px;color:var(--ink3);">/auth, /exams, /materials, /sessions, /integrity, /reports, /appeals</div>
+            </div>
+            <div style="background:#fff;border-radius:6px;padding:10px;border:1px solid var(--purple-mid);">
+              <div style="font-size:11px;font-weight:700;margin-bottom:4px;">WebSocket Server</div>
+              <div style="font-size:10px;color:var(--ink3);">Real-time integrity events → teacher dashboard live updates</div>
+            </div>
+            <div style="background:#fff;border-radius:6px;padding:10px;border:1px solid var(--purple-mid);">
+              <div style="font-size:11px;font-weight:700;margin-bottom:4px;">LangGraph Orchestrator</div>
+              <div style="font-size:10px;color:var(--ink3);">10-agent StateGraph · All agent coordination happens here</div>
+            </div>
+          </div>
+        </div>
+        <!-- Arrow -->
+        <div style="text-align:center;margin:4px 0;font-size:20px;color:var(--ink3);">↕ Internal API calls</div>
+        <!-- AI Layer -->
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">
+          <div style="border:2px solid var(--teal);border-radius:10px;padding:16px;background:var(--teal-bg);">
+            <div style="font-family:var(--ff-mono);font-size:10px;color:var(--teal);font-weight:700;margin-bottom:10px;">LOCAL AI (Fly.io) · Always available · No cost per query</div>
+            <div style="font-size:12px;color:var(--ink2);">🦙 Ollama mistral:7b — generation fallback<br>🔢 sentence-transformers — embeddings<br>📊 pytesseract — OCR<br>🧠 MediaPipe — biometric (browser WASM)</div>
+          </div>
+          <div style="border:2px solid var(--amber);border-radius:10px;padding:16px;background:var(--amber-bg);">
+            <div style="font-family:var(--ff-mono);font-size:10px;color:var(--amber);font-weight:700;margin-bottom:10px;">CLOUD AI (Google) · Preferred quality · Rate-limited</div>
+            <div style="font-size:12px;color:var(--ink2);">⚡ Gemini 1.5 Flash — question generation<br>📝 Gemini 1.5 Flash — answer evaluation<br>📄 Gemini 1.5 Flash — report generation<br>⚠️ Fallback: Ollama on rate limit</div>
+          </div>
+        </div>
+        <!-- Data Layer -->
+        <div style="border:2px solid var(--green);border-radius:10px;padding:16px;background:var(--green-bg);">
+          <div style="font-family:var(--ff-mono);font-size:10px;color:var(--green);font-weight:700;margin-bottom:10px;">DATA LAYER</div>
+          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;">
+            <div style="background:#fff;border-radius:6px;padding:10px;border:1px solid var(--green-mid);">
+              <div style="font-size:11px;font-weight:700;margin-bottom:4px;">🐘 Supabase (PostgreSQL)</div>
+              <div style="font-size:10px;color:var(--ink3);">pgvector for embeddings · RLS for security · All persistent data</div>
+            </div>
+            <div style="background:#fff;border-radius:6px;padding:10px;border:1px solid var(--green-mid);">
+              <div style="font-size:11px;font-weight:700;margin-bottom:4px;">⚡ Redis (Upstash)</div>
+              <div style="font-size:10px;color:var(--ink3);">Hot-path agent state · ~2KB per student · sub-ms reads</div>
+            </div>
+            <div style="background:#fff;border-radius:6px;padding:10px;border:1px solid var(--green-mid);">
+              <div style="font-size:11px;font-weight:700;margin-bottom:4px;">🪣 Supabase Storage</div>
+              <div style="font-size:10px;color:var(--ink3);">Uploaded PDFs · Generated report PDFs · Signed URLs</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="sec-label" style="margin-top:28px;">Performance Requirements</div>
+    <table class="doc-table">
+      <thead><tr><th>Metric</th><th>Target</th><th>Measurement Method</th><th>Priority</th></tr></thead>
+      <tbody>
+        <tr><td>Question generation (80 questions)</td><td>&lt;90 seconds</td><td>seed_demo.py timer</td><td><span class="badge b-high">Critical</span></td></tr>
+        <tr><td>Integrity score update after answer</td><td>&lt;3 seconds</td><td>WebSocket event latency</td><td><span class="badge b-high">Critical</span></td></tr>
+        <tr><td>Material ingestion (50-page PDF)</td><td>&lt;90 seconds</td><td>Upload endpoint timer</td><td><span class="badge b-high">Critical</span></td></tr>
+        <tr><td>Redis hot-path read latency</td><td>&lt;2ms</td><td>Redis INFO stats</td><td><span class="badge b-med">High</span></td></tr>
+        <tr><td>Supabase query latency (p99)</td><td>&lt;150ms</td><td>Supabase dashboard</td><td><span class="badge b-med">High</span></td></tr>
+        <tr><td>PDF report generation</td><td>&lt;10 seconds</td><td>Endpoint timer</td><td><span class="badge b-med">High</span></td></tr>
+        <tr><td>Concurrent student sessions</td><td>50+ (Round 1), 100+ (Round 2)</td><td>Load test with Locust</td><td><span class="badge b-low">Medium</span></td></tr>
+        <tr><td>Fly.io warmup (cold start)</td><td>&lt;30 seconds</td><td>Health ping cron</td><td><span class="badge b-high">Critical</span></td></tr>
+        <tr><td>API p95 response time</td><td>&lt;500ms (non-LLM endpoints)</td><td>FastAPI middleware</td><td><span class="badge b-med">High</span></td></tr>
+      </tbody>
+    </table>
+
+    <div class="sec-label" style="margin-top:28px;">Security Requirements</div>
+    <div class="card-grid g3">
+      <div class="card" style="border-top:3px solid var(--red);">
+        <div class="card-title">🔐 Authentication Security</div>
+        <div class="card-sub">JWT tokens with 1-hour expiry. Refresh token rotation. Supabase Auth handles credential storage (bcrypt hashed, never plaintext). RLS prevents cross-tenant data access at DB level. All API endpoints require valid JWT except /health.</div>
+      </div>
+      <div class="card" style="border-top:3px solid var(--amber);">
+        <div class="card-title">🛡 DPDP Compliance</div>
+        <div class="card-sub">India's Digital Personal Data Protection Act 2023. Explicit consent before data collection. Data minimization: audio level only (no recording). Retention: appeal records 6 months, exam sessions 1 year. Right to erasure: student data deleted on request. docs/dpdp-compliance.md in repo.</div>
+      </div>
+      <div class="card" style="border-top:3px solid var(--blue);">
+        <div class="card-title">🔒 Data Isolation</div>
+        <div class="card-sub">Row-Level Security on all Supabase tables. Teachers cannot access other teachers' exams. Students cannot access other sessions. Biometric processing in browser only — never transmitted. Uploaded PDFs stored with signed URLs (1-hour expiry for access).</div>
+      </div>
+      <div class="card" style="border-top:3px solid var(--purple);">
+        <div class="card-title">🔑 API Security</div>
+        <div class="card-sub">CLOUD_API_KEY for Gemini stored as environment variable only. Never in code or repository. .env.example shows required variables without values. GitHub Actions secrets for CI deployment. No API keys in commit history.</div>
+      </div>
+      <div class="card" style="border-top:3px solid var(--teal);">
+        <div class="card-title">🌐 Transport Security</div>
+        <div class="card-sub">HTTPS enforced on all endpoints. WebSocket connection over WSS. Supabase connection via SSL. CORS configured: only frontend domain and localhost:5173 allowed. HSTS header on production deployment.</div>
+      </div>
+      <div class="card" style="border-top:3px solid var(--green);">
+        <div class="card-title">📋 Audit Trail</div>
+        <div class="card-sub">All integrity events stored with timestamps. All teacher decisions (confirm/clear) logged with decision_at. Commit history shows build progression (judges can verify). LangGraph trace available in LangGraph Studio screen recording.</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ─────────────────────────── 4. SYSTEM STACK ─────────────────────────── -->
+<div id="stack" class="section page-break">
+  <div class="doc-divider">
+    <div class="doc-divider-inner">
+      <div class="doc-code">§ 4 · System Stack</div>
+      <div class="doc-title">Technology Choices & Justification</div>
+      <div class="doc-desc">Every technology choice is deliberate and justified for the Indian educational market context, hackathon constraints, and production deployment requirements.</div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="stack-group">
+      <div class="sg-head">Frontend</div>
+      <div class="si"><div class="si-name">React 18 + Vite</div><div class="si-why">Fast HMR for development. Production build optimized. Component-based UI matches student/teacher split. Vite bundles WASM efficiently for MediaPipe.</div><div class="si-badges"><span class="badge b-must">Core</span></div></div>
+      <div class="si"><div class="si-name">TailwindCSS</div><div class="si-why">Utility-first CSS. No runtime overhead. Consistent design tokens. Rapid UI iteration during 10-day build window.</div><div class="si-badges"><span class="badge b-must">Core</span></div></div>
+      <div class="si"><div class="si-name">MediaPipe FaceMesh (WASM)</div><div class="si-why">Runs entirely in browser. No webcam frames to server. 468 facial landmarks at 30fps. EAR for blink detection. Gaze vector for off-screen detection. ~2MB WASM bundle.</div><div class="si-badges"><span class="badge b-critical">Critical</span></div></div>
+      <div class="si"><div class="si-name">Web Audio API</div><div class="si-why">Native browser API. Microphone access without recording. RMS amplitude measurement only. No library dependency. DPDP compliant.</div><div class="si-badges"><span class="badge b-must">Core</span></div></div>
+      <div class="si"><div class="si-name">Supabase JS Client</div><div class="si-why">Real-time subscriptions for teacher dashboard live updates. Auth state management. File upload to Storage. Matches backend Supabase instance.</div><div class="si-badges"><span class="badge b-must">Core</span></div></div>
+    </div>
+
+    <div class="stack-group">
+      <div class="sg-head">Backend</div>
+      <div class="si"><div class="si-name">FastAPI (Python 3.11)</div><div class="si-why">Async-native. Auto-generated OpenAPI docs. Type validation via Pydantic. Integrates seamlessly with LangGraph, sentence-transformers, pytesseract. Python ecosystem is richest for AI/ML.</div><div class="si-badges"><span class="badge b-must">Core</span></div></div>
+      <div class="si"><div class="si-name">LangGraph (LangChain)</div><div class="si-why">StateGraph for 10-agent orchestration. Visual tracing in LangGraph Studio (critical for hackathon demo). Handles conditional edges, parallel agent firing (Stylometric + Security agents fire simultaneously). Battle-tested for agentic workflows.</div><div class="si-badges"><span class="badge b-critical">Critical</span></div></div>
+      <div class="si"><div class="si-name">PyMuPDF (fitz)</div><div class="si-why">Fast PDF text extraction. Preserves layout better than pdfminer. Detects scanned PDFs by checking text layer density. Handles NCERT's specific PDF formatting.</div><div class="si-badges"><span class="badge b-must">Core</span></div></div>
+      <div class="si"><div class="si-name">pytesseract + Tesseract 5</div><div class="si-why">Open-source OCR. Supports English and Devanagari (Hindi) out of box. Local processing — no API cost. Fallback to Google Vision if output quality poor.</div><div class="si-badges"><span class="badge b-must">Core</span></div></div>
+      <div class="si"><div class="si-name">sentence-transformers (all-MiniLM-L6-v2)</div><div class="si-why">384-dim embeddings. Runs on CPU. ~80MB model. Used for both RAG retrieval and stylometric distance calculation. No cloud dependency for embeddings.</div><div class="si-badges"><span class="badge b-must">Core</span></div></div>
+      <div class="si"><div class="si-name">ReportLab (PDF generation)</div><div class="si-why">Generates integrity report PDFs. Handles charts, tables, and multi-column layouts. No external service dependency. Runs in Docker container.</div><div class="si-badges"><span class="badge b-must">Core</span></div></div>
+    </div>
+
+    <div class="stack-group">
+      <div class="sg-head">AI / LLM Layer</div>
+      <div class="si"><div class="si-name">Gemini 1.5 Flash (Google AI)</div><div class="si-why">Preferred model for question generation, answer evaluation, and report summaries. 1M token context window handles large NCERT PDFs. Fast inference. Generous free tier for hackathon.</div><div class="si-badges"><span class="badge b-must">Core</span></div></div>
+      <div class="si"><div class="si-name">Ollama + mistral:7b</div><div class="si-why">Primary fallback for all generation tasks when Gemini rate-limits or is unavailable. Runs on Fly.io free tier (GPU-less, quantized). Self-hosted — no per-token cost. Critical for demo reliability.</div><div class="si-badges"><span class="badge b-critical">Critical</span></div></div>
+      <div class="si"><div class="si-name">Ollama logprobs API</div><div class="si-why">Perplexity scoring for AI cheat detection. Returns per-token log probabilities. Low perplexity = AI-generated text. Fallback: Shannon entropy on answer text if logprobs unavailable (model-dependent).</div><div class="si-badges"><span class="badge b-must">Core</span></div></div>
+      <div class="si"><div class="si-name">Pre-cached Question Pool</div><div class="si-why">50 questions per subject stored in DB. Last-resort fallback when both Gemini and Ollama fail. Ensures demo never completely fails. Teacher sees: "Using cached questions — generation queue busy."</div><div class="si-badges"><span class="badge b-should">Fallback</span></div></div>
+    </div>
+
+    <div class="stack-group">
+      <div class="sg-head">Data / Storage</div>
+      <div class="si"><div class="si-name">Supabase (PostgreSQL 15 + pgvector)</div><div class="si-why">Managed PostgreSQL with Row-Level Security built in. pgvector extension for similarity search on embeddings (ivfflat index). Real-time pub/sub for dashboard updates. Auth, Storage, and DB in one managed service. Free tier sufficient for hackathon.</div><div class="si-badges"><span class="badge b-critical">Critical</span></div></div>
+      <div class="si"><div class="si-name">Redis (Upstash serverless)</div><div class="si-why">Hot-path agent state (~2KB/student). Sub-millisecond reads. Supabase disk writes add ~50ms latency per integrity event — unacceptable for real-time dashboard. Redis holds ephemeral session state; Supabase gets async durable writes. 100 concurrent students = ~200KB total Redis footprint.</div><div class="si-badges"><span class="badge b-must">Core</span></div></div>
+      <div class="si"><div class="si-name">Supabase Storage (S3-compatible)</div><div class="si-why">Stores uploaded teacher PDFs and generated student report PDFs. Signed URLs with 1-hour expiry for secure access. Integrated with Supabase auth for RLS on file access.</div><div class="si-badges"><span class="badge b-must">Core</span></div></div>
+    </div>
+
+    <div class="stack-group">
+      <div class="sg-head">Deployment / Infrastructure</div>
+      <div class="si"><div class="si-name">Render (Free Tier — Backend)</div><div class="si-why">Stays awake if pinged within 14 minutes (vs Railway: 10–60s cold starts). GitHub Actions cron pings /health every 10 minutes. Free tier: 512MB RAM, shared CPU. Sufficient for hackathon load. Docker-based deploy.</div><div class="si-badges"><span class="badge b-critical">Critical</span></div></div>
+      <div class="si"><div class="si-name">Fly.io (Free Tier — Ollama)</div><div class="si-why">Runs quantized Ollama container. Sleeps after 10 min of inactivity — seed_demo.py pings /health as step 0. 256MB free tier machine. GPU-less but mistral:7b-q4 runs on CPU for demo purposes.</div><div class="si-badges"><span class="badge b-must">Core</span></div></div>
+      <div class="si"><div class="si-name">Vercel / Netlify (Frontend)</div><div class="si-why">Static site deploy for React app. Edge network for fast global load. Free tier with custom domain. CI/CD from GitHub push.</div><div class="si-badges"><span class="badge b-must">Core</span></div></div>
+      <div class="si"><div class="si-name">Docker Compose (Local Dev)</div><div class="si-why">Reproducible local development environment. docker-compose.yml includes FastAPI + frontend + Ollama. Required by FAR AWAY for setup instructions. Always-available demo fallback if cloud services are down.</div><div class="si-badges"><span class="badge b-must">Core</span></div></div>
+      <div class="si"><div class="si-name">GitHub Actions (CI/CD)</div><div class="si-why">CI: runs pytest on every push. CD: deploys to Render on main branch merge. Cron: /health ping every 10 minutes to keep Render instance warm. Warmup cron workflow visible in repo (shows system is production-aware).</div><div class="si-badges"><span class="badge b-must">Core</span></div></div>
+    </div>
+  </div>
+</div>
+
+<!-- ─────────────────────────── 5. APP FLOW ─────────────────────────── -->
+<div id="flow" class="section page-break">
+  <div class="doc-divider">
+    <div class="doc-divider-inner">
+      <div class="doc-code">§ 5 · System & Application Flow</div>
+      <div class="doc-title">Complete User & Data Flow Diagrams</div>
+      <div class="doc-desc">End-to-end flows for teacher paper creation, student exam journey, agent pipeline execution, and data persistence patterns.</div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="sec-label">Teacher Flow (8 Steps)</div>
+    <div class="sec-title">From signup to final report download</div>
+
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:20px;">
+      <div style="text-align:center;">
+        <div style="width:56px;height:56px;border-radius:50%;background:var(--purple-bg);border:2px solid var(--purple);color:var(--purple);display:flex;align-items:center;justify-content:center;font-family:var(--ff-head);font-size:20px;font-style:italic;font-weight:700;margin:0 auto 8px;">1</div>
+        <div style="font-size:12px;font-weight:700;">Sign Up</div>
+        <div style="font-size:11px;color:var(--ink3);">Supabase Auth, institutional email, role=teacher</div>
+      </div>
+      <div style="text-align:center;">
+        <div style="width:56px;height:56px;border-radius:50%;background:var(--blue-bg);border:2px solid var(--blue);color:var(--blue);display:flex;align-items:center;justify-content:center;font-family:var(--ff-head);font-size:20px;font-style:italic;font-weight:700;margin:0 auto 8px;">2</div>
+        <div style="font-size:12px;font-weight:700;">Create Exam</div>
+        <div style="font-size:11px;color:var(--ink3);">Title, subject, join code auto-generated, status=draft</div>
+      </div>
+      <div style="text-align:center;">
+        <div style="width:56px;height:56px;border-radius:50%;background:var(--teal-bg);border:2px solid var(--teal);color:var(--teal);display:flex;align-items:center;justify-content:center;font-family:var(--ff-head);font-size:20px;font-style:italic;font-weight:700;margin:0 auto 8px;">3A</div>
+        <div style="font-size:12px;font-weight:700;">Upload Material</div>
+        <div style="font-size:11px;color:var(--ink3);">PDF/DOCX/TXT, OCR fallback, chapter detection, chunk preview</div>
+      </div>
+      <div style="text-align:center;">
+        <div style="width:56px;height:56px;border-radius:50%;background:var(--amber-bg);border:2px solid var(--amber);color:var(--amber);display:flex;align-items:center;justify-content:center;font-family:var(--ff-head);font-size:20px;font-style:italic;font-weight:700;margin:0 auto 8px;">3B</div>
+        <div style="font-size:12px;font-weight:700;">Configure Paper ✦</div>
+        <div style="font-size:11px;color:var(--ink3);">Sections, marks, question types, Bloom's level, chapter weightage</div>
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;">
+      <div style="text-align:center;">
+        <div style="width:56px;height:56px;border-radius:50%;background:#fdf2e8;border:2px solid var(--orange);color:var(--orange);display:flex;align-items:center;justify-content:center;font-family:var(--ff-head);font-size:20px;font-style:italic;font-weight:700;margin:0 auto 8px;">4</div>
+        <div style="font-size:12px;font-weight:700;">Preview & Activate</div>
+        <div style="font-size:11px;color:var(--ink3);">Sample question per section, marks check, chapter coverage, approve</div>
+      </div>
+      <div style="text-align:center;">
+        <div style="width:56px;height:56px;border-radius:50%;background:var(--green-bg);border:2px solid var(--green);color:var(--green);display:flex;align-items:center;justify-content:center;font-family:var(--ff-head);font-size:20px;font-style:italic;font-weight:700;margin:0 auto 8px;">5</div>
+        <div style="font-size:12px;font-weight:700;">Live Monitor</div>
+        <div style="font-size:11px;color:var(--ink3);">Real-time tiles, integrity scores, alert feed, consent verified</div>
+      </div>
+      <div style="text-align:center;">
+        <div style="width:56px;height:56px;border-radius:50%;background:var(--red-bg);border:2px solid var(--red);color:var(--red);display:flex;align-items:center;justify-content:center;font-family:var(--ff-head);font-size:20px;font-style:italic;font-weight:700;margin:0 auto 8px;">6</div>
+        <div style="font-size:12px;font-weight:700;">Review & Appeal</div>
+        <div style="font-size:11px;color:var(--ink3);">Flagged queue, student appeal visible, confirm/clear decision</div>
+      </div>
+      <div style="text-align:center;">
+        <div style="width:56px;height:56px;border-radius:50%;background:#f0f1f8;border:2px solid #3040a0;color:#3040a0;display:flex;align-items:center;justify-content:center;font-family:var(--ff-head);font-size:20px;font-style:italic;font-weight:700;margin:0 auto 8px;">7</div>
+        <div style="font-size:12px;font-weight:700;">Download Reports</div>
+        <div style="font-size:11px;color:var(--ink3);">PDF per student, class summary, baseline tier shown, download all</div>
+      </div>
+    </div>
+
+    <div class="sec-label" style="margin-top:32px;">Student Flow (5 Steps)</div>
+    <div class="sec-title">From join code to grade release</div>
+    <div class="flow-steps">
+      <div class="flow-step">
+        <div class="fs-num"><div class="fs-circle" style="background:#f5f3ff;border-color:#7c3aed;color:#7c3aed;">1</div></div>
+        <div class="fs-body">
+          <div class="fs-title">Enter Join Code</div>
+          <div class="fs-desc">Student enters 6-character alphanumeric join code provided by teacher. System validates: code exists, exam is active, student slot available. Student record created/linked. Anonymous session token issued.</div>
+        </div>
+      </div>
+      <div class="flow-step">
+        <div class="fs-num"><div class="fs-circle" style="background:var(--blue-bg);border-color:var(--blue);color:var(--blue);">2</div></div>
+        <div class="fs-body">
+          <div class="fs-title">Consent Screen</div>
+          <div class="fs-desc">System shows explicit consent modal listing: (1) Webcam — gaze tracking only, (2) Microphone — audio level only, not recorded, (3) Answer text — AI writing detection, (4) Tab switches — counted. Each item has a plain-language explanation. Student must tap "I Understand and Consent" to proceed. Cannot be dismissed.</div>
+        </div>
+      </div>
+      <div class="flow-step">
+        <div class="fs-num"><div class="fs-circle" style="background:var(--amber-bg);border-color:var(--amber);color:var(--amber);">3</div></div>
+        <div class="fs-body">
+          <div class="fs-title">Blink Liveness Challenge</div>
+          <div class="fs-desc">MediaPipe FaceMesh activates. Student sees: "Blink twice to begin." System waits for EAR &lt;0.25 for 2 consecutive frames on each blink. Both blinks must occur within 8 seconds. Success → exam begins. Failure → 3 retries → teacher contacted for manual approval. Prevents photo attacks.</div>
+        </div>
+      </div>
+      <div class="flow-step">
+        <div class="fs-num"><div class="fs-circle" style="background:var(--green-bg);border-color:var(--green);color:var(--green);">4</div></div>
+        <div class="fs-body">
+          <div class="fs-title">Exam Session</div>
+          <div class="fs-desc">Questions generated uniquely per student from teacher's config. Proctoring runs continuously in background. Answers auto-saved to localStorage every 30 seconds. Timer shown. On tab switch: instant alert to teacher. On disconnect (&gt;5min): session paused (not terminated), teacher notified.</div>
+        </div>
+      </div>
+      <div class="flow-step">
+        <div class="fs-num"><div class="fs-circle" style="background:var(--red-bg);border-color:var(--red);color:var(--red);">5</div></div>
+        <div class="fs-body">
+          <div class="fs-title">If Flagged: Appeal Window</div>
+          <div class="fs-desc">Student receives anonymized summary (no raw data). 24-hour countdown to submit written appeal (max 500 words). Teacher reviews both integrity report and appeal side-by-side. Decision: CONFIRMED or CLEARED. Grade released. All timeline events visible to both parties.</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="sec-label" style="margin-top:32px;">10-Agent Pipeline Data Flow</div>
+    <div class="sec-title">LangGraph StateGraph execution on each student answer submit</div>
+    <div style="border:1px solid var(--border);border-radius:var(--radius);padding:20px;background:#fff;margin:16px 0;">
+      <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-bottom:16px;">
+        <div style="background:var(--purple-bg);border:1px solid var(--purple-mid);border-radius:8px;padding:12px;text-align:center;">
+          <div style="font-size:18px;margin-bottom:4px;">📥</div>
+          <div style="font-size:11px;font-weight:700;color:var(--purple);">Orchestrator</div>
+          <div style="font-size:10px;color:var(--ink3);">Routes incoming event to relevant agents</div>
+        </div>
+        <div style="background:var(--blue-bg);border:1px solid var(--blue-mid);border-radius:8px;padding:12px;text-align:center;">
+          <div style="font-size:18px;margin-bottom:4px;">🧠</div>
+          <div style="font-size:11px;font-weight:700;color:var(--blue);">Stylometric</div>
+          <div style="font-size:10px;color:var(--ink3);">style_distance vs baseline</div>
+        </div>
+        <div style="background:var(--teal-bg);border:1px solid var(--teal-mid);border-radius:8px;padding:12px;text-align:center;">
+          <div style="font-size:18px;margin-bottom:4px;">🛡</div>
+          <div style="font-size:11px;font-weight:700;color:var(--teal);">Security</div>
+          <div style="font-size:10px;color:var(--ink3);">Perplexity + burstiness</div>
+        </div>
+        <div style="background:var(--amber-bg);border:1px solid var(--amber-mid);border-radius:8px;padding:12px;text-align:center;">
+          <div style="font-size:18px;margin-bottom:4px;">📊</div>
+          <div style="font-size:11px;font-weight:700;color:var(--amber);">Evaluation</div>
+          <div style="font-size:10px;color:var(--ink3);">Gemini rubric score</div>
+        </div>
+        <div style="background:var(--coral-bg);border:1px solid var(--coral-mid);border-radius:8px;padding:12px;text-align:center;">
+          <div style="font-size:18px;margin-bottom:4px;">📍</div>
+          <div style="font-size:11px;font-weight:700;color:var(--coral);">Proctoring</div>
+          <div style="font-size:10px;color:var(--ink3);">Behavioral signals aggregated</div>
+        </div>
+      </div>
+      <div style="text-align:center;font-size:20px;color:var(--ink3);margin:8px 0;">↓ All agents complete (parallel where possible) → Orchestrator aggregates → Score computed</div>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;">
+        <div style="background:var(--green-bg);border:1px solid var(--green-mid);border-radius:8px;padding:12px;text-align:center;">
+          <div style="font-size:11px;font-weight:700;color:var(--green);">Score ≥80 → WATCH</div>
+          <div style="font-size:10px;color:var(--ink3);">Redis updated, dashboard notified via WebSocket, no action</div>
+        </div>
+        <div style="background:var(--amber-bg);border:1px solid var(--amber-mid);border-radius:8px;padding:12px;text-align:center;">
+          <div style="font-size:11px;font-weight:700;color:var(--amber);">Score 60–79 → WARN</div>
+          <div style="font-size:10px;color:var(--ink3);">Teacher alerted in live dashboard. Teacher may manually review.</div>
+        </div>
+        <div style="background:var(--red-bg);border:1px solid var(--red-mid);border-radius:8px;padding:12px;text-align:center;">
+          <div style="font-size:11px;font-weight:700;color:var(--red);">Score &lt;60 → FLAGGED</div>
+          <div style="font-size:10px;color:var(--ink3);">Grade held. Review Agent activated. Appeal window opens.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ─────────────────────────── 6. AI AGENTS ─────────────────────────── -->
+<div id="agents" class="section page-break">
+  <div class="doc-divider">
+    <div class="doc-divider-inner">
+      <div class="doc-code">§ 6 · 10-Agent Specification</div>
+      <div class="doc-title">Every Agent, Model, Tool & Responsibility</div>
+      <div class="doc-desc">Full specification of all 10 LangGraph agents. Each agent has a defined model preference, fallback, input state, output state, tools, and failure behavior.</div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="card-grid g3" style="margin-bottom:12px;">
+      <!-- Agent 1 -->
+      <div class="agent-card" style="background:var(--purple-bg);border-color:var(--purple-mid);">
+        <div class="ac-num" style="color:var(--purple);">Agent 01</div>
+        <div class="ac-name" style="color:var(--purple);">Material Ingestion Agent</div>
+        <div class="ac-model">pytesseract · sentence-transformers · PyMuPDF</div>
+        <div class="ac-desc">Accepts uploaded PDF/DOCX/TXT. Detects if scanned (text density check). Routes to OCR if needed. Runs chapter heading detection with regex heuristics. Chunks at 512 tokens with 64-token overlap. Embeds all chunks and stores in Supabase pgvector. Returns chunk_count and chapter_map for teacher preview.</div>
+        <div class="tool-chips">
+          <div class="tool-chip">pymupdf</div><div class="tool-chip">pytesseract</div><div class="tool-chip">sentence-transformers</div><div class="tool-chip">supabase-pgvector</div>
+        </div>
+      </div>
+      <!-- Agent 2 -->
+      <div class="agent-card" style="background:var(--blue-bg);border-color:var(--blue-mid);">
+        <div class="ac-num" style="color:var(--blue);">Agent 02</div>
+        <div class="ac-name" style="color:var(--blue);">Paper Config Agent</div>
+        <div class="ac-model">Rule-based · No LLM needed</div>
+        <div class="ac-desc">Validates paper_config JSON from teacher UI. Runs marks budget validation (Σmarks = total_marks). Validates question types, Bloom levels, chapter weights. Writes validated config to exams table. Returns validation errors with actionable messages. Generates unique join code.</div>
+        <div class="tool-chips">
+          <div class="tool-chip">pydantic-validator</div><div class="tool-chip">supabase-write</div><div class="tool-chip">join-code-generator</div>
+        </div>
+      </div>
+      <!-- Agent 3 -->
+      <div class="agent-card" style="background:var(--teal-bg);border-color:var(--teal-mid);">
+        <div class="ac-num" style="color:var(--teal);">Agent 03</div>
+        <div class="ac-name" style="color:var(--teal);">Question Generation Agent</div>
+        <div class="ac-model">Preferred: Gemini 1.5 Flash · Fallback: Ollama mistral:7b</div>
+        <div class="ac-desc">Per section in paper_config: retrieves relevant chunks filtered by chapter_weight. Selects BLOOM_TEMPLATE for section's bloom_level. Generates questions using: BLOOM_TEMPLATE + retrieved_chunks + qtype + marks_each. Deduplication check across students (max_shared_questions=2). On Gemini rate limit: exponential backoff → Ollama. On Ollama fail: cached pool.</div>
+        <div class="tool-chips">
+          <div class="tool-chip">gemini-1.5-flash</div><div class="tool-chip">ollama-mistral</div><div class="tool-chip">pgvector-similarity</div><div class="tool-chip">bloom-templates</div><div class="tool-chip">question-cache</div>
+        </div>
+      </div>
+      <!-- Agent 4 -->
+      <div class="agent-card" style="background:var(--amber-bg);border-color:var(--amber-mid);">
+        <div class="ac-num" style="color:var(--amber);">Agent 04</div>
+        <div class="ac-name" style="color:var(--amber);">Proctoring Agent</div>
+        <div class="ac-model">MediaPipe WASM (browser) · Server-side event aggregator</div>
+        <div class="ac-desc">Receives structured proctoring events from browser (gaze_away, tab_switch, audio_spike). Browser-side MediaPipe never sends frames. Server aggregates events per session in Redis. Computes behavioral score in real-time. Pushes score updates to teacher dashboard via WebSocket. Triggers WARN on 3+ tab switches.</div>
+        <div class="tool-chips">
+          <div class="tool-chip">mediapipe-wasm</div><div class="tool-chip">websocket</div><div class="tool-chip">redis-session</div><div class="tool-chip">web-audio-api</div>
+        </div>
+      </div>
+      <!-- Agent 5 -->
+      <div class="agent-card" style="background:var(--coral-bg);border-color:var(--coral-mid);">
+        <div class="ac-num" style="color:var(--coral);">Agent 05</div>
+        <div class="ac-name" style="color:var(--coral);">Security (AI Cheat) Agent</div>
+        <div class="ac-model">Ollama logprobs API · Fallback: Shannon entropy</div>
+        <div class="ac-desc">On each answer submission: sends answer text to Ollama logprobs endpoint. Checks availability at startup (model-dependent). Computes perplexity score and burstiness metric. If logprobs returns null: falls back to sliding-window Shannon entropy estimate. Stores score in answers table. Flags Q with perplexity &lt;20 as potential AI-generated.</div>
+        <div class="tool-chips">
+          <div class="tool-chip">ollama-logprobs</div><div class="tool-chip">shannon-entropy</div><div class="tool-chip">burstiness-calc</div>
+        </div>
+      </div>
+      <!-- Agent 6 -->
+      <div class="agent-card" style="background:var(--green-bg);border-color:var(--green-mid);">
+        <div class="ac-num" style="color:var(--green);">Agent 06</div>
+        <div class="ac-name" style="color:var(--green);">Stylometric Agent</div>
+        <div class="ac-model">sentence-transformers (local) · Fallback: scikit-learn TF-IDF cosine</div>
+        <div class="ac-desc">Reads baseline_answer_count from users table. Routes to: Tier 1 (full), Tier 2 (downweighted), or Tier 3 (disabled). For Tier 1/2: embeds current answer + baseline answers with sentence-transformers. Computes cosine distance. Flags if style_distance &gt;0.60 (Tier 1 CI±7, Tier 2 CI±15). Updates stylometric_factor in session state.</div>
+        <div class="tool-chips">
+          <div class="tool-chip">sentence-transformers</div><div class="tool-chip">cosine-distance</div><div class="tool-chip">tfidf-fallback</div><div class="tool-chip">baseline-tier-router</div>
+        </div>
+      </div>
+      <!-- Agent 7 -->
+      <div class="agent-card" style="background:var(--red-bg);border-color:var(--red-mid);">
+        <div class="ac-num" style="color:var(--red);">Agent 07</div>
+        <div class="ac-name" style="color:var(--red);">Evaluation Agent</div>
+        <div class="ac-model">Preferred: Gemini 1.5 Flash · Fallback: Ollama mistral:7b</div>
+        <div class="ac-desc">Evaluates subjective answers (short_answer, long_answer, essay) against rubric derived from source chunk. Returns: score (0–100), factual_accuracy, coherence, structure. For MCQ/T-F: deterministic auto-grading against answer key. On eval failure: score=null, flags for manual review. Teacher sees "AI eval unavailable" banner.</div>
+        <div class="tool-chips">
+          <div class="tool-chip">gemini-1.5-flash</div><div class="tool-chip">ollama-mistral</div><div class="tool-chip">rubric-scorer</div><div class="tool-chip">auto-grader</div>
+        </div>
+      </div>
+      <!-- Agent 8 -->
+      <div class="agent-card" style="background:#eef0fb;border-color:#a0aae8;">
+        <div class="ac-num" style="color:var(--indigo);">Agent 08</div>
+        <div class="ac-name" style="color:var(--indigo);">Orchestrator Agent</div>
+        <div class="ac-model">Rule-based · Deterministic thresholds · No LLM for escalation</div>
+        <div class="ac-desc">Central coordinator of the StateGraph. Routes events to relevant agents. Aggregates outputs from all agents. Computes weighted integrity score (5 factors). Applies deterministic WATCH/WARN/FLAGGED thresholds. Pushes state to Redis. Triggers WebSocket update to teacher dashboard. LLM used ONLY for generating human-readable explanation text, never for escalation decisions.</div>
+        <div class="tool-chips">
+          <div class="tool-chip">langgraph-stategraph</div><div class="tool-chip">redis-write</div><div class="tool-chip">websocket-emit</div><div class="tool-chip">score-aggregator</div>
+        </div>
+      </div>
+      <!-- Agent 9 -->
+      <div class="agent-card" style="background:var(--orange-bg);border-color:var(--orange-mid);">
+        <div class="ac-num" style="color:var(--orange);">Agent 09</div>
+        <div class="ac-name" style="color:var(--orange);">Report Agent</div>
+        <div class="ac-model">Preferred: Gemini 1.5 Flash · Fallback: Template-based report</div>
+        <div class="ac-desc">Post-exam: generates full integrity report PDF using ReportLab. Includes: 5-factor score breakdown with CI visualization, event timeline, per-question analysis with source chunk citations and page numbers, baseline tier disclosure. Generates separate anonymized student version. On Gemini fail: template-based report without AI narrative. Stores both in Supabase Storage with signed URLs.</div>
+        <div class="tool-chips">
+          <div class="tool-chip">reportlab-pdf</div><div class="tool-chip">gemini-summary</div><div class="tool-chip">supabase-storage</div><div class="tool-chip">signed-url-gen</div>
+        </div>
+      </div>
+      <!-- Agent 10 (NEW v6) -->
+      <div class="agent-card" style="background:#f0f1f8;border-color:#7080c8;border-width:2px;">
+        <div class="ac-num" style="color:#3040a0;">Agent 10 · <span class="badge b-new">NEW v6</span></div>
+        <div class="ac-name" style="color:#3040a0;">Review Agent (Appeal Flow)</div>
+        <div class="ac-model">Rule-based · DB state machine · Deadline management</div>
+        <div class="ac-desc">Handles the complete grade appeal workflow. On FLAGGED trigger: creates appeal record with 24hr deadline, generates anonymized student summary, sends notification. Monitors appeal submissions (integrity_appeals table). On teacher decision (confirm/clear): updates review_status, releases grade, logs decision_at. If teacher inactive 48hrs: sends escalation reminder. Fully auditable state machine.</div>
+        <div class="tool-chips">
+          <div class="tool-chip">appeal-state-machine</div><div class="tool-chip">deadline-monitor</div><div class="tool-chip">notification-send</div><div class="tool-chip">grade-release</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="sec-label" style="margin-top:24px;">Bloom's Taxonomy Prompt Templates</div>
+    <div class="sec-title">6 concrete prompts — one per level — injected by Question Agent at runtime</div>
+    <div class="bloom-grid">
+      <div class="bloom-card bl1">
+        <div class="bloom-level">Level 1</div>
+        <div class="bloom-name">Remember</div>
+        <div class="bloom-template">Write a question that asks students to recall, name, define, or list [concept] exactly as it appears in the provided text. The answer must be directly stated in the source material.</div>
+      </div>
+      <div class="bloom-card bl2">
+        <div class="bloom-level">Level 2</div>
+        <div class="bloom-name">Understand</div>
+        <div class="bloom-template">Write a question that asks students to explain, summarise, or describe [concept] in their own words, demonstrating they understand what the source material says.</div>
+      </div>
+      <div class="bloom-card bl3">
+        <div class="bloom-level">Level 3</div>
+        <div class="bloom-name">Apply</div>
+        <div class="bloom-template">Write a question that gives a new scenario or numerical problem and asks students to use [concept] to solve it. Scenario must not appear in text but requires the concept.</div>
+      </div>
+      <div class="bloom-card bl4">
+        <div class="bloom-level">Level 4</div>
+        <div class="bloom-name">Analyse</div>
+        <div class="bloom-template">Write a question that asks students to break down [concept], identify relationships or patterns, distinguish between two similar ideas, or find the cause of an outcome in the source material.</div>
+      </div>
+      <div class="bloom-card bl5">
+        <div class="bloom-level">Level 5</div>
+        <div class="bloom-name">Evaluate</div>
+        <div class="bloom-template">Write a question that asks students to make a judgement about [concept], assess the validity of a claim using evidence, or compare two approaches and argue which is better with justification.</div>
+      </div>
+      <div class="bloom-card bl6">
+        <div class="bloom-level">Level 6</div>
+        <div class="bloom-name">Create</div>
+        <div class="bloom-template">Write a question that asks students to design, propose, construct, or produce something new using [concept]. Student must synthesise ideas to produce an original response, not recall an existing one.</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ─────────────────────────── 7. DATABASE SCHEMA ─────────────────────────── -->
+<div id="db" class="section page-break">
+  <div class="doc-divider">
+    <div class="doc-divider-inner">
+      <div class="doc-code">§ 7 · Database Schema (v6)</div>
+      <div class="doc-title">Full PostgreSQL + pgvector Schema</div>
+      <div class="doc-desc">Complete relational schema with all columns, types, constraints, and v6 additions. All tables live in Supabase PostgreSQL with Row-Level Security enabled on every table.</div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="two-col">
+      <div>
+        <div class="schema-card">
+          <div class="schema-head"><span class="schema-name">users</span><span class="schema-note">v6 — baseline_answer_count added</span></div>
+          <div class="schema-body">
+            <div class="col-row"><span class="col-pk">PK</span><span class="col-name">id</span><span class="col-type">uuid</span><span class="col-note">DEFAULT gen_random_uuid()</span></div>
+            <div class="col-row"><span class="col-pk"></span><span class="col-name">email</span><span class="col-type">text</span><span class="col-note">UNIQUE NOT NULL</span></div>
+            <div class="col-row"><span class="col-pk"></span><span class="col-name">full_name</span><span class="col-type">text</span><span class="col-note">NOT NULL</span></div>
+            <div class="col-row"><span class="col-pk"></span><span class="col-name">role</span><span class="col-type">text</span><span class="col-note">ENUM('teacher','student','admin')</span></div>
+            <div class="col-row"><span class="col-pk"></span><span class="col-name">institution_name</span><span class="col-type">text</span><span class="col-note">NULLABLE</span></div>
+            <div class="col-row"><span class="col-pk" style="color:var(--red);">v6</span><span class="col-name">baseline_answer_count</span><span class="col-type">int</span><span class="col-note">DEFAULT 0 · Stylometric tier router</span></div>
+            <div class="col-row"><span class="col-pk"></span><span class="col-name">consent_given_at</span><span class="col-type">timestamptz</span><span class="col-note">NULLABLE · Last consent timestamp</span></div>
+            <div class="col-row"><span class="col-pk"></span><span class="col-name">created_at</span><span class="col-type">timestamptz</span><span class="col-note">DEFAULT now()</span></div>
+          </div>
+        </div>
+        <div class="schema-card">
+          <div class="schema-head"><span class="schema-name">exams</span><span class="schema-note">Core exam entity</span></div>
+          <div class="schema-body">
+            <div class="col-row"><span class="col-pk">PK</span><span class="col-name">id</span><span class="col-type">uuid</span><span class="col-note"></span></div>
+            <div class="col-row"><span class="col-fk">FK</span><span class="col-name">teacher_id</span><span class="col-type">uuid</span><span class="col-note">→ users.id</span></div>
+            <div class="col-row"><span class="col-pk"></span><span class="col-name">title</span><span class="col-type">text</span><span class="col-note">NOT NULL</span></div>
+            <div class="col-row"><span class="col-pk"></span><span class="col-name">subject</span><span class="col-type">text</span><span class="col-note">NOT NULL</span></div>
+            <div class="col-row"><span class="col-pk"></span><span class="col-name">join_code</span><span class="col-type">text</span><span class="col-note">UNIQUE 6-char alphanumeric</span></div>
+            <div class="col-row"><span class="col-pk"></span><span class="col-name">status</span><span class="col-type">text</span><span class="col-note">ENUM('draft','active','closed')</span></div>
+            <div class="col-row"><span class="col-pk"></span><span class="col-name">paper_config</span><span class="col-type">jsonb</span><span class="col-note">Full PCE configuration</span></div>
+            <div class="col-row"><span class="col-pk"></span><span class="col-name">duration_minutes</span><span class="col-type">int</span><span class="col-note">NOT NULL</span></div>
+            <div class="col-row"><span class="col-pk"></span><span class="col-name">starts_at</span><span class="col-type">timestamptz</span><span class="col-note">NULLABLE</span></div>
+            <div class="col-row"><span class="col-pk"></span><span class="col-name">created_at</span><span class="col-type">timestamptz</span><span class="col-note">DEFAULT now()</span></div>
+          </div>
+        </div>
+        <div class="schema-card">
+          <div class="schema-head"><span class="schema-name">materials</span><span class="schema-note">Uploaded teacher documents</span></div>
+          <div class="schema-body">
+            <div class="col-row"><span class="col-pk">PK</span><span class="col-name">id</span><span class="col-type">uuid</span><span class="col-note"></span></div>
+            <div class="col-row"><span class="col-fk">FK</span><span class="col-name">exam_id</span><span class="col-type">uuid</span><span class="col-note">→ exams.id</span></div>
+            <div class="col-row"><span class="col-pk"></span><span class="col-name">filename</span><span class="col-type">text</span><span class="col-note">Original filename</span></div>
+            <div class="col-row"><span class="col-pk"></span><span class="col-name">storage_path</span><span class="col-type">text</span><span class="col-note">Supabase Storage path</span></div>
+            <div class="col-row"><span class="col-pk"></span><span class="col-name">file_type</span><span class="col-type">text</span><span class="col-note">pdf | docx | txt</span></div>
+            <div class="col-row"><span class="col-pk"></span><span class="col-name">chunk_count</span><span class="col-type">int</span><span class="col-note">Number of embedded chunks</span></div>
+            <div class="col-row"><span class="col-pk"></span><span class="col-name">chapter_map</span><span class="col-type">jsonb</span><span class="col-note">{"ch12": [0,48], "ch13": [49,98]}</span></div>
+            <div class="col-row"><span class="col-pk"></span><span class="col-name">ocr_used</span><span class="col-type">boolean</span><span class="col-note">DEFAULT false</span></div>
+          </div>
+        </div>
+        <div class="schema-card">
+          <div class="schema-head"><span class="schema-name">integrity_appeals</span><span class="schema-note" style="color:var(--red);">NEW v6 — Appeal flow</span></div>
+          <div class="schema-body">
+            <div class="col-row"><span class="col-pk">PK</span><span class="col-name">id</span><span class="col-type">uuid</span><span class="col-note"></span></div>
+            <div class="col-row"><span class="col-fk">FK</span><span class="col-name">session_id</span><span class="col-type">uuid</span><span class="col-note">→ exam_sessions.id</span></div>
+            <div class="col-row"><span class="col-pk"></span><span class="col-name">student_response_text</span><span class="col-type">text</span><span class="col-note">Max 500 words</span></div>
+            <div class="col-row"><span class="col-pk"></span><span class="col-name">submitted_at</span><span class="col-type">timestamptz</span><span class="col-note">NULLABLE until submitted</span></div>
+            <div class="col-row"><span class="col-pk"></span><span class="col-name">deadline_at</span><span class="col-type">timestamptz</span><span class="col-note">submitted_at + 24hrs</span></div>
+          </div>
+        </div>
+      </div>
+      <div>
+        <div class="schema-card">
+          <div class="schema-head"><span class="schema-name">document_chunks</span><span class="schema-note">pgvector embeddings</span></div>
+          <div class="schema-body">
+            <div class="col-row"><span class="col-pk">PK</span><span class="col-name">id</span><span class="col-type">uuid</span><span class="col-note"></span></div>
+            <div class="col-row"><span class="col-fk">FK</span><span class="col-name">material_id</span><span class="col-type">uuid</span><span class="col-note">→ materials.id</span></div>
+            <div class="col-row"><span class="col-pk"></span><span class="col-name">content</span><span class="col-type">text</span><span class="col-note">Chunk text content</span></div>
+            <div class="col-row"><span class="col-pk"></span><span class="col-name">embedding</span><span class="col-type">vector(384)</span><span class="col-note">MiniLM-L6-v2 embedding</span></div>
+            <div class="col-row"><span class="col-pk"></span><span class="col-name">chapter_id</span><span class="col-type">text</span><span class="col-note">ch12 | ch13 | ch14</span></div>
+            <div class="col-row"><span class="col-pk"></span><span class="col-name">page_start</span><span class="col-type">int</span><span class="col-note">Source page (1-indexed)</span></div>
+            <div class="col-row"><span class="col-pk"></span><span class="col-name">chunk_index</span><span class="col-type">int</span><span class="col-note">Position in document</span></div>
+          </div>
+        </div>
+        <div class="schema-card">
+          <div class="schema-head"><span class="schema-name">exam_sessions</span><span class="schema-note" style="color:var(--red);">v6 — review + appeal fields</span></div>
+          <div class="schema-body">
+            <div class="col-row"><span class="col-pk">PK</span><span class="col-name">id</span><span class="col-type">uuid</span><span class="col-note"></span></div>
+            <div class="col-row"><span class="col-fk">FK</span><span class="col-name">exam_id</span><span class="col-type">uuid</span><span class="col-note">→ exams.id</span></div>
+            <div class="col-row"><span class="col-fk">FK</span><span class="col-name">student_id</span><span class="col-type">uuid</span><span class="col-note">→ users.id</span></div>
+            <div class="col-row"><span class="col-pk"></span><span class="col-name">status</span><span class="col-type">text</span><span class="col-note">in_progress | completed | paused</span></div>
+            <div class="col-row"><span class="col-pk"></span><span class="col-name">integrity_state</span><span class="col-type">text</span><span class="col-note">WATCH | WARN | FLAGGED</span></div>
+            <div class="col-row"><span class="col-pk"></span><span class="col-name">integrity_score</span><span class="col-type">numeric</span><span class="col-note">0–100, live updated</span></div>
+            <div class="col-row"><span class="col-pk"></span><span class="col-name">integrity_ci</span><span class="col-type">numeric</span><span class="col-note">±7 (Tier 1) or ±15 (Tier 2)</span></div>
+            <div class="col-row"><span class="col-pk"></span><span class="col-name">baseline_tier</span><span class="col-type">int</span><span class="col-note">1 | 2 | 3</span></div>
+            <div class="col-row"><span class="col-pk"></span><span class="col-name">consent_given_at</span><span class="col-type">timestamptz</span><span class="col-note">v6 · Explicit consent timestamp</span></div>
+            <div class="col-row" style="background:#fdf1f0;"><span class="col-pk" style="color:var(--red);">v6</span><span class="col-name">review_status</span><span class="col-type">text</span><span class="col-note">pending | responded | resolved</span></div>
+            <div class="col-row" style="background:#fdf1f0;"><span class="col-pk" style="color:var(--red);">v6</span><span class="col-name">teacher_decision</span><span class="col-type">text</span><span class="col-note">confirmed | cleared | NULL</span></div>
+            <div class="col-row" style="background:#fdf1f0;"><span class="col-pk" style="color:var(--red);">v6</span><span class="col-name">decision_at</span><span class="col-type">timestamptz</span><span class="col-note">NULLABLE</span></div>
+          </div>
+        </div>
+        <div class="schema-card">
+          <div class="schema-head"><span class="schema-name">answers</span><span class="schema-note">Per-question responses + scores</span></div>
+          <div class="schema-body">
+            <div class="col-row"><span class="col-pk">PK</span><span class="col-name">id</span><span class="col-type">uuid</span><span class="col-note"></span></div>
+            <div class="col-row"><span class="col-fk">FK</span><span class="col-name">session_id</span><span class="col-type">uuid</span><span class="col-note">→ exam_sessions.id</span></div>
+            <div class="col-row"><span class="col-pk"></span><span class="col-name">question_id</span><span class="col-type">uuid</span><span class="col-note">→ questions.id</span></div>
+            <div class="col-row"><span class="col-pk"></span><span class="col-name">answer_text</span><span class="col-type">text</span><span class="col-note">Student's raw response</span></div>
+            <div class="col-row"><span class="col-pk"></span><span class="col-name">perplexity_score</span><span class="col-type">numeric</span><span class="col-note">NULLABLE (if logprobs unavailable)</span></div>
+            <div class="col-row"><span class="col-pk"></span><span class="col-name">style_distance</span><span class="col-type">numeric</span><span class="col-note">Cosine dist from baseline</span></div>
+            <div class="col-row"><span class="col-pk"></span><span class="col-name">eval_score</span><span class="col-type">numeric</span><span class="col-note">NULLABLE (manual review if null)</span></div>
+            <div class="col-row"><span class="col-pk" style="color:var(--orange);">v5</span><span class="col-name">time_spent_seconds</span><span class="col-type">int</span><span class="col-note">Frontend submits with each answer</span></div>
+            <div class="col-row"><span class="col-pk"></span><span class="col-name">source_chunk_ids</span><span class="col-type">uuid[]</span><span class="col-note">RAG source chunks for this question</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ─────────────────────────── 8. API SPECIFICATION ─────────────────────────── -->
+<div id="api" class="section page-break">
+  <div class="doc-divider">
+    <div class="doc-divider-inner">
+      <div class="doc-code">§ 8 · API Specification</div>
+      <div class="doc-title">REST API Endpoint Reference</div>
+      <div class="doc-desc">Complete REST API specification for all FastAPI endpoints. All endpoints require Bearer JWT authentication except /health and /auth/*. Base URL: https://examguard-api.onrender.com/api/v1</div>
+    </div>
+  </div>
+
+  <div class="section">
+    <h3>Authentication</h3>
+    <div class="api-card"><div class="api-head"><span class="method m-post">POST</span><span class="api-path">/auth/signup</span><span class="api-desc">Create teacher or student account</span></div><div class="api-body">Body: {email, password, full_name, role, institution_name?} · Returns: {access_token, user_id, role}</div></div>
+    <div class="api-card"><div class="api-head"><span class="method m-post">POST</span><span class="api-path">/auth/login</span><span class="api-desc">Authenticate existing user</span></div><div class="api-body">Body: {email, password} · Returns: {access_token, refresh_token, user}</div></div>
+
+    <h3>Exams</h3>
+    <div class="api-card"><div class="api-head"><span class="method m-post">POST</span><span class="api-path">/exams</span><span class="api-desc">Create new exam (teacher only)</span></div><div class="api-body">Body: {title, subject, duration_minutes} · Returns: {exam_id, join_code, status: "draft"}</div></div>
+    <div class="api-card"><div class="api-head"><span class="method m-put">PUT</span><span class="api-path">/exams/{exam_id}/paper-config</span><span class="api-desc">Set paper configuration (teacher only)</span></div><div class="api-body">Body: paper_config JSON · Validates marks budget, section types, Bloom levels · Returns: {validation_result, section_summary}</div></div>
+    <div class="api-card"><div class="api-head"><span class="method m-post">POST</span><span class="api-path">/exams/{exam_id}/activate</span><span class="api-desc">Activate exam after preview approval</span></div><div class="api-body">Changes status: draft → active. Generates join code if not set. Returns: {join_code, starts_at}</div></div>
+    <div class="api-card"><div class="api-head"><span class="method m-get">GET</span><span class="api-path">/exams/{exam_id}/live</span><span class="api-desc">Real-time dashboard state for teacher</span></div><div class="api-body">Returns: {sessions: [{student_name, integrity_score, state, current_q, elapsed_s}]}</div></div>
+
+    <h3>Material Upload & Ingestion</h3>
+    <div class="api-card"><div class="api-head"><span class="method m-post">POST</span><span class="api-path">/materials/upload</span><span class="api-desc">Upload course material PDF/DOCX (teacher only)</span></div><div class="api-body">Multipart: file + exam_id · Async: triggers ingestion pipeline · Returns: {material_id, status: "processing"}</div></div>
+    <div class="api-card"><div class="api-head"><span class="method m-get">GET</span><span class="api-path">/materials/{material_id}/status</span><span class="api-desc">Poll ingestion progress</span></div><div class="api-body">Returns: {status, chunk_count, chapter_map, ocr_used} — poll until status="ready"</div></div>
+
+    <h3>Sessions (Student-facing)</h3>
+    <div class="api-card"><div class="api-head"><span class="method m-post">POST</span><span class="api-path">/sessions/join</span><span class="api-desc">Student joins exam via join code</span></div><div class="api-body">Body: {join_code, student_name} · Returns: {session_id, consent_required: true}</div></div>
+    <div class="api-card"><div class="api-head"><span class="method m-post">POST</span><span class="api-path">/sessions/{session_id}/consent</span><span class="api-desc">Record student consent</span></div><div class="api-body">Body: {consented: true} · Records consent_given_at · Returns: {liveness_required: true}</div></div>
+    <div class="api-card"><div class="api-head"><span class="method m-post">POST</span><span class="api-path">/sessions/{session_id}/liveness</span><span class="api-desc">Record blink liveness completion</span></div><div class="api-body">Body: {blinks_detected: 2, completed_in_seconds: 4.2} · Returns: {exam_ready: true, questions: [...]}</div></div>
+    <div class="api-card"><div class="api-head"><span class="method m-post">POST</span><span class="api-path">/sessions/{session_id}/answers</span><span class="api-desc">Submit answer + proctoring event bundle</span></div><div class="api-body">Body: {question_id, answer_text, time_spent_seconds, proctor_events: [{type, timestamp}]} · Returns: {answer_id, integrity_update}</div></div>
+
+    <h3>Integrity & Reports</h3>
+    <div class="api-card"><div class="api-head"><span class="method m-get">GET</span><span class="api-path">/sessions/{session_id}/integrity</span><span class="api-desc">Get current integrity snapshot</span></div><div class="api-body">Returns: {score, state, ci, factors, baseline_tier, flags}</div></div>
+    <div class="api-card"><div class="api-head"><span class="method m-post">POST</span><span class="api-path">/sessions/{session_id}/reports/generate</span><span class="api-desc">Trigger post-exam report generation</span></div><div class="api-body">Async. Returns: {report_id, eta_seconds}. Poll /reports/{report_id}/status until ready.</div></div>
+    <div class="api-card"><div class="api-head"><span class="method m-post">POST</span><span class="api-path">/sessions/{session_id}/appeal</span><span class="api-desc">Student submits grade appeal</span></div><div class="api-body">Body: {response_text} (max 500 words) · Validates 24hr deadline not expired · Returns: {appeal_id, submitted_at}</div></div>
+    <div class="api-card"><div class="api-head"><span class="method m-put">PUT</span><span class="api-path">/sessions/{session_id}/decision</span><span class="api-desc">Teacher renders final decision (teacher only)</span></div><div class="api-body">Body: {decision: "confirmed" | "cleared"} · Releases grade, logs decision_at · Returns: {review_status: "resolved"}</div></div>
+    <div class="api-card"><div class="api-head"><span class="method m-get">GET</span><span class="api-path">/health</span><span class="api-desc">Keep-alive health check (public)</span></div><div class="api-body">Returns: {status: "ok", timestamp, ollama_ready: bool, db_connected: bool}</div></div>
+  </div>
+</div>
+
+<!-- ─────────────────────────── 9. LLM ROUTING ─────────────────────────── -->
+<div id="integrity" class="section page-break">
+  <div class="doc-divider">
+    <div class="doc-divider-inner">
+      <div class="doc-code">§ 9 · LLM Routing & Integrity Engine</div>
+      <div class="doc-title">Routing Table, Fallbacks & 3-Tier Stylometric Strategy</div>
+      <div class="doc-desc">Every task has a preferred model, a fallback, and a documented degraded mode. The routing table is an importable Python module — not environment guesswork.</div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="sec-label">LLM Routing Table (v6)</div>
+    <table class="doc-table">
+      <thead><tr><th>Task</th><th>Preferred (API Key Set)</th><th>Fallback (Rate Limit / Error)</th><th>Degraded Mode (Both Fail)</th><th>Student Impact</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Question Generation</strong></td><td>Gemini 1.5 Flash</td><td>Ollama mistral:7b</td><td>Pre-cached question pool (50/subject)</td><td>"Using cached questions — generation queue busy."</td></tr>
+        <tr><td><strong>Answer Evaluation (subjective)</strong></td><td>Gemini 1.5 Flash</td><td>Ollama mistral:7b</td><td>score = null → manual review</td><td>"AI eval unavailable — manual review required."</td></tr>
+        <tr><td><strong>Report Summary</strong></td><td>Gemini 1.5 Flash</td><td>Ollama mistral:7b</td><td>Template-based report (no narrative)</td><td>Report generated, summary section shows data only.</td></tr>
+        <tr><td><strong>AI Cheat Scoring (Perplexity)</strong></td><td>Ollama logprobs (always local)</td><td>Sliding-window Shannon entropy</td><td>Perplexity factor = 0, score recalculated 4-factor</td><td>"⚠ Perplexity signal unavailable." Other 4 signals active.</td></tr>
+        <tr><td><strong>Stylometric Scoring</strong></td><td>Ollama + sentence-transformers (local)</td><td>scikit-learn cosine on TF-IDF</td><td>Stylometric factor disabled, Tier 3 rules apply</td><td>Score without stylometric. Teacher notified.</td></tr>
+        <tr><td><strong>Gaze / EAR / Liveness</strong></td><td>MediaPipe WASM (browser, always)</td><td>None — webcam required</td><td>Session blocked; teacher manually approves no-webcam mode</td><td>"Webcam required. Contact teacher if camera issues."</td></tr>
+        <tr><td><strong>OCR (scanned PDF)</strong></td><td>pytesseract local</td><td>Google Vision API</td><td>Teacher prompted to paste text manually</td><td>"Auto-OCR failed. Please paste text manually."</td></tr>
+      </tbody>
+    </table>
+
+    <div class="sec-label" style="margin-top:28px;">3-Tier Stylometric Baseline Strategy</div>
+    <div class="card-grid g3" style="margin:16px 0;">
+      <div class="tier-card tier-1">
+        <div class="tier-badge">Tier 1 · Full Detection</div>
+        <div class="tier-cond">baseline_answer_count ≥ 3 prior exams</div>
+        <div class="tier-detail">Full stylometric detection active. Style baseline built from average of all prior exam answers. style_distance computed with sentence-transformers cosine similarity. Stylometric factor = 25% weight. Confidence interval: ±7. This is the standard operating mode for returning students. Report shows: "Stylometric: Tier 1 (full baseline, N prior exams)."</div>
+      </div>
+      <div class="tier-card tier-2">
+        <div class="tier-badge">Tier 2 · Partial Detection</div>
+        <div class="tier-cond">baseline_answer_count = 1–2 prior exams</div>
+        <div class="tier-detail">Stylometric detection active but downweighted. Baseline built from limited prior answers. Wider confidence interval (±15 instead of ±7). Stylometric factor weight reduced: 25% → 10%. Remaining 15% redistributed: behavioral 30%→40%, answer quality 25%→30%. Teacher sees: "Stylometric: limited baseline — detection less precise."</div>
+      </div>
+      <div class="tier-card tier-3">
+        <div class="tier-badge">Tier 3 · Disabled (First Exam)</div>
+        <div class="tier-cond">baseline_answer_count = 0 (first exam on platform)</div>
+        <div class="tier-detail">Stylometric factor completely disabled. Score recalculated as 4-factor only: behavioral (37.5%), AI-perplexity (18.75%), answer quality (31.25%), time-anomaly (12.5%). Teacher sees: "⚠ First exam — stylometric detection unavailable. Score based on 4 signals." This exam's answers build the student's baseline for future exams.</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ─────────────────────────── 10. STRATEGIC PLAN ─────────────────────────── -->
+<div id="strategy" class="section page-break">
+  <div class="doc-divider">
+    <div class="doc-divider-inner">
+      <div class="doc-code">§ 10 · Strategic Plan</div>
+      <div class="doc-title">Competitive Positioning, Market Opportunity & Go-to-Market</div>
+      <div class="doc-desc">Strategic context for ExamGuard AI — from hackathon positioning through product-market fit and long-term vision for India's educational technology market.</div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="sec-label">Competitive Analysis</div>
+    <table class="doc-table">
+      <thead><tr><th>Feature</th><th>ExamGuard AI</th><th>Proctorio</th><th>Google Forms</th><th>Moodle Quiz</th></tr></thead>
+      <tbody>
+        <tr><td>AI Question Generation from own material</td><td>✅ Yes (RAG)</td><td>❌ No</td><td>❌ No</td><td>❌ No</td></tr>
+        <tr><td>Bloom's Taxonomy enforcement</td><td>✅ 6 levels enforced</td><td>❌ No</td><td>❌ No</td><td>Partial</td></tr>
+        <tr><td>AI-written answer detection</td><td>✅ Yes (perplexity + stylometric)</td><td>❌ No</td><td>❌ No</td><td>❌ No</td></tr>
+        <tr><td>Stylometric baseline comparison</td><td>✅ 3-tier system</td><td>❌ No</td><td>❌ No</td><td>❌ No</td></tr>
+        <tr><td>Student consent + transparency</td><td>✅ Explicit consent screen</td><td>⚠️ Partial</td><td>❌ N/A</td><td>❌ N/A</td></tr>
+        <tr><td>Grade appeal workflow</td><td>✅ Built-in</td><td>❌ No</td><td>❌ No</td><td>❌ No</td></tr>
+        <tr><td>DPDP Compliance (India)</td><td>✅ Yes</td><td>❌ FERPA only (USA)</td><td>❌ No</td><td>❌ No</td></tr>
+        <tr><td>Cost per exam session</td><td>✅ &lt;₹5 (self-hosted)</td><td>❌ ₹2,000–5,000</td><td>✅ Free (no proctoring)</td><td>Free (no AI)</td></tr>
+        <tr><td>Offline resilience</td><td>✅ localStorage 30s backup</td><td>❌ No</td><td>❌ No</td><td>❌ No</td></tr>
+        <tr><td>Local AI (no cloud dependency)</td><td>✅ Ollama fallback</td><td>❌ Cloud only</td><td>❌ Cloud only</td><td>❌ No AI</td></tr>
+      </tbody>
+    </table>
+
+    <div class="sec-label" style="margin-top:28px;">Market Opportunity</div>
+    <div class="card-grid g4">
+      <div class="metric-card" style="background:var(--blue-bg);border-color:var(--blue-mid);">
+        <div class="metric-label" style="color:var(--blue);">Total Addressable Market</div>
+        <div class="metric-val" style="color:var(--blue);">90M</div>
+        <div class="metric-sub">Exam-takers in India annually (CBSE + State Boards + University)</div>
+      </div>
+      <div class="metric-card" style="background:var(--green-bg);border-color:var(--green-mid);">
+        <div class="metric-label" style="color:var(--green);">Serviceable Market (Online)</div>
+        <div class="metric-val" style="color:var(--green);">18M</div>
+        <div class="metric-sub">Students in institutions with internet + computer access</div>
+      </div>
+      <div class="metric-card" style="background:var(--amber-bg);border-color:var(--amber-mid);">
+        <div class="metric-label" style="color:var(--amber);">Current Proctoring Cost</div>
+        <div class="metric-val" style="color:var(--amber);">₹3K</div>
+        <div class="metric-sub">Average cost per student per exam (Proctorio equivalent)</div>
+      </div>
+      <div class="metric-card" style="background:var(--purple-bg);border-color:var(--purple-mid);">
+        <div class="metric-label" style="color:var(--purple);">ExamGuard Target Price</div>
+        <div class="metric-val" style="color:var(--purple);">₹5</div>
+        <div class="metric-sub">Per exam session (SaaS + self-hosted options)</div>
+      </div>
+    </div>
+
+    <div class="sec-label" style="margin-top:28px;">FAR AWAY Hackathon Strategy</div>
+    <div class="two-col">
+      <div>
+        <h3>Round 1 — Remote Submission Strategy</h3>
+        <div class="callout cl-green">
+          <div class="ct">Theme Alignment: Double-themes = Double score potential</div>
+          <div class="cb">ExamGuard AI addresses two FAR AWAY themes simultaneously: <strong>Examinations</strong> (secure, fair, intelligent exam platform) and <strong>Agentic & Autonomous Systems</strong> (10-agent LangGraph pipeline that thinks, decides, and acts independently). Judges scoring on both themes = 2× opportunity for top marks.</div>
+        </div>
+        <div class="callout cl-blue">
+          <div class="ct">Judging Criteria Mapping</div>
+          <div class="cb"><strong>Innovation & Technical Depth:</strong> 10 agents, 5-factor scoring, 3-tier stylometric, Bloom's templates, logprobs fallback — all novel combinations.<br><strong>Real-World Impact:</strong> 90M exam-takers, ₹3K→₹5 cost reduction, India-specific DPDP compliance.<br><strong>Engineering Quality:</strong> 40+ daily commits, CI green, Docker Compose, calibration notebook N=60.<br><strong>Execution Quality:</strong> Live seed_demo.py, Render deployed, LangGraph Studio trace recorded.</div>
+        </div>
+      </div>
+      <div>
+        <h3>Round 2 — Delhi Hardware Round</h3>
+        <div class="callout cl-amber">
+          <div class="ct">Hardware Differentiator: Raspberry Pi Proctor</div>
+          <div class="cb">Pi 4 + camera module running Ollama quantized Llama 3.2 1B. Dedicated per-seat proctor device. PCB design in KiCad (eligible for FAR AWAY hardware rewards). No dependency on student's webcam. KiCad schematic or photo of Pi setup already in README to qualify for hardware prize path — even non-functional prototype qualifies.</div>
+        </div>
+        <div class="callout cl-purple">
+          <div class="ct">Top 100 Path to Delhi</div>
+          <div class="cb">Top 100 teams qualify for Delhi. Additional 50 waitlisted on merit and rankings. Waitlisted teams invited if a qualified team declines. Strategy: maximize judge scores on Innovation + Engineering + Real-World Impact criteria. The 3-tier stylometric, 10-agent claim being accurate and demonstrable, and the appeal flow are the key differentiators judges will remember.</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="sec-label" style="margin-top:28px;">Risk Assessment</div>
+    <div class="risk-head"><span>Risk</span><span>Likelihood</span><span>Impact</span><span>Mitigation</span></div>
+    <div style="border:1px solid var(--border);border-radius:0 0 var(--radius) var(--radius);overflow:hidden;">
+      <div class="risk-row"><div>Fly.io Ollama cold start kills demo</div><div><span class="badge b-high">High</span></div><div><span class="badge b-high">Critical</span></div><div>seed_demo.py Step 0: warmup ping. GitHub Actions cron: /health every 10 min. Docker Compose local fallback always available.</div></div>
+      <div class="risk-row"><div>Gemini rate limit mid-demo</div><div><span class="badge b-med">Medium</span></div><div><span class="badge b-high">High</span></div><div>Exponential backoff → Ollama fallback documented in code. Pre-cached question pool as last resort. Teacher sees informative banner.</div></div>
+      <div class="risk-row"><div>Stylometric fails for new students</div><div><span class="badge b-high">High</span></div><div><span class="badge b-high">High</span></div><div>3-tier baseline strategy (Gap 2 v6). First exam: stylometric disabled, 4-factor score, teacher notified. No silent failures.</div></div>
+      <div class="risk-row"><div>Ollama logprobs returns null</div><div><span class="badge b-med">Medium</span></div><div><span class="badge b-med">Medium</span></div><div>Startup check for logprob availability. Shannon entropy fallback always available. perplexity_notes.md documents this.</div></div>
+      <div class="risk-row"><div>Judge asks about false positives</div><div><span class="badge b-high">High</span></div><div><span class="badge b-med">Medium</span></div><div>Answer: "8% FPR on N=60 calibration dataset. Documented in research/calibration/eval_notebook.ipynb. 3-tier system prevents cold-start false positives. Teacher is always final decision maker."</div></div>
+      <div class="risk-row"><div>NCERT PDF legal questions</div><div><span class="badge b-low">Low</span></div><div><span class="badge b-med">Medium</span></div><div>README cites: "NCERT textbooks published by Government of India, freely available for educational use per NCERT's distribution policy. Source: ncert.nic.in. No commercial use."</div></div>
+    </div>
+  </div>
+</div>
+
+<!-- ─────────────────────────── 11. IMPLEMENTATION PLAN ─────────────────────────── -->
+<div id="impl" class="section page-break">
+  <div class="doc-divider">
+    <div class="doc-divider-inner">
+      <div class="doc-code">§ 11 · Implementation Plan</div>
+      <div class="doc-title">10-Day Build Roadmap · Daily Commits · Ship Every Day</div>
+      <div class="doc-desc">Detailed day-by-day build plan. Judges see the commit history. No single-commit dumps. Each day has a named release milestone. Total: 40+ commits over 10 days.</div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="commit-track">
+      <div class="commit-day">
+        <div class="cd-head" style="background:var(--purple);">
+          <div class="cd-num">Day 1–2</div>
+          <div class="cd-title">Foundation</div>
+        </div>
+        <div class="cd-body">
+          <div class="cd-commit">init: monorepo structure</div>
+          <div class="cd-commit">feat: supabase auth (teacher+student)</div>
+          <div class="cd-commit">feat: db migrations + pgvector</div>
+          <div class="cd-commit">feat: RLS policies (all tables)</div>
+          <div class="cd-commit" style="color:var(--red);">feat: baseline_answer_count col [v6]</div>
+          <div class="cd-commit" style="color:var(--red);">feat: consent + appeal schema [v6]</div>
+          <div class="cd-commit">feat: exam CRUD API</div>
+          <div class="cd-commit">feat: join-code system</div>
+          <div class="cd-commit">feat: paper_config schema</div>
+          <div class="cd-commit">release: v0.1-foundation</div>
+        </div>
+      </div>
+      <div class="commit-day">
+        <div class="cd-head" style="background:var(--blue);">
+          <div class="cd-num">Day 3–4</div>
+          <div class="cd-title">RAG + OCR</div>
+        </div>
+        <div class="cd-body">
+          <div class="cd-commit">feat: material-upload-endpoint</div>
+          <div class="cd-commit">feat: pymupdf-pdf-parser</div>
+          <div class="cd-commit">feat: pytesseract-ocr-fallback</div>
+          <div class="cd-commit">feat: chunk-embed-store-pipeline</div>
+          <div class="cd-commit">feat: chapter-heading-detector</div>
+          <div class="cd-commit">feat: pgvector-similarity-query</div>
+          <div class="cd-commit">feat: chapter-filtered-retrieval</div>
+          <div class="cd-commit" style="color:var(--red);">feat: pre-cached-question-pool [v6]</div>
+          <div class="cd-commit">release: v0.2-rag-ocr</div>
+        </div>
+      </div>
+      <div class="commit-day">
+        <div class="cd-head" style="background:var(--teal);">
+          <div class="cd-num">Day 5–6</div>
+          <div class="cd-title">Paper Config + Agents</div>
+        </div>
+        <div class="cd-body">
+          <div class="cd-commit">feat: paper-config-engine-api</div>
+          <div class="cd-commit">feat: marks-budget-validator</div>
+          <div class="cd-commit" style="color:var(--red);">feat: bloom-template-library [v6]</div>
+          <div class="cd-commit">feat: question-agent-rag-mode</div>
+          <div class="cd-commit">feat: langgraph-stategraph-10agents</div>
+          <div class="cd-commit">feat: orchestrator-state-machine</div>
+          <div class="cd-commit">feat: gemini-ollama-routing-table</div>
+          <div class="cd-commit">feat: paper-preview-endpoint</div>
+          <div class="cd-commit">release: v0.3-agents</div>
+        </div>
+      </div>
+      <div class="commit-day">
+        <div class="cd-head" style="background:var(--amber);">
+          <div class="cd-num">Day 7–8</div>
+          <div class="cd-title">Proctoring + Integrity</div>
+        </div>
+        <div class="cd-body">
+          <div class="cd-commit" style="color:var(--red);">feat: consent-screen-ui [v6]</div>
+          <div class="cd-commit">feat: mediapipe-wasm-gaze-ear</div>
+          <div class="cd-commit">feat: blink-liveness-challenge</div>
+          <div class="cd-commit">feat: web-audio-api-integration</div>
+          <div class="cd-commit">feat: proctor-event-websocket</div>
+          <div class="cd-commit" style="color:var(--red);">feat: 3tier-stylometric-baseline [v6]</div>
+          <div class="cd-commit" style="color:var(--red);">feat: logprobs-entropy-fallback [v6]</div>
+          <div class="cd-commit">feat: 5factor-integrity-score</div>
+          <div class="cd-commit">release: v0.4-proctoring</div>
+        </div>
+      </div>
+      <div class="commit-day">
+        <div class="cd-head" style="background:var(--green);">
+          <div class="cd-num">Day 9–10</div>
+          <div class="cd-title">Reports + Polish</div>
+        </div>
+        <div class="cd-body">
+          <div class="cd-commit" style="color:var(--red);">feat: review-agent-appeal-flow [v6]</div>
+          <div class="cd-commit">feat: reportlab-pdf-generator</div>
+          <div class="cd-commit">feat: localStorage-30s-backup</div>
+          <div class="cd-commit">feat: reconnect-resync-logic</div>
+          <div class="cd-commit">chore: render-deploy + warmup cron</div>
+          <div class="cd-commit">feat: seed_demo_py-v6-final</div>
+          <div class="cd-commit">docs: dpdp-compliance-checklist</div>
+          <div class="cd-commit">test: calibration-eval-n60</div>
+          <div class="cd-commit">release: v1.0-submission</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="sec-label" style="margin-top:28px;">Demo Script (4:30 target runtime)</div>
+    <div style="background:var(--navy);border-radius:var(--radius);overflow:hidden;margin:16px 0;">
+      <div style="padding:16px 20px;border-bottom:1px solid rgba(255,255,255,.1);">
+        <div style="font-family:var(--ff-head);font-size:16px;font-style:italic;color:#fff;">ExamGuard AI Demo Script · 4:30 Target Runtime</div>
+        <div style="font-size:11px;color:rgba(255,255,255,.45);margin-top:4px;">FAR AWAY 2026 · Examinations + Agentic Systems themes</div>
+      </div>
+      <div style="padding:16px 20px;display:grid;grid-template-columns:80px 1fr;gap:0;">
+        <div style="padding:12px 0;border-bottom:1px solid rgba(255,255,255,.08);font-family:var(--ff-mono);font-size:12px;color:#a78bfa;font-weight:700;">0:00</div>
+        <div style="padding:12px 0;border-bottom:1px solid rgba(255,255,255,.08);">
+          <div style="font-size:11px;color:#6ee7b7;font-family:var(--ff-mono);margin-bottom:4px;">SHOW: Slide 1 / README hero</div>
+          <div style="font-size:12px;color:rgba(255,255,255,.7);">"ExamGuard AI — built for two FAR AWAY themes: Examinations and Agentic Autonomous Systems. We solve three real problems: teachers spending 8 hours setting a paper, AI cheating that existing tools can't detect, and proctoring software that costs more than most Indian schools earn per student per month."</div>
+        </div>
+        <div style="padding:12px 0;border-bottom:1px solid rgba(255,255,255,.08);font-family:var(--ff-mono);font-size:12px;color:#a78bfa;font-weight:700;">0:30</div>
+        <div style="padding:12px 0;border-bottom:1px solid rgba(255,255,255,.08);">
+          <div style="font-size:11px;color:#6ee7b7;font-family:var(--ff-mono);margin-bottom:4px;">SHOW: LangGraph Studio — 10-agent StateGraph firing</div>
+          <div style="font-size:12px;color:rgba(255,255,255,.7);">"This is our 10-agent LangGraph pipeline — you can see each agent as a node. When a student submits an answer, watch the Stylometric Agent and Security Agent fire simultaneously, feed into the Orchestrator, and update the teacher dashboard in under 3 seconds. This is real autonomous behaviour — not a wrapper."</div>
+        </div>
+        <div style="padding:12px 0;border-bottom:1px solid rgba(255,255,255,.08);font-family:var(--ff-mono);font-size:12px;color:#a78bfa;font-weight:700;">1:10</div>
+        <div style="padding:12px 0;border-bottom:1px solid rgba(255,255,255,.08);">
+          <div style="font-size:11px;color:#6ee7b7;font-family:var(--ff-mono);margin-bottom:4px;">SHOW: Paper Config Engine — upload PDF, configure sections</div>
+          <div style="font-size:12px;color:rgba(255,255,255,.7);">"Teacher uploads their NCERT Physics PDF. OCR runs automatically. 486 chunks embedded. Here's the crown feature: Section A — 20 MCQ at Bloom's Remember. Section F — 1 essay at Bloom's Create. Chapter 14 gets 40% weightage. Budget guard: 80 marks confirmed. Question Agent reads this config and generates the paper from the teacher's own material."</div>
+        </div>
+        <div style="padding:12px 0;border-bottom:1px solid rgba(255,255,255,.08);font-family:var(--ff-mono);font-size:12px;color:#a78bfa;font-weight:700;">2:00</div>
+        <div style="padding:12px 0;border-bottom:1px solid rgba(255,255,255,.08);">
+          <div style="font-size:11px;color:#6ee7b7;font-family:var(--ff-mono);margin-bottom:4px;">SHOW: Student UI — Consent → Blink → Exam begins</div>
+          <div style="font-size:12px;color:rgba(255,255,255,.7);">"Student enters join code. Before anything: a consent screen listing exactly what we monitor — webcam for gaze, microphone for audio level only, answer text for AI detection, tab switches. All processed locally. Student confirms. Then a blink challenge — blink twice to prove liveness. Exam begins. Every student gets a unique paper generated from the same teacher config."</div>
+        </div>
+        <div style="padding:12px 0;border-bottom:1px solid rgba(255,255,255,.08);font-family:var(--ff-mono);font-size:12px;color:#a78bfa;font-weight:700;">2:40</div>
+        <div style="padding:12px 0;border-bottom:1px solid rgba(255,255,255,.08);">
+          <div style="font-size:11px;color:#6ee7b7;font-family:var(--ff-mono);margin-bottom:4px;">SHOW: Live teacher dashboard — integrity score drops 82→54</div>
+          <div style="font-size:12px;color:rgba(255,255,255,.7);">"Teacher's live dashboard. Watch Student 2. They've submitted an AI-generated answer. Watch the integrity score drop from 82 to 54. The tile turns red. Alert: perplexity 18.4, style_distance 0.73 vs baseline 0.11. The Orchestrator flags them. Grade held. Teacher is always the final decision-maker."</div>
+        </div>
+        <div style="padding:12px 0;border-bottom:1px solid rgba(255,255,255,.08);font-family:var(--ff-mono);font-size:12px;color:#a78bfa;font-weight:700;">3:20</div>
+        <div style="padding:12px 0;border-bottom:1px solid rgba(255,255,255,.08);">
+          <div style="font-size:11px;color:#6ee7b7;font-family:var(--ff-mono);margin-bottom:4px;">SHOW: Integrity report PDF — 5-factor breakdown, appeal flow</div>
+          <div style="font-size:12px;color:rgba(255,255,255,.7);">"One click generates the PDF. Five factors, confidence intervals, event timeline, source citations. Student receives an anonymized summary — plain-language flags only — and has 24 hours to submit an appeal. Teacher sees both side-by-side. That's how a fair system works."</div>
+        </div>
+        <div style="padding:12px 0;border-bottom:1px solid rgba(255,255,255,.08);font-family:var(--ff-mono);font-size:12px;color:#a78bfa;font-weight:700;">3:55</div>
+        <div style="padding:12px 0;border-bottom:1px solid rgba(255,255,255,.08);">
+          <div style="font-size:11px;color:#6ee7b7;font-family:var(--ff-mono);margin-bottom:4px;">SHOW: GitHub repo — commit history, seed_demo.py, CI badge</div>
+          <div style="font-size:12px;color:rgba(255,255,255,.7);">"Forty-plus commits over 10 days. seed_demo.py reproduces this demo in 5 minutes. Docker Compose for local setup. Calibration notebook: N=60, FPR 8%, TPR 91%. DPDP compliance checklist. This is built, not described."</div>
+        </div>
+        <div style="padding:12px 0;font-family:var(--ff-mono);font-size:12px;color:#a78bfa;font-weight:700;">4:20</div>
+        <div style="padding:12px 0;">
+          <div style="font-size:11px;color:#6ee7b7;font-family:var(--ff-mono);margin-bottom:4px;">SHOW: Architecture diagram + Round 2 Pi slide</div>
+          <div style="font-size:12px;color:rgba(255,255,255,.7);">"For Round 2 in Delhi: a Raspberry Pi 4 running quantised Llama on-device — a dedicated per-seat proctor unit. KiCad PCB schematic in the repo. ExamGuard AI: built for India's 90 million exam-takers. Thank you."</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ─────────────────────────── 12. UI/UX DESIGN ─────────────────────────── -->
+<div id="uiux" class="section page-break">
+  <div class="doc-divider">
+    <div class="doc-divider-inner">
+      <div class="doc-code">§ 12 · UI/UX Design System</div>
+      <div class="doc-title">Design Language, Component Library & Screen Specifications</div>
+      <div class="doc-desc">Complete design system for ExamGuard AI. Covers design principles, color system, typography, spacing, components, and detailed screen specifications for all major views.</div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="sec-label">Design Principles</div>
+    <div class="card-grid g3">
+      <div class="card" style="border-top:3px solid var(--blue);">
+        <div class="card-title">🔬 Clarity Over Cleverness</div>
+        <div class="card-sub">Teachers and students need to understand what the system is doing at all times. Every alert, badge, and score must be instantly interpretable. No ambiguous icons. Text labels everywhere. Error messages in plain English (or Hindi).</div>
+      </div>
+      <div class="card" style="border-top:3px solid var(--green);">
+        <div class="card-title">🤝 Trust Through Transparency</div>
+        <div class="card-sub">Students are being monitored. They must feel it's fair, not adversarial. Every monitored signal is disclosed upfront. Every flag comes with an explanation. Every decision has an appeal path. The system design should communicate: "We treat you like an adult."</div>
+      </div>
+      <div class="card" style="border-top:3px solid var(--amber);">
+        <div class="card-title">⚡ Low Cognitive Load</div>
+        <div class="card-sub">Students are stressed during exams. Teachers are busy. The UI must reduce decision fatigue. Default choices should be correct 90% of the time. Progressive disclosure — show advanced options only when needed.</div>
+      </div>
+      <div class="card" style="border-top:3px solid var(--purple);">
+        <div class="card-title">📱 Mobile-First, Keyboard-Second</div>
+        <div class="card-sub">Many Indian students access exams on smartphones. All student-facing UI must work on 360px minimum viewport. Tap targets ≥44px. No hover-only interactions. Teacher UI can be desktop-first with mobile fallback.</div>
+      </div>
+      <div class="card" style="border-top:3px solid var(--teal);">
+        <div class="card-title">♿ Accessible by Default</div>
+        <div class="card-sub">WCAG 2.1 AA minimum. All interactive elements keyboard navigable. Color is never the only signal (badges have text labels). Screen reader compatible aria-labels on all form elements. Minimum 4.5:1 contrast ratio for body text.</div>
+      </div>
+      <div class="card" style="border-top:3px solid var(--red);">
+        <div class="card-title">🔄 Resilient to Network Failure</div>
+        <div class="card-sub">Indian internet is unreliable. Every action that writes data must show immediate optimistic UI update + confirmation when server responds. Network error states must be friendly, not terrifying. Reconnect flow must be seamless and non-destructive.</div>
+      </div>
+    </div>
+
+    <div class="sec-label" style="margin-top:28px;">Design Tokens — Color System</div>
+    <div style="display:flex;gap:16px;flex-wrap:wrap;margin:16px 0;">
+      <div class="color-swatch"><div class="cs-box" style="background:#0b1437;"></div><div class="cs-name">Navy Primary</div><div class="cs-hex">#0b1437</div></div>
+      <div class="color-swatch"><div class="cs-box" style="background:#1240a8;"></div><div class="cs-name">Blue Action</div><div class="cs-hex">#1240a8</div></div>
+      <div class="color-swatch"><div class="cs-box" style="background:#4e229a;"></div><div class="cs-name">Purple Brand</div><div class="cs-hex">#4e229a</div></div>
+      <div class="color-swatch"><div class="cs-box" style="background:#0f6e38;"></div><div class="cs-name">Green Success</div><div class="cs-hex">#0f6e38</div></div>
+      <div class="color-swatch"><div class="cs-box" style="background:#9a6f00;"></div><div class="cs-name">Amber Warning</div><div class="cs-hex">#9a6f00</div></div>
+      <div class="color-swatch"><div class="cs-box" style="background:#c0291b;"></div><div class="cs-name">Red Alert</div><div class="cs-hex">#c0291b</div></div>
+      <div class="color-swatch"><div class="cs-box" style="background:#0a6a52;"></div><div class="cs-name">Teal Info</div><div class="cs-hex">#0a6a52</div></div>
+      <div class="color-swatch"><div class="cs-box" style="background:#f8f8f6;"></div><div class="cs-name">Surface BG</div><div class="cs-hex">#f8f8f6</div></div>
+      <div class="color-swatch"><div class="cs-box" style="background:#0d0f1a;border:1px solid #ccc;"></div><div class="cs-name">Text Primary</div><div class="cs-hex">#0d0f1a</div></div>
+    </div>
+
+    <h4>Semantic Color Usage</h4>
+    <table class="doc-table">
+      <thead><tr><th>Semantic Role</th><th>Color</th><th>Usage Context</th></tr></thead>
+      <tbody>
+        <tr><td>WATCH / Safe state</td><td style="color:var(--green);font-weight:700;">Green #0f6e38</td><td>Integrity score 80–100. Student tile background. Confirmation states.</td></tr>
+        <tr><td>WARN / Attention state</td><td style="color:var(--amber);font-weight:700;">Amber #9a6f00</td><td>Integrity score 60–79. Teacher alert banners. Pending actions.</td></tr>
+        <tr><td>FLAGGED / Critical state</td><td style="color:var(--red);font-weight:700;">Red #c0291b</td><td>Integrity score &lt;60. Error messages. Destructive actions.</td></tr>
+        <tr><td>Primary actions</td><td style="color:var(--blue);font-weight:700;">Blue #1240a8</td><td>CTA buttons (Activate Exam, Submit Appeal). Navigation active state.</td></tr>
+        <tr><td>Brand identity</td><td style="color:var(--purple);font-weight:700;">Purple #4e229a</td><td>App header. Logo accent. Version badge.</td></tr>
+        <tr><td>Information / Tips</td><td style="color:var(--teal);font-weight:700;">Teal #0a6a52</td><td>Callout boxes with helpful context. Tooltip backgrounds.</td></tr>
+      </tbody>
+    </table>
+
+    <div class="sec-label" style="margin-top:28px;">Typography Scale</div>
+    <table class="doc-table">
+      <thead><tr><th>Level</th><th>Size</th><th>Font</th><th>Weight</th><th>Usage</th></tr></thead>
+      <tbody>
+        <tr><td>Display</td><td>36px</td><td>Georgia (serif)</td><td>700 italic</td><td>Page titles (exam name at top of session)</td></tr>
+        <tr><td>Heading 1</td><td>24px</td><td>Georgia (serif)</td><td>700</td><td>Section headers in teacher dashboard</td></tr>
+        <tr><td>Heading 2</td><td>18px</td><td>Arial</td><td>700</td><td>Card titles, widget headers</td></tr>
+        <tr><td>Body</td><td>14px</td><td>Arial</td><td>400</td><td>All paragraph text, descriptions</td></tr>
+        <tr><td>Small / Labels</td><td>12px</td><td>Arial</td><td>400/600</td><td>Form labels, timestamps, metadata</td></tr>
+        <tr><td>Mono / Code</td><td>12px</td><td>Courier New</td><td>400/700</td><td>Join codes, IDs, API paths, scores</td></tr>
+        <tr><td>Micro / Badges</td><td>10px</td><td>Courier New</td><td>700</td><td>Badge labels, status chips, category tags</td></tr>
+      </tbody>
+    </table>
+
+    <div class="sec-label" style="margin-top:28px;">Key Screen Specifications</div>
+    
+    <!-- Screen 1: Consent -->
+    <h3>Screen 1 · Student Consent Modal</h3>
+    <div class="ui-mockup">
+      <div class="ui-chrome"><div class="ui-dot" style="background:#ff5f57;"></div><div class="ui-dot" style="background:#ffbd2e;"></div><div class="ui-dot" style="background:#28c840;"></div><div class="ui-url">examguard.in/exam/PHY-2026</div></div>
+      <div class="ui-body">
+        <div style="max-width:520px;margin:0 auto;">
+          <div style="text-align:center;margin-bottom:24px;">
+            <div style="font-size:32px;margin-bottom:8px;">🔍</div>
+            <div style="font-family:var(--ff-head);font-size:22px;font-weight:700;color:var(--ink);">Before your exam begins</div>
+            <div style="font-size:13px;color:var(--ink3);">Physics — Class 12 · Set by Mrs. Priya Sharma</div>
+          </div>
+          <div style="background:var(--amber-bg);border:1px solid var(--amber-mid);border-radius:8px;padding:14px;margin-bottom:20px;">
+            <div style="font-family:var(--ff-mono);font-size:10px;font-weight:700;color:var(--amber);text-transform:uppercase;margin-bottom:8px;">This exam monitors the following</div>
+            <div style="display:flex;flex-direction:column;gap:10px;">
+              <div style="display:flex;gap:10px;align-items:start;font-size:13px;"><div style="font-size:18px;flex-shrink:0;">📷</div><div><strong>Webcam</strong> — Your gaze direction and eye blinks are tracked. No video is recorded or stored. Processing happens on your device only.</div></div>
+              <div style="display:flex;gap:10px;align-items:start;font-size:13px;"><div style="font-size:18px;flex-shrink:0;">🎤</div><div><strong>Microphone</strong> — Sound level only (a number, not audio). We detect unusual noise. Your voice is not recorded.</div></div>
+              <div style="display:flex;gap:10px;align-items:start;font-size:13px;"><div style="font-size:18px;flex-shrink:0;">📝</div><div><strong>Your answers</strong> — Analysed for AI-generated text and compared to your writing style from previous exams.</div></div>
+              <div style="display:flex;gap:10px;align-items:start;font-size:13px;"><div style="font-size:18px;flex-shrink:0;">🔄</div><div><strong>Tab switches</strong> — Any time you leave this page is recorded and counted.</div></div>
+            </div>
+          </div>
+          <div style="display:flex;gap:10px;">
+            <div style="flex:1;padding:12px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;text-align:center;font-size:13px;color:var(--ink3);cursor:pointer;">Decline (exit exam)</div>
+            <div style="flex:2;padding:12px;background:var(--blue);border-radius:6px;text-align:center;font-size:13px;color:#fff;font-weight:700;cursor:pointer;">I Understand and Consent →</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Screen 2: Teacher Dashboard -->
+    <h3>Screen 2 · Teacher Live Dashboard</h3>
+    <div class="ui-mockup">
+      <div class="ui-chrome"><div class="ui-dot" style="background:#ff5f57;"></div><div class="ui-dot" style="background:#ffbd2e;"></div><div class="ui-dot" style="background:#28c840;"></div><div class="ui-url">examguard.in/teacher/dashboard/PHY-2026</div></div>
+      <div class="ui-body">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+          <div>
+            <div style="font-family:var(--ff-head);font-size:20px;font-weight:700;">Physics · Class 12 · LIVE</div>
+            <div style="font-size:12px;color:var(--ink3);">3 students · 37:22 remaining · Join code: PHY-A9K</div>
+          </div>
+          <div style="display:flex;gap:8px;">
+            <div style="padding:6px 14px;background:var(--green-bg);border:1px solid var(--green-mid);border-radius:6px;font-size:12px;color:var(--green);font-weight:700;">WATCH 2</div>
+            <div style="padding:6px 14px;background:var(--red-bg);border:1px solid var(--red-mid);border-radius:6px;font-size:12px;color:var(--red);font-weight:700;">FLAGGED 1</div>
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;">
+          <div style="border:2px solid var(--green);border-radius:10px;padding:16px;background:var(--green-bg);">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+              <div style="font-weight:700;font-size:13px;">Riya Patel</div>
+              <div style="font-family:var(--ff-mono);font-size:10px;font-weight:700;background:var(--green);color:#fff;padding:2px 8px;border-radius:3px;">WATCH</div>
+            </div>
+            <div style="font-family:var(--ff-head);font-size:36px;font-style:italic;font-weight:700;color:var(--green);">92</div>
+            <div style="font-size:11px;color:var(--ink3);">Q14 of 44 · 30min elapsed · Tier 1</div>
+            <div style="font-size:11px;color:var(--green);margin-top:4px;">✓ Consent verified · Liveness passed</div>
+          </div>
+          <div style="border:2px solid var(--red);border-radius:10px;padding:16px;background:var(--red-bg);">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+              <div style="font-weight:700;font-size:13px;">Arjun Mehta</div>
+              <div style="font-family:var(--ff-mono);font-size:10px;font-weight:700;background:var(--red);color:#fff;padding:2px 8px;border-radius:3px;">FLAGGED</div>
+            </div>
+            <div style="font-family:var(--ff-head);font-size:36px;font-style:italic;font-weight:700;color:var(--red);">54</div>
+            <div style="font-size:11px;color:var(--ink3);">Q20 of 44 · 32min elapsed · Tier 1</div>
+            <div style="font-size:11px;color:var(--red);margin-top:4px;">⚠ Q8: perplexity 18.4 · style_dist 0.73</div>
+          </div>
+          <div style="border:2px solid var(--amber);border-radius:10px;padding:16px;background:var(--amber-bg);">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+              <div style="font-weight:700;font-size:13px;">Sneha Rao</div>
+              <div style="font-family:var(--ff-mono);font-size:10px;font-weight:700;background:var(--amber);color:#fff;padding:2px 8px;border-radius:3px;">WATCH</div>
+            </div>
+            <div style="font-family:var(--ff-head);font-size:36px;font-style:italic;font-weight:700;color:var(--amber);">81</div>
+            <div style="font-size:11px;color:var(--ink3);">Q10 of 44 · 28min elapsed · Tier 3</div>
+            <div style="font-size:11px;color:var(--amber);margin-top:4px;">⚠ First exam — stylometric disabled</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Screen 3: Paper Config -->
+    <h3>Screen 3 · Paper Configuration Engine</h3>
+    <div class="ui-mockup">
+      <div class="ui-chrome"><div class="ui-dot" style="background:#ff5f57;"></div><div class="ui-dot" style="background:#ffbd2e;"></div><div class="ui-dot" style="background:#28c840;"></div><div class="ui-url">examguard.in/teacher/exams/create/config</div></div>
+      <div class="ui-body">
+        <div style="font-family:var(--ff-head);font-size:18px;font-weight:700;margin-bottom:4px;">Configure Your Exam Paper</div>
+        <div style="font-size:12px;color:var(--ink3);margin-bottom:20px;">Physics · NCERT Ch.12–14 · 486 chunks indexed ✓</div>
+        
+        <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:16px;margin-bottom:20px;">
+          <div>
+            <div style="font-size:12px;font-weight:600;margin-bottom:4px;">Total Marks</div>
+            <div style="border:1px solid var(--border);border-radius:6px;padding:8px 12px;font-family:var(--ff-mono);font-size:16px;font-weight:700;background:#fff;">80</div>
+          </div>
+          <div>
+            <div style="font-size:12px;font-weight:600;margin-bottom:4px;">Duration (minutes)</div>
+            <div style="border:1px solid var(--border);border-radius:6px;padding:8px 12px;font-family:var(--ff-mono);font-size:16px;background:#fff;">60</div>
+          </div>
+        </div>
+        
+        <div style="border:1px solid var(--border);border-radius:8px;overflow:hidden;margin-bottom:16px;">
+          <div style="background:var(--surface2);display:grid;grid-template-columns:100px 1fr 80px 80px 120px 80px;gap:0;padding:8px 12px;font-family:var(--ff-mono);font-size:10px;color:var(--ink3);text-transform:uppercase;letter-spacing:.08em;">
+            <span>Section</span><span>Type</span><span>Count</span><span>Marks ea.</span><span>Bloom Level</span><span>Total</span>
+          </div>
+          <div style="display:grid;grid-template-columns:100px 1fr 80px 80px 120px 80px;gap:0;padding:8px 12px;border-top:1px solid var(--border);align-items:center;font-size:13px;">
+            <span style="font-weight:700;color:var(--blue);">Section A</span><span><span style="background:#dbeafe;color:var(--blue);padding:2px 8px;border-radius:3px;font-size:11px;font-weight:700;">MCQ</span></span><span style="font-family:var(--ff-mono);font-weight:700;">20</span><span style="font-family:var(--ff-mono);">1</span><span style="font-size:11px;color:var(--ink3);">Remember</span><span style="font-family:var(--ff-mono);font-weight:700;color:var(--green);">20</span>
+          </div>
+          <div style="display:grid;grid-template-columns:100px 1fr 80px 80px 120px 80px;gap:0;padding:8px 12px;border-top:1px solid var(--border);align-items:center;font-size:13px;background:var(--surface2);">
+            <span style="font-weight:700;color:var(--teal);">Section D</span><span><span style="background:#d1fae5;color:var(--green);padding:2px 8px;border-radius:3px;font-size:11px;font-weight:700;">Short Answer</span></span><span style="font-family:var(--ff-mono);font-weight:700;">5</span><span style="font-family:var(--ff-mono);">3</span><span style="font-size:11px;color:var(--ink3);">Apply</span><span style="font-family:var(--ff-mono);font-weight:700;color:var(--green);">15</span>
+          </div>
+          <div style="display:grid;grid-template-columns:100px 1fr 80px 80px 120px 80px;gap:0;padding:8px 12px;border-top:1px solid var(--border);align-items:center;font-size:13px;background:var(--amber-bg);">
+            <span style="font-weight:700;color:var(--amber);">Section F</span><span><span style="background:#fef3c7;color:var(--amber);padding:2px 8px;border-radius:3px;font-size:11px;font-weight:700;">Essay</span></span><span style="font-family:var(--ff-mono);font-weight:700;">1</span><span style="font-family:var(--ff-mono);">10</span><span style="font-size:11px;color:var(--amber);font-weight:700;">Create ✦</span><span style="font-family:var(--ff-mono);font-weight:700;color:var(--amber);">10</span>
+          </div>
+          <div style="display:grid;grid-template-columns:100px 1fr 80px 80px 120px 80px;gap:0;padding:8px 12px;border-top:2px solid var(--border);align-items:center;font-size:13px;background:var(--surface2);">
+            <span></span><span></span><span></span><span></span><span style="font-family:var(--ff-mono);font-size:10px;text-align:right;color:var(--ink3);">TOTAL</span><span style="font-family:var(--ff-mono);font-weight:700;color:var(--green);font-size:16px;">80 ✓</span>
+          </div>
+        </div>
+        <div style="padding:10px;background:var(--green-bg);border:1px solid var(--green-mid);border-radius:6px;font-size:12px;color:var(--green);margin-bottom:16px;">✅ Marks budget balanced. 80/80 marks configured. Ready to generate preview.</div>
+        <div style="padding:12px 20px;background:var(--blue);border-radius:8px;text-align:center;color:#fff;font-weight:700;cursor:pointer;">Generate Sample Questions & Preview →</div>
+      </div>
+    </div>
+
+    <div class="sec-label" style="margin-top:28px;">Component Specifications</div>
+    <div class="comp-spec">
+      <div class="comp-head">Integrity Score Badge — State-aware color system</div>
+      <div class="comp-body">
+        <strong>Props:</strong> score: number, state: 'WATCH' | 'WARN' | 'FLAGGED', ci: number, tier: 1|2|3<br>
+        <strong>Variants:</strong><br>
+        &nbsp;&nbsp;WATCH (80–100): Green background (#ecf7f2), border (#7ecaa0), score in dark green (#0f6e38)<br>
+        &nbsp;&nbsp;WARN (60–79): Amber background (#fdf8e6), border (#e8cc70), score in amber (#9a6f00)<br>
+        &nbsp;&nbsp;FLAGGED (&lt;60): Red background (#fdf1f0), border (#f0a09a), score in red (#c0291b), pulsing border animation<br>
+        <strong>Always shows:</strong> score/100, state badge, ±CI, baseline tier indicator<br>
+        <strong>Accessibility:</strong> aria-label="Integrity score {score} out of 100, state {state}"
+      </div>
+    </div>
+    <div class="comp-spec">
+      <div class="comp-head">Bloom Level Selector — Paper Configuration UI</div>
+      <div class="comp-body">
+        <strong>Type:</strong> Segmented control with 6 options<br>
+        <strong>Options:</strong> Remember (L1, red), Understand (L2, orange), Apply (L3, amber), Analyse (L4, green), Evaluate (L5, blue), Create (L6, purple)<br>
+        <strong>On select:</strong> Show preview of the Bloom template text below the selector so teacher knows what the question style will be<br>
+        <strong>Tooltip:</strong> Hover/tap shows the full prompt template for that level<br>
+        <strong>Keyboard:</strong> Arrow keys navigate between options
+      </div>
+    </div>
+    <div class="comp-spec">
+      <div class="comp-head">Blink Challenge Widget — Liveness UI</div>
+      <div class="comp-body">
+        <strong>Layout:</strong> Webcam feed in center (480×360 for desktop, full-width for mobile) with MediaPipe face mesh overlay<br>
+        <strong>Instruction text:</strong> Large, centered: "Blink twice to begin" with animated eye icon<br>
+        <strong>Blink counter:</strong> Shows ●○ → ●● (filled dots as blinks detected)<br>
+        <strong>Timer:</strong> Countdown from 8 seconds. Orange at 3 seconds. Red at 1 second.<br>
+        <strong>On success:</strong> Green flash overlay → smooth transition to first exam question<br>
+        <strong>On timeout:</strong> "Retry" button + "Need help?" link that shows teacher contact info
+      </div>
+    </div>
+    <div class="comp-spec">
+      <div class="comp-head">Offline Resilience Banner — Student Exam View</div>
+      <div class="comp-body">
+        <strong>Trigger:</strong> navigator.onLine === false OR fetch error on answer submit<br>
+        <strong>Appearance:</strong> Amber banner at top of exam view: "⚠ No internet connection. Your answers are being saved locally every 30 seconds."<br>
+        <strong>Background behavior:</strong> localStorage save every 30s. Show timestamp: "Last saved: 14 seconds ago"<br>
+        <strong>On reconnect:</strong> Banner changes to blue: "✓ Reconnected. Syncing your answers..." → green: "✓ All answers synced."<br>
+        <strong>At 5min disconnect:</strong> Banner: "Session paused — your teacher has been notified. You can continue when you reconnect."
+      </div>
+    </div>
+
+    <div class="sec-label" style="margin-top:28px;">Spacing & Layout System</div>
+    <table class="doc-table">
+      <thead><tr><th>Token</th><th>Value</th><th>Usage</th></tr></thead>
+      <tbody>
+        <tr><td>space-xs</td><td>4px</td><td>Icon gap, chip padding (vertical)</td></tr>
+        <tr><td>space-sm</td><td>8px</td><td>Between items in lists, small gaps</td></tr>
+        <tr><td>space-md</td><td>12px</td><td>Card padding, form field gap</td></tr>
+        <tr><td>space-lg</td><td>16px</td><td>Section padding, card internal spacing</td></tr>
+        <tr><td>space-xl</td><td>24px</td><td>Between major sections within a page</td></tr>
+        <tr><td>space-2xl</td><td>40px</td><td>Between page-level sections</td></tr>
+        <tr><td>radius-sm</td><td>4px</td><td>Badges, chips, small elements</td></tr>
+        <tr><td>radius-md</td><td>8px</td><td>Callout boxes, input fields</td></tr>
+        <tr><td>radius-lg</td><td>10px</td><td>Cards, panels, modals</td></tr>
+        <tr><td>radius-xl</td><td>16px</td><td>Hero sections, full-page overlays</td></tr>
+        <tr><td>touch-target-min</td><td>44px</td><td>All interactive elements (WCAG compliance)</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ─────────────────────────── 13. GITHUB CHECKLIST ─────────────────────────── -->
+<div id="github" class="section page-break">
+  <div class="doc-divider">
+    <div class="doc-divider-inner">
+      <div class="doc-code">§ 13 · GitHub Repository Checklist</div>
+      <div class="doc-title">Submission Checklist — Must Have vs Strongly Recommended</div>
+      <div class="doc-desc">Complete checklist for Round 1 submission. Every item checked before submitting. Judges will review commit history, README, and linked artifacts.</div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="two-col">
+      <div>
+        <h3 style="color:var(--green);">✅ Must Have — Before Submission</h3>
+        <div style="border:1px solid var(--green-mid);border-radius:var(--radius);padding:16px;background:var(--green-bg);">
+          <div class="check-item"><div class="ci-box">✓</div><div>README.md with architecture diagram (single PNG: browser → 10 agents → DB)</div></div>
+          <div class="check-item"><div class="ci-box">✓</div><div>README: live URL + Loom demo video (4:30 min — use the demo script)</div></div>
+          <div class="check-item"><div class="ci-box">✓</div><div>README: setup instructions (Docker Compose + Render + Fly.io Ollama)</div></div>
+          <div class="check-item"><div class="ci-box">✓</div><div>scripts/seed_demo.py — v6 spec with Step 0 Fly.io warmup ping</div></div>
+          <div class="check-item"><div class="ci-box">✓</div><div>supabase/migrations/ — all SQL including consent + appeal + baseline_tier columns</div></div>
+          <div class="check-item"><div class="ci-box">✓</div><div>docker-compose.yml — FastAPI + frontend + Ollama local</div></div>
+          <div class="check-item"><div class="ci-box">✓</div><div>demo/assets/ncert_physics_ch12_14.pdf — NCERT source cited correctly</div></div>
+          <div class="check-item"><div class="ci-box">✓</div><div>.env.example — all env vars including CLOUD_API_KEY flag</div></div>
+          <div class="check-item"><div class="ci-box">✓</div><div>Daily commits — no large single-commit dump on Day 10</div></div>
+          <div class="check-item"><div class="ci-box">✓</div><div>CI passing badge (GitHub Actions) + warmup cron workflow</div></div>
+          <div class="check-item"><div class="ci-box">✓</div><div>docs/dpdp-compliance.md — DPDP checklist document</div></div>
+          <div class="check-item"><div class="ci-box">✓</div><div>agents/llm_routing_table.py — routing table as importable Python module</div></div>
+          <div class="check-item"><div class="ci-box">✓</div><div>agents/bloom_templates.py — 6-level Bloom's prompt template dict</div></div>
+        </div>
+      </div>
+      <div>
+        <h3 style="color:var(--blue);">⭐ Strongly Recommended — Top 10 Differentiators</h3>
+        <div style="border:1px solid var(--blue-mid);border-radius:var(--radius);padding:16px;background:var(--blue-bg);">
+          <div class="check-item"><div class="ci-box" style="background:var(--blue-bg);border-color:var(--blue-mid);">✓</div><div>LangGraph Studio trace — screen-recorded backup video in /docs</div></div>
+          <div class="check-item"><div class="ci-box" style="background:var(--blue-bg);border-color:var(--blue-mid);">✓</div><div>Sample integrity PDF report (all 3 tiers — download links from README)</div></div>
+          <div class="check-item"><div class="ci-box" style="background:var(--blue-bg);border-color:var(--blue-mid);">✓</div><div>research/calibration/eval_notebook.ipynb — N=60, documented methodology</div></div>
+          <div class="check-item"><div class="ci-box" style="background:var(--blue-bg);border-color:var(--blue-mid);">✓</div><div>research/calibration/perplexity_notes.md — logprobs fallback explanation</div></div>
+          <div class="check-item"><div class="ci-box" style="background:var(--blue-bg);border-color:var(--blue-mid);">✓</div><div>Paper Config demo GIF in README (section builder + chapter weights in action)</div></div>
+          <div class="check-item"><div class="ci-box" style="background:var(--blue-bg);border-color:var(--blue-mid);">✓</div><div>Consent screen screenshot in README — shows all 4 monitored items</div></div>
+          <div class="check-item"><div class="ci-box" style="background:var(--blue-bg);border-color:var(--blue-mid);">✓</div><div>3-tier stylometric strategy diagram in README</div></div>
+          <div class="check-item"><div class="ci-box" style="background:var(--blue-bg);border-color:var(--blue-mid);">✓</div><div>README: NCERT PDF citation — "ncert.nic.in, freely distributable for education"</div></div>
+          <div class="check-item"><div class="ci-box" style="background:var(--blue-bg);border-color:var(--blue-mid);">✓</div><div>README: Redis vs Supabase latency justification</div></div>
+          <div class="check-item"><div class="ci-box" style="background:var(--blue-bg);border-color:var(--blue-mid);">✓</div><div>README: Render vs Railway reasoning + warmup cron explanation</div></div>
+          <div class="check-item"><div class="ci-box" style="background:var(--blue-bg);border-color:var(--blue-mid);">✓</div><div>Academic citations (Baker 2019, Perkins 2023) in README</div></div>
+          <div class="check-item"><div class="ci-box" style="background:var(--blue-bg);border-color:var(--blue-mid);">✓</div><div>Pi hardware KiCad schematic or photo in /hardware/ (Round 2 hardware prize)</div></div>
+          <div class="check-item"><div class="ci-box" style="background:var(--blue-bg);border-color:var(--blue-mid);">✓</div><div>Performance numbers: avg question gen time, Redis latency, OCR avg time</div></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="sec-label" style="margin-top:28px;">Repository Structure</div>
+    <div style="background:var(--navy);border-radius:var(--radius);padding:20px;font-family:var(--ff-mono);font-size:12px;color:#a8b4cc;line-height:1.8;">
+      <div style="color:#6ee7b7;">examguard-ai/</div>
+      <div style="margin-left:16px;">
+        <div style="color:#93c5fd;">├── README.md</div>
+        <div style="color:#93c5fd;">├── docker-compose.yml</div>
+        <div style="color:#93c5fd;">├── .env.example</div>
+        <div style="color:#93c5fd;">├── .github/</div>
+        <div style="margin-left:16px;color:#d1d5db;">│   ├── workflows/ci.yml</div>
+        <div style="margin-left:16px;color:#d1d5db;">│   └── workflows/warmup-cron.yml</div>
+        <div style="color:#93c5fd;">├── backend/</div>
+        <div style="margin-left:16px;color:#d1d5db;">│   ├── main.py (FastAPI app)</div>
+        <div style="margin-left:16px;color:#d1d5db;">│   ├── agents/</div>
+        <div style="margin-left:24px;color:#a78bfa;">│   │   ├── llm_routing_table.py <span style="color:#ef4444;">[v6]</span></div>
+        <div style="margin-left:24px;color:#a78bfa;">│   │   ├── bloom_templates.py <span style="color:#ef4444;">[v6]</span></div>
+        <div style="margin-left:24px;color:#a78bfa;">│   │   ├── orchestrator.py</div>
+        <div style="margin-left:24px;color:#a78bfa;">│   │   ├── question_agent.py</div>
+        <div style="margin-left:24px;color:#a78bfa;">│   │   ├── stylometric_agent.py</div>
+        <div style="margin-left:24px;color:#a78bfa;">│   │   ├── security_agent.py</div>
+        <div style="margin-left:24px;color:#a78bfa;">│   │   ├── proctoring_agent.py</div>
+        <div style="margin-left:24px;color:#a78bfa;">│   │   ├── evaluation_agent.py</div>
+        <div style="margin-left:24px;color:#a78bfa;">│   │   ├── report_agent.py</div>
+        <div style="margin-left:24px;color:#a78bfa;">│   │   └── review_agent.py <span style="color:#ef4444;">[NEW v6]</span></div>
+        <div style="margin-left:16px;color:#d1d5db;">│   └── routers/ (auth, exams, sessions, reports)</div>
+        <div style="color:#93c5fd;">├── frontend/</div>
+        <div style="margin-left:16px;color:#d1d5db;">│   ├── src/</div>
+        <div style="margin-left:24px;color:#d1d5db;">│   │   ├── pages/ (teacher/, student/)</div>
+        <div style="margin-left:24px;color:#d1d5db;">│   │   ├── components/ (ConsentModal, BlinkChallenge, LiveDashboard, PaperConfig, IntegrityBadge)</div>
+        <div style="margin-left:24px;color:#d1d5db;">│   │   └── lib/ (mediapipe, websocket, localStorage)</div>
+        <div style="color:#93c5fd;">├── supabase/</div>
+        <div style="margin-left:16px;color:#d1d5db;">│   └── migrations/ (001_init.sql through 007_appeal_schema.sql)</div>
+        <div style="color:#93c5fd;">├── scripts/</div>
+        <div style="margin-left:16px;color:#d1d5db;">│   └── seed_demo.py (10-step demo with warmup ping)</div>
+        <div style="color:#93c5fd;">├── research/calibration/</div>
+        <div style="margin-left:16px;color:#d1d5db;">│   ├── eval_notebook.ipynb (N=60)</div>
+        <div style="margin-left:16px;color:#d1d5db;">│   └── perplexity_notes.md</div>
+        <div style="color:#93c5fd;">├── docs/</div>
+        <div style="margin-left:16px;color:#d1d5db;">│   ├── dpdp-compliance.md</div>
+        <div style="margin-left:16px;color:#d1d5db;">│   └── langgraph_studio_trace.mp4</div>
+        <div style="color:#93c5fd;">├── demo/assets/</div>
+        <div style="margin-left:16px;color:#d1d5db;">│   └── ncert_physics_ch12_14.pdf</div>
+        <div style="color:#93c5fd;">└── hardware/</div>
+        <div style="margin-left:16px;color:#d1d5db;">    └── raspberry_pi_kicad_schematic.kicad_sch (Round 2)</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ─────────────────────────── FOOTER ─────────────────────────── -->
+<hr class="divider">
+<div style="display:flex;justify-content:space-between;align-items:center;padding:16px 0;color:var(--ink3);font-size:12px;">
+  <div>
+    <strong style="color:var(--ink);">ExamGuard AI v6.0</strong> · FAR AWAY 2026 · Complete Industry Documentation Suite<br>
+    <span style="font-family:var(--ff-mono);font-size:10px;">PRD · FRD · TRD · System Stack · App Flow · 10 Agents · Database · API Spec · Integrity Engine · Strategic Plan · 10-Day Roadmap · UI/UX Design System · GitHub Checklist</span>
+  </div>
+  <div style="text-align:right;">
+    <strong>Examinations + Agentic & Autonomous Systems</strong><br>
+    <span style="font-family:var(--ff-mono);font-size:10px;">Built to ship · Round 2 Delhi ready · 19 gaps closed</span>
+  </div>
+</div>
+
+</div><!-- end .container -->
+</body>
+</html>

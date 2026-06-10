@@ -1,0 +1,495 @@
+
+<style>
+* { box-sizing: border-box; }
+body { margin: 0; }
+.tabs { display: flex; gap: 4px; margin-bottom: 16px; flex-wrap: wrap; }
+.tab { padding: 7px 14px; border-radius: 20px; font-size: 13px; cursor: pointer; border: 0.5px solid var(--color-border-secondary); background: transparent; color: var(--color-text-secondary); transition: all .15s; }
+.tab.active { background: var(--color-text-primary); color: var(--color-background-primary); border-color: transparent; }
+.panel { display: none; }
+.panel.active { display: block; }
+.card { background: var(--color-background-primary); border: 0.5px solid var(--color-border-tertiary); border-radius: var(--border-radius-lg); padding: 1rem 1.25rem; margin-bottom: 10px; }
+.card-title { font-size: 14px; font-weight: 500; color: var(--color-text-primary); margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between; }
+.row { display: flex; align-items: flex-start; gap: 8px; font-size: 13px; color: var(--color-text-secondary); margin: 6px 0; line-height: 1.55; }
+.dot { width: 7px; height: 7px; border-radius: 50%; margin-top: 5px; flex-shrink: 0; }
+.g { background: var(--color-text-success); }
+.a { background: var(--color-text-warning); }
+.r { background: var(--color-text-danger); }
+.b { background: var(--color-text-info); }
+.badge { font-size: 11px; padding: 2px 8px; border-radius: 20px; font-weight: 500; white-space: nowrap; }
+.bg { background: var(--color-background-success); color: var(--color-text-success); }
+.ba { background: var(--color-background-warning); color: var(--color-text-warning); }
+.br { background: var(--color-background-danger); color: var(--color-text-danger); }
+.bb { background: var(--color-background-info); color: var(--color-text-info); }
+.bpu { background: #EEEDFE; color: #3C3489; }
+.section-label { font-size: 11px; font-weight: 500; color: var(--color-text-tertiary); text-transform: uppercase; letter-spacing: .04em; margin: 16px 0 8px; }
+.add-box { background: var(--color-background-secondary); border: 0.5px dashed var(--color-border-secondary); border-radius: var(--border-radius-md); padding: 10px 14px; margin-top: 8px; }
+.add-title { font-size: 12px; font-weight: 500; color: var(--color-text-info); margin-bottom: 4px; }
+.add-item { font-size: 12px; color: var(--color-text-secondary); margin: 3px 0; line-height: 1.5; }
+.highlight { background: var(--color-background-warning); border-radius: var(--border-radius-md); padding: 10px 14px; margin: 8px 0; }
+.highlight-t { font-size: 12px; font-weight: 500; color: var(--color-text-warning); margin-bottom: 3px; }
+.highlight-b { font-size: 12px; color: var(--color-text-warning); line-height: 1.5; }
+.screen-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.screen-card { background: var(--color-background-primary); border: 0.5px solid var(--color-border-tertiary); border-radius: var(--border-radius-md); padding: 10px 12px; }
+.screen-title { font-size: 13px; font-weight: 500; color: var(--color-text-primary); margin-bottom: 6px; }
+.tag { font-size: 11px; padding: 1px 6px; border-radius: 4px; margin-right: 3px; }
+.tag-ok { background: #EAF3DE; color: #3B6D11; }
+.tag-miss { background: #FCEBEB; color: #A32D2D; }
+.tag-add { background: #E6F1FB; color: #185FA5; }
+.summary-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 14px; }
+.summary-card { background: var(--color-background-secondary); border-radius: var(--border-radius-md); padding: 12px; text-align: center; }
+.summary-val { font-size: 24px; font-weight: 500; }
+.summary-lab { font-size: 11px; color: var(--color-text-secondary); margin-top: 2px; }
+hr { border: none; border-top: 0.5px solid var(--color-border-tertiary); margin: 14px 0; }
+</style>
+
+<h2 class="sr-only">ExamGuard AI v6 — Complete Gap Analysis and Upgrade Guide</h2>
+
+<div style="padding: 1rem 0 0.5rem;">
+  <div style="font-size: 18px; font-weight: 500; color: var(--color-text-primary); margin-bottom: 4px;">Complete Gap Analysis & Upgrade Guide</div>
+  <div style="font-size: 13px; color: var(--color-text-secondary);">Everything in your plan · Everything missing · Every UI/UX improvement</div>
+</div>
+
+<div class="summary-grid" style="margin-top: 14px;">
+  <div class="summary-card">
+    <div class="summary-val" style="color:var(--color-text-success);">34</div>
+    <div class="summary-lab">Features fully covered</div>
+  </div>
+  <div class="summary-card">
+    <div class="summary-val" style="color:var(--color-text-warning);">18</div>
+    <div class="summary-lab">Gaps / missing items</div>
+  </div>
+  <div class="summary-card">
+    <div class="summary-val" style="color:var(--color-text-info);">12</div>
+    <div class="summary-lab">UI/UX upgrades needed</div>
+  </div>
+</div>
+
+<div class="tabs">
+  <button class="tab active" onclick="show('overview')">Overview</button>
+  <button class="tab" onclick="show('features')">Feature Gaps</button>
+  <button class="tab" onclick="show('uiux')">UI/UX Gaps</button>
+  <button class="tab" onclick="show('screens')">Screen-by-Screen</button>
+  <button class="tab" onclick="show('infra')">Infra & Docs</button>
+  <button class="tab" onclick="show('priority')">Priority Order</button>
+</div>
+
+<!-- OVERVIEW -->
+<div id="overview" class="panel active">
+  <div class="section-label">What your plan covers perfectly</div>
+  <div class="card">
+    <div class="card-title">Core architecture & agent pipeline <span class="badge bg">Complete</span></div>
+    <div class="row"><div class="dot g"></div>All 10 LangGraph agents fully specced with inputs, outputs, decisions, and fallbacks</div>
+    <div class="row"><div class="dot g"></div>Full database schema: users, exams, sessions, answers, events, appeals, chunks, pgvector</div>
+    <div class="row"><div class="dot g"></div>LLM routing table: Gemini → Ollama → cached pool with clear fallback conditions</div>
+    <div class="row"><div class="dot g"></div>5-factor integrity scoring with confidence intervals and deterministic thresholds</div>
+    <div class="row"><div class="dot g"></div>3-tier stylometric baseline strategy (cold-start handled honestly)</div>
+    <div class="row"><div class="dot g"></div>DPDP compliance via browser-side WASM — no raw biometric upload</div>
+    <div class="row"><div class="dot g"></div>Grade appeal flow — ethical, auditable, non-automated adverse decisions</div>
+    <div class="row"><div class="dot g"></div>All 10 screens defined with component-level detail</div>
+    <div class="row"><div class="dot g"></div>Deployment pipeline: Render + Vercel + Fly.io + Docker Compose fallback</div>
+    <div class="row"><div class="dot g"></div>seed_demo.py 10-step script with warmup ping</div>
+    <div class="row"><div class="dot g"></div>7-sprint build roadmap with test criteria per sprint</div>
+    <div class="row"><div class="dot g"></div>All edge cases documented (§19)</div>
+  </div>
+
+  <div class="section-label">Critical gaps your plan does NOT cover</div>
+  <div class="card">
+    <div class="card-title">Gaps that will hurt demo/judging <span class="badge br">Must add</span></div>
+    <div class="row"><div class="dot r"></div><strong style="color:var(--color-text-primary);font-weight:500">No error state UI designs</strong> — what does the screen show when Gemini fails, OCR fails, or WebSocket drops? Judges will test this.</div>
+    <div class="row"><div class="dot r"></div><strong style="color:var(--color-text-primary);font-weight:500">No empty state UI designs</strong> — teacher dashboard with no exams, reports tab with no data, student list with zero joined students are all blank screens in your spec.</div>
+    <div class="row"><div class="dot r"></div><strong style="color:var(--color-text-primary);font-weight:500">No loading skeleton designs</strong> — the plan mentions progress bars during generation but nothing for initial page loads, API fetches, or PDF report generation waits.</div>
+    <div class="row"><div class="dot r"></div><strong style="color:var(--color-text-primary);font-weight:500">No mobile/responsive strategy</strong> — students in India will join on phones. The student exam interface (Screen 7) has zero mobile layout spec. This is a real-world impact gap.</div>
+    <div class="row"><div class="dot r"></div><strong style="color:var(--color-text-primary);font-weight:500">No toast/notification system spec</strong> — success saves, WebSocket reconnects, LLM fallback activations, appeal deadline reminders all need a notification layer.</div>
+    <div class="row"><div class="dot r"></div><strong style="color:var(--color-text-primary);font-weight:500">Integrity score thresholds differ across documents</strong> — v6 Build Guide says WATCH ≤85 / WARN ≤70 / FLAGGED ≤50. Masterplan says WATCH 80–100 / WARN 60–79 / FLAGGED &lt;60. Pick one and make it consistent everywhere.</div>
+    <div class="row"><div class="dot r"></div><strong style="color:var(--color-text-primary);font-weight:500">No onboarding/first-run flow</strong> — a new teacher signing up sees a blank dashboard. There is no empty-state CTA, no guided setup, no sample exam walkthrough.</div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Gaps that reduce polish / score <span class="badge ba">Should add</span></div>
+    <div class="row"><div class="dot a"></div>No keyboard accessibility spec — tab order, focus rings, ARIA labels for live dashboard tiles, screen reader support for integrity score updates</div>
+    <div class="row"><div class="dot a"></div>No dark mode spec — doc mentions design tokens but no dark palette defined anywhere</div>
+    <div class="row"><div class="dot a"></div>No print stylesheet for PDF-equivalent browser printing of reports</div>
+    <div class="row"><div class="dot a"></div>No rate limiting / abuse prevention documented for public join-code endpoint</div>
+    <div class="row"><div class="dot a"></div>Password reset flow mentioned but UI screen not designed</div>
+    <div class="row"><div class="dot a"></div>No exam timer pause/resume logic for teacher-controlled pauses</div>
+    <div class="row"><div class="dot a"></div>No multi-material corpus management UI — teachers can upload multiple files but there's no UI to view/delete individual uploads</div>
+    <div class="row"><div class="dot a"></div>No student list / roster management — teacher can't see which students have registered before the exam</div>
+    <div class="row"><div class="dot a"></div>Admin role mentioned in PRD but has no screen, no endpoints, no spec</div>
+    <div class="row"><div class="dot a"></div>Join code expiry not specified — does it expire after exam ends? Can it be regenerated?</div>
+    <div class="row"><div class="dot a"></div>No copy-to-clipboard confirm animation for join code copy button</div>
+  </div>
+</div>
+
+<!-- FEATURE GAPS -->
+<div id="features" class="panel">
+  <div class="section-label">Authentication & user management</div>
+  <div class="card">
+    <div class="card-title">Auth flows <span class="badge ba">2 gaps</span></div>
+    <div class="row"><div class="dot g"></div>Email/password signup, role-based routing, JWT refresh, magic-link password reset — all covered</div>
+    <div class="row"><div class="dot r"></div><strong style="color:var(--color-text-primary);font-weight:500">Missing:</strong> Password reset UI screen is not designed. Only mentioned as "Supabase email magic link". The screen a teacher lands on after clicking the link is unspecced.</div>
+    <div class="row"><div class="dot r"></div><strong style="color:var(--color-text-primary);font-weight:500">Missing:</strong> Account settings screen — teacher can't change display name, institute name, or notification preferences. Admin role has no screen at all despite being listed in PRD target users.</div>
+  </div>
+
+  <div class="section-label">Exam management</div>
+  <div class="card">
+    <div class="card-title">Exam lifecycle <span class="badge ba">3 gaps</span></div>
+    <div class="row"><div class="dot g"></div>Draft → active → ended lifecycle, join code, archive — all covered</div>
+    <div class="row"><div class="dot a"></div><strong style="color:var(--color-text-primary);font-weight:500">Missing:</strong> Exam duplication — teacher wants to re-use last month's Physics paper. No "Clone Exam" feature.</div>
+    <div class="row"><div class="dot a"></div><strong style="color:var(--color-text-primary);font-weight:500">Missing:</strong> Exam scheduling — "activate at 9:00 AM on June 15" is a real teaching need. Instant-activate only right now.</div>
+    <div class="row"><div class="dot a"></div><strong style="color:var(--color-text-primary);font-weight:500">Missing:</strong> Join code regeneration — what if the code leaks before exam day? No way to refresh it.</div>
+  </div>
+
+  <div class="section-label">Material ingestion & RAG</div>
+  <div class="card">
+    <div class="card-title">Material management <span class="badge ba">2 gaps</span></div>
+    <div class="row"><div class="dot g"></div>PDF/DOCX/TXT up to 50MB, OCR fallback, chunk progress, chapter detection — all covered</div>
+    <div class="row"><div class="dot a"></div><strong style="color:var(--color-text-primary);font-weight:500">Missing:</strong> Material library — teachers upload the same NCERT PDFs every time. No persistent library to reuse across exams.</div>
+    <div class="row"><div class="dot a"></div><strong style="color:var(--color-text-primary);font-weight:500">Missing:</strong> Individual material delete — teacher can upload multiple files but the UI has no way to remove one bad upload without starting over.</div>
+    <div class="row"><div class="dot g"></div>OCR fallback, multiple file support, progress stream — well handled</div>
+  </div>
+
+  <div class="section-label">Question generation</div>
+  <div class="card">
+    <div class="card-title">Paper config engine <span class="badge bg">Mostly covered</span></div>
+    <div class="row"><div class="dot g"></div>6 question types, Bloom's taxonomy, chapter weightage, marks validation — all specced</div>
+    <div class="row"><div class="dot g"></div>Groundedness check (>0.72 cosine), diversity guarantee, progress stream — covered</div>
+    <div class="row"><div class="dot a"></div><strong style="color:var(--color-text-primary);font-weight:500">Missing:</strong> Teacher edit of generated questions — Preview shows sample questions but teacher can only "Accept" or "Regenerate". No inline text editing of a question before activation.</div>
+    <div class="row"><div class="dot a"></div><strong style="color:var(--color-text-primary);font-weight:500">Missing:</strong> Negative marking configuration — most Indian competitive exams have -¼ or -½ for wrong MCQ answers. Not in the spec.</div>
+  </div>
+
+  <div class="section-label">Student session</div>
+  <div class="card">
+    <div class="card-title">Exam-taking flow <span class="badge ba">3 gaps</span></div>
+    <div class="row"><div class="dot g"></div>Consent, blink liveness, sequential questions, timer, localStorage backup — well specced</div>
+    <div class="row"><div class="dot r"></div><strong style="color:var(--color-text-primary);font-weight:500">Missing:</strong> Question navigation panel — students need to jump to any question, see answered vs unanswered count. "Previous | Next" only is poor UX for a 40-question paper.</div>
+    <div class="row"><div class="dot r"></div><strong style="color:var(--color-text-primary);font-weight:500">Missing:</strong> "Mark for review" feature — students want to flag a question to revisit before final submit. Standard in all Indian competitive exam platforms (JEE, NEET, CAT).</div>
+    <div class="row"><div class="dot a"></div><strong style="color:var(--color-text-primary);font-weight:500">Missing:</strong> Exam pause by teacher — invigilator needs to pause all sessions for an announcement. Only per-student disconnect handling exists.</div>
+    <div class="row"><div class="dot a"></div><strong style="color:var(--color-text-primary);font-weight:500">Missing:</strong> Late join window — if a student joins 5 min after exam starts, what happens? Spec is silent.</div>
+  </div>
+
+  <div class="section-label">Proctoring & integrity</div>
+  <div class="card">
+    <div class="card-title">Monitoring features <span class="badge bg">Strong</span></div>
+    <div class="row"><div class="dot g"></div>Gaze, EAR, phone detection, head pose, tab switch, paste, audio — all specced with correct WASM approach</div>
+    <div class="row"><div class="dot g"></div>5-factor scoring, CI, tier system, deterministic escalation — excellent</div>
+    <div class="row"><div class="dot a"></div><strong style="color:var(--color-text-primary);font-weight:500">Threshold inconsistency:</strong> Build Guide says FLAGGED = score ≤50. Masterplan says FLAGGED = &lt;60. This will cause a bug if both files are used as reference. Must unify before Sprint 4.</div>
+    <div class="row"><div class="dot a"></div><strong style="color:var(--color-text-primary);font-weight:500">Missing:</strong> Teacher can mute/dismiss specific alert types — if a student has a physical condition causing head movement, teacher needs to suppress head-pose alerts for that student only.</div>
+  </div>
+
+  <div class="section-label">Reports & analytics</div>
+  <div class="card">
+    <div class="card-title">Reporting <span class="badge ba">2 gaps</span></div>
+    <div class="row"><div class="dot g"></div>Per-student PDF, class summary, batch ZIP download, Recharts histogram — covered</div>
+    <div class="row"><div class="dot a"></div><strong style="color:var(--color-text-primary);font-weight:500">Missing:</strong> Question-level analytics — which questions did most students answer incorrectly? Teacher needs this to improve future papers. No spec for per-question stats.</div>
+    <div class="row"><div class="dot a"></div><strong style="color:var(--color-text-primary);font-weight:500">Missing:</strong> Score distribution export — class CSV export of names, scores, flags. Teacher needs this for grade book. Not in spec.</div>
+  </div>
+</div>
+
+<!-- UI/UX GAPS -->
+<div id="uiux" class="panel">
+  <div class="section-label">Critical UX patterns not in your spec</div>
+
+  <div class="card">
+    <div class="card-title">1. Error states — completely unspecced <span class="badge br">Critical</span></div>
+    <div class="row"><div class="dot r"></div>Every screen needs an error state. Your spec has none. Judges will test failure paths.</div>
+    <div class="add-box">
+      <div class="add-title">Add these to each screen:</div>
+      <div class="add-item">• Screen 3 (Paper Config): "Question generation failed — Gemini rate-limited. Switching to Ollama..." with spinner and ETA</div>
+      <div class="add-item">• Screen 3: "OCR failed on page 4. Skipping and continuing with 280/340 chunks." with page numbers listed</div>
+      <div class="add-item">• Screen 4 (Live Monitor): "WebSocket disconnected. Reconnecting... (attempt 2/5)" banner at top</div>
+      <div class="add-item">• Screen 7 (Student Exam): "Connection lost. Your answers are saved locally. Reconnecting..." with last-save timestamp</div>
+      <div class="add-item">• Screen 10 (Reports): "PDF generation failed. Retry" per-student button</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">2. Empty states — not designed <span class="badge br">Critical</span></div>
+    <div class="row"><div class="dot r"></div>New teachers see a completely blank dashboard. No spec for this first-run experience.</div>
+    <div class="add-box">
+      <div class="add-title">Design these empty states:</div>
+      <div class="add-item">• Teacher Dashboard (no exams): Illustration + "Create your first exam" CTA with a 3-step guide inline</div>
+      <div class="add-item">• Live Monitor (exam not started / no students joined): "Waiting for students... Share code: <strong>ABC123</strong>" with copy button</div>
+      <div class="add-item">• Reports tab (exam in progress): "Reports available after exam ends" with live countdown</div>
+      <div class="add-item">• Paper Config (no material uploaded): "Upload your syllabus first" with upload zone visible inline</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">3. Mobile layout — critical gap for Indian students <span class="badge br">Critical</span></div>
+    <div class="row"><div class="dot r"></div>Students in India use phones. Screen 7 (Exam Interface) has no mobile spec. Camera permission flow on mobile is different (Safari iOS vs Chrome Android).</div>
+    <div class="add-box">
+      <div class="add-title">Mobile-specific requirements to add:</div>
+      <div class="add-item">• Screen 7 (Exam): Single-column layout, question at top, answer below, large tap targets for MCQ options (min 48px)</div>
+      <div class="add-item">• Screen 6 (Blink): Camera preview fullscreen on mobile with large instruction text</div>
+      <div class="add-item">• Screen 5 (Consent): Scrollable modal — 4 consent items may overflow on small screens</div>
+      <div class="add-item">• Screen 4 (Live Monitor): Responsive tile grid — 1 column on mobile, 2 on tablet, 4 on desktop</div>
+      <div class="add-item">• MediaPipe WASM: Mobile Safari blocks camera until user gesture — handle permission request before consent screen dismissal</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">4. Loading & skeleton states <span class="badge ba">Important</span></div>
+    <div class="row"><div class="dot a"></div>Plan mentions a progress bar during question generation, but no loading states for anything else.</div>
+    <div class="add-box">
+      <div class="add-title">Add skeleton loaders to:</div>
+      <div class="add-item">• Teacher Dashboard: Skeleton exam cards while exams API loads</div>
+      <div class="add-item">• Paper Config preview: Skeleton question cards while generation runs</div>
+      <div class="add-item">• Reports page: Skeleton student cards while reports API loads</div>
+      <div class="add-item">• Live Monitor tiles: Skeleton tiles for the first 500ms before WebSocket connects</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">5. Toast / notification system <span class="badge ba">Important</span></div>
+    <div class="row"><div class="dot a"></div>No notification system is specced. Many events need user feedback.</div>
+    <div class="add-box">
+      <div class="add-title">Events that need toasts (use react-hot-toast or shadcn/ui Sonner):</div>
+      <div class="add-item">• ✓ Success: "Join code copied", "Exam activated", "PDF report ready", "Appeal submitted"</div>
+      <div class="add-item">• ⚠ Warning: "LLM fallback activated — using Ollama", "Low chunk count for Chapter 5"</div>
+      <div class="add-item">• ✗ Error: "Upload failed — file too large", "Session expired — please log in again"</div>
+      <div class="add-item">• ℹ Info: "WebSocket reconnected", "3 students are now waiting to join"</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">6. Question navigation panel (Screen 7) <span class="badge br">Critical for UX score</span></div>
+    <div class="row"><div class="dot r"></div>Previous/Next only is unacceptable for a 40-80 question exam. Every Indian student expects a question palette.</div>
+    <div class="add-box">
+      <div class="add-title">Add to Screen 7:</div>
+      <div class="add-item">• Side panel (or bottom drawer on mobile): numbered grid of all questions</div>
+      <div class="add-item">• Color coding: white = unvisited, blue = answered, yellow = marked for review, red = flagged by integrity system</div>
+      <div class="add-item">• Summary row: "Answered: 22/40 | Marked: 4 | Unanswered: 14"</div>
+      <div class="add-item">• "Submit All" confirmation dialog showing summary before final submit</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">7. Live Monitor UX improvements <span class="badge ba">Judges will see this</span></div>
+    <div class="row"><div class="dot a"></div>Current spec is functional but not polished enough for a judging demo.</div>
+    <div class="add-box">
+      <div class="add-title">Improvements to add:</div>
+      <div class="add-item">• Sort tiles by: score (ascending — show most at-risk first), name, join time</div>
+      <div class="add-item">• Filter tiles by: WATCH / WARN / FLAGGED / All</div>
+      <div class="add-item">• Summary bar above tiles: "32 active | 2 WARN | 1 FLAGGED | Avg integrity: 81"</div>
+      <div class="add-item">• Sound alert toggle for FLAGGED events (teacher may not be watching screen)</div>
+      <div class="add-item">• "End Exam for All" button with confirmation — not in spec but needed for teacher control</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">8. Integrity score display consistency <span class="badge ba">Confusing without this</span></div>
+    <div class="row"><div class="dot a"></div>Score shown in multiple places (tile, expanded view, PDF report, appeal panel) but the visual format isn't consistent across your spec.</div>
+    <div class="add-box">
+      <div class="add-title">Define one canonical score display component:</div>
+      <div class="add-item">• Score number (large, color-coded) + CI range (e.g. "74 ±7") + tier badge ("Tier 1")</div>
+      <div class="add-item">• 5 factor bars with labels and weights (Behavioral 30%, Stylometric 25%, etc.)</div>
+      <div class="add-item">• Status badge: CLEAN / WATCH / WARN / FLAGGED</div>
+      <div class="add-item">• Use this same component in: tile expand, PDF report, appeal panel, student post-exam screen</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">9. Paper Config UX — marks tally needs work <span class="badge ba">Demo moment</span></div>
+    <div class="row"><div class="dot a"></div>The live marks tally is a great feature but the current spec doesn't describe the micro-interaction clearly enough to implement well.</div>
+    <div class="add-box">
+      <div class="add-title">Specify the tally micro-interaction:</div>
+      <div class="add-item">• Tally updates on every keystroke in count/marks fields (not on blur)</div>
+      <div class="add-item">• Show section breakdown: "Section A: 20 | Section B: 30 | Section C: 15 → Total: 65/80"</div>
+      <div class="add-item">• Over-budget: tally turns red + "5 marks over — reduce a section" error inline</div>
+      <div class="add-item">• Under-budget: tally turns amber + "15 marks remaining — add a section or increase marks"</div>
+      <div class="add-item">• Exactly right: tally turns green + checkmark animation + "Generate Paper" button activates</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">10. Design tokens — partially defined <span class="badge ba">Consistency issue</span></div>
+    <div class="row"><div class="dot a"></div>§10 mentions design tokens but only lists color names, not the full token system needed for consistent implementation.</div>
+    <div class="add-box">
+      <div class="add-title">Add these missing token definitions:</div>
+      <div class="add-item">• Typography scale: display (32px/700), heading (24px/600), subheading (18px/500), body (15px/400), caption (13px/400), mono (13px/400)</div>
+      <div class="add-item">• Spacing scale: 4px, 8px, 12px, 16px, 24px, 32px, 48px, 64px — use consistently</div>
+      <div class="add-item">• Border radius tokens: sm=4px, md=8px, lg=12px, xl=16px, pill=9999px</div>
+      <div class="add-item">• Shadow tokens: card (0 1px 3px rgba), modal (0 8px 32px rgba), elevated (0 4px 12px rgba)</div>
+      <div class="add-item">• Animation tokens: fast=150ms, normal=250ms, slow=400ms — use for all transitions</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">11. Accessibility — not mentioned anywhere <span class="badge ba">Judges with a11y knowledge will notice</span></div>
+    <div class="add-box">
+      <div class="add-title">Minimum accessibility spec to add:</div>
+      <div class="add-item">• All live integrity updates use aria-live="polite" so screen readers announce changes</div>
+      <div class="add-item">• Timer countdown announced at 5 min, 1 min, 30 sec remaining via aria-live="assertive"</div>
+      <div class="add-item">• Focus trap on consent modal — tab key must not escape the modal</div>
+      <div class="add-item">• All icon-only buttons have aria-label (copy button, alert dismiss, tile expand)</div>
+      <div class="add-item">• Color is never the only integrity status indicator — pair with icon (✓ ⚠ ✗) and text label</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">12. Onboarding / first-run experience <span class="badge ba">Judges sign up fresh</span></div>
+    <div class="row"><div class="dot a"></div>Judges will create a new account during evaluation. They will land on an empty dashboard with no guidance.</div>
+    <div class="add-box">
+      <div class="add-title">Add a first-run flow:</div>
+      <div class="add-item">• After signup: 3-step checklist shown inline: "1. Create your first exam → 2. Upload your syllabus → 3. Configure your paper"</div>
+      <div class="add-item">• Pre-loaded demo: seed_demo.py already creates a ready-to-demo environment — show the judge this option at login: "Try demo mode?" with one click</div>
+      <div class="add-item">• Progress indicator: show which steps are completed with checkmarks as judge explores</div>
+    </div>
+  </div>
+</div>
+
+<!-- SCREEN BY SCREEN -->
+<div id="screens" class="panel">
+  <div class="section-label">What's in the spec vs what's missing per screen</div>
+
+  <div class="screen-grid">
+    <div class="screen-card">
+      <div class="screen-title">Screen 1 — Landing</div>
+      <span class="tag tag-ok">Hero</span><span class="tag tag-ok">Stat bar</span><span class="tag tag-ok">Role CTAs</span><span class="tag tag-ok">Auth form</span>
+      <div style="margin-top:6px;"><span class="tag tag-miss">No error state</span><span class="tag tag-miss">No mobile nav</span><span class="tag tag-add">Add: feature comparison vs Proctorio table</span></div>
+    </div>
+    <div class="screen-card">
+      <div class="screen-title">Screen 2 — Teacher Dashboard</div>
+      <span class="tag tag-ok">Sidebar</span><span class="tag tag-ok">Exam cards</span><span class="tag tag-ok">Join code</span><span class="tag tag-ok">Tabs</span>
+      <div style="margin-top:6px;"><span class="tag tag-miss">No empty state</span><span class="tag tag-miss">No student roster</span><span class="tag tag-add">Add: exam archive toggle, exam search/filter, clone exam button</span></div>
+    </div>
+    <div class="screen-card">
+      <div class="screen-title">Screen 3 — Paper Config</div>
+      <span class="tag tag-ok">Section builder</span><span class="tag tag-ok">Marks tally</span><span class="tag tag-ok">Chapter weights</span><span class="tag tag-ok">Preview</span>
+      <div style="margin-top:6px;"><span class="tag tag-miss">No question edit</span><span class="tag tag-miss">No negative marking</span><span class="tag tag-add">Add: tally micro-interaction spec, generation failure state</span></div>
+    </div>
+    <div class="screen-card">
+      <div class="screen-title">Screen 4 — Live Monitor</div>
+      <span class="tag tag-ok">Tile grid</span><span class="tag tag-ok">Alert feed</span><span class="tag tag-ok">Tile expand</span><span class="tag tag-ok">Override</span>
+      <div style="margin-top:6px;"><span class="tag tag-miss">No sort/filter</span><span class="tag tag-miss">No summary bar</span><span class="tag tag-miss">No end exam button</span><span class="tag tag-add">Add: WebSocket disconnect banner, alert mute per student</span></div>
+    </div>
+    <div class="screen-card">
+      <div class="screen-title">Screen 5 — Student Consent</div>
+      <span class="tag tag-ok">4 consent items</span><span class="tag tag-ok">Privacy notes</span><span class="tag tag-ok">DPDP badge</span><span class="tag tag-ok">Cancel</span>
+      <div style="margin-top:6px;"><span class="tag tag-miss">No mobile scroll spec</span><span class="tag tag-add">Add: camera preview thumbnail so student confirms correct camera is selected</span></div>
+    </div>
+    <div class="screen-card">
+      <div class="screen-title">Screen 6 — Blink Challenge</div>
+      <span class="tag tag-ok">Webcam circle</span><span class="tag tag-ok">Blink progress</span><span class="tag tag-ok">8s countdown</span><span class="tag tag-ok">Retry</span>
+      <div style="margin-top:6px;"><span class="tag tag-miss">No low-light fallback</span><span class="tag tag-add">Add: "Can't detect blink? Ensure good lighting" fallback + manual override for teacher</span></div>
+    </div>
+    <div class="screen-card">
+      <div class="screen-title">Screen 7 — Exam Interface</div>
+      <span class="tag tag-ok">Timer</span><span class="tag tag-ok">Question display</span><span class="tag tag-ok">Answer forms</span><span class="tag tag-ok">WARN banner</span>
+      <div style="margin-top:6px;"><span class="tag tag-miss">No question palette</span><span class="tag tag-miss">No mark-for-review</span><span class="tag tag-miss">No mobile layout</span><span class="tag tag-add">Add: submit confirmation dialog, section dividers for multi-section papers</span></div>
+    </div>
+    <div class="screen-card">
+      <div class="screen-title">Screen 8 — Student Post-Exam</div>
+      <span class="tag tag-ok">Submission confirm</span><span class="tag tag-ok">Integrity summary</span><span class="tag tag-ok">Appeal form</span><span class="tag tag-ok">Status tracker</span>
+      <div style="margin-top:6px;"><span class="tag tag-miss">No score reveal timing</span><span class="tag tag-add">Add: "Appeal submitted" confirmation animation, deadline countdown refresher</span></div>
+    </div>
+    <div class="screen-card">
+      <div class="screen-title">Screen 9 — Teacher Review</div>
+      <span class="tag tag-ok">Flagged queue</span><span class="tag tag-ok">Side-by-side panel</span><span class="tag tag-ok">Confirm/Clear</span><span class="tag tag-ok">Audit log</span>
+      <div style="margin-top:6px;"><span class="tag tag-miss">No bulk decision</span><span class="tag tag-add">Add: "Clear all with no appeals" bulk action, sort by appeal status, flag reason tag selector</span></div>
+    </div>
+    <div class="screen-card">
+      <div class="screen-title">Screen 10 — Reports</div>
+      <span class="tag tag-ok">Per-student cards</span><span class="tag tag-ok">Histogram</span><span class="tag tag-ok">Batch ZIP</span><span class="tag tag-ok">Filter/sort</span>
+      <div style="margin-top:6px;"><span class="tag tag-miss">No CSV export</span><span class="tag tag-miss">No question analytics</span><span class="tag tag-add">Add: "Share report link" per student, print-friendly layout</span></div>
+    </div>
+  </div>
+
+  <div class="highlight" style="margin-top:14px;">
+    <div class="highlight-t">Screen 11 — Missing entirely: Password Reset / Account Settings</div>
+    <div class="highlight-b">Mentioned in FR-1 but never designed. Teacher clicks the magic link and lands on... nothing in your spec. Add a simple 2-field reset form (new password + confirm) and a settings page with display name + institute name.</div>
+  </div>
+</div>
+
+<!-- INFRA & DOCS -->
+<div id="infra" class="panel">
+  <div class="section-label">Documentation present</div>
+  <div class="card">
+    <div class="card-title">What's already in your docs plan <span class="badge bg">Covered</span></div>
+    <div class="row"><div class="dot g"></div>README with architecture diagram, live URL, demo video, setup guide, theme alignment</div>
+    <div class="row"><div class="dot g"></div>docs/dpdp-compliance.md</div>
+    <div class="row"><div class="dot g"></div>research/calibration/ (N=60 notebook + perplexity notes)</div>
+    <div class="row"><div class="dot g"></div>docker-compose.yml + .env.example</div>
+    <div class="row"><div class="dot g"></div>.github/workflows/health_ping.yml + ci.yml</div>
+    <div class="row"><div class="dot g"></div>NCERT legal note in README</div>
+  </div>
+
+  <div class="section-label">Documentation gaps</div>
+  <div class="card">
+    <div class="card-title">Missing docs that judges check <span class="badge ba">Add these</span></div>
+    <div class="row"><div class="dot r"></div><strong style="color:var(--color-text-primary);font-weight:500">AGENTS.md</strong> — A one-page reference showing all 10 agents, their trigger conditions, inputs, outputs, and how to see them in LangGraph Studio. Judges will open this file.</div>
+    <div class="row"><div class="dot r"></div><strong style="color:var(--color-text-primary);font-weight:500">CONTRIBUTING.md</strong> — Shows professional engineering practices. Judges look for this as a signal of team maturity.</div>
+    <div class="row"><div class="dot a"></div><strong style="color:var(--color-text-primary);font-weight:500">SECURITY.md</strong> — Documents what data is collected, how it's stored, and what is never stored. Directly supports DPDP claims.</div>
+    <div class="row"><div class="dot a"></div><strong style="color:var(--color-text-primary);font-weight:500">docs/architecture.png</strong> — A visual architecture diagram in the repo (not just in the README). Judges screenshot this for evaluation notes.</div>
+    <div class="row"><div class="dot a"></div><strong style="color:var(--color-text-primary);font-weight:500">docs/demo-screenshots/</strong> — A folder with at least 8 annotated screenshots. Some judges review repos without running the project.</div>
+  </div>
+
+  <div class="section-label">Infrastructure gaps</div>
+  <div class="card">
+    <div class="card-title">Missing infra specs <span class="badge ba">Before submission</span></div>
+    <div class="row"><div class="dot r"></div><strong style="color:var(--color-text-primary);font-weight:500">Rate limiting not specced</strong> — The POST /sessions/join endpoint is public (no auth needed). Any student with a valid join code can join. No rate limiting = trivial DDoS on the demo server. Add: slowapi (Python rate limiter) on join endpoint, max 5 attempts per IP per minute.</div>
+    <div class="row"><div class="dot a"></div><strong style="color:var(--color-text-primary);font-weight:500">Redis TTL not specced</strong> — Session state in Upstash Redis needs an expiry. A 60-minute exam session's Redis keys should expire after 90 minutes. Not in spec.</div>
+    <div class="row"><div class="dot a"></div><strong style="color:var(--color-text-primary);font-weight:500">Supabase Storage bucket policy not specced</strong> — PDF reports are uploaded to Supabase Storage. The bucket access policy (public vs private + signed URLs expiry duration) is not defined.</div>
+    <div class="row"><div class="dot a"></div><strong style="color:var(--color-text-primary);font-weight:500">CORS policy not documented</strong> — FastAPI CORS settings for Vercel domain need to be explicit. A common demo-day failure is Render backend rejecting requests from the Vercel frontend URL.</div>
+    <div class="row"><div class="dot a"></div><strong style="color:var(--color-text-primary);font-weight:500">WebSocket reconnection strategy not specced</strong> — Socket.IO client should have explicit reconnection config: max attempts, exponential backoff, and what state to rehydrate after reconnect.</div>
+  </div>
+</div>
+
+<!-- PRIORITY ORDER -->
+<div id="priority" class="panel">
+  <div class="section-label">Ranked by impact on judging score — do in this order</div>
+
+  <div class="card">
+    <div class="card-title" style="color:var(--color-text-danger)">P0 — Fix before writing one line of code</div>
+    <div class="row"><div class="dot r"></div><strong style="color:var(--color-text-primary);font-weight:500">Unify integrity score thresholds</strong> — Build Guide says FLAGGED ≤50, Masterplan says FLAGGED &lt;60. This will produce a bug. Decision: use WATCH &gt;85 / WARN 70–85 / FLAGGED &lt;70. Update both docs, both code files, all test cases.</div>
+    <div class="row"><div class="dot r"></div><strong style="color:var(--color-text-primary);font-weight:500">Add question navigation palette to Screen 7</strong> — Judges who "take the exam" in the demo will immediately notice there's no way to navigate between questions. This is a standard feature of every Indian exam platform. Without it, the UX score drops hard.</div>
+    <div class="row"><div class="dot r"></div><strong style="color:var(--color-text-primary);font-weight:500">Add mobile layout spec for Screens 5, 6, 7</strong> — If a judge opens the student flow on their phone (very likely), a non-responsive layout is an immediate negative mark against real-world impact.</div>
+  </div>
+
+  <div class="card">
+    <div class="card-title" style="color:var(--color-text-warning)">P1 — Add before Sprint 1 starts</div>
+    <div class="row"><div class="dot a"></div>Design all error states for Screens 3, 4, 7 — test these on Day 7 demo rehearsal</div>
+    <div class="row"><div class="dot a"></div>Design empty states for Screens 2, 4, 10 — judges will sign up fresh</div>
+    <div class="row"><div class="dot a"></div>Add toast notification system spec — use shadcn/ui Sonner, already in your stack</div>
+    <div class="row"><div class="dot a"></div>Add AGENTS.md to docs plan — judges open this file looking for proof of real agents</div>
+    <div class="row"><div class="dot a"></div>Add rate limiting to /sessions/join — prevents demo-day DDoS</div>
+    <div class="row"><div class="dot a"></div>Spec the submit confirmation dialog for Screen 7 — judges will notice this is missing</div>
+  </div>
+
+  <div class="card">
+    <div class="card-title" style="color:var(--color-text-info)">P2 — Add during build if time allows</div>
+    <div class="row"><div class="dot b"></div>Mark-for-review feature in exam interface</div>
+    <div class="row"><div class="dot b"></div>Question-level analytics in Reports tab</div>
+    <div class="row"><div class="dot b"></div>CSV export from Reports</div>
+    <div class="row"><div class="dot b"></div>Live Monitor sort/filter + summary bar</div>
+    <div class="row"><div class="dot b"></div>Material library (reuse PDFs across exams)</div>
+    <div class="row"><div class="dot b"></div>SECURITY.md + CONTRIBUTING.md</div>
+    <div class="row"><div class="dot b"></div>Redis TTL + Supabase Storage bucket policy spec</div>
+    <div class="row"><div class="dot b"></div>WebSocket reconnection config (exponential backoff)</div>
+  </div>
+
+  <div class="card">
+    <div class="card-title" style="color:var(--color-text-tertiary)">P3 — Round 2 / post-submission polish</div>
+    <div class="row"><div class="dot dot" style="background:var(--color-text-tertiary)"></div>Dark mode implementation</div>
+    <div class="row"><div class="dot dot" style="background:var(--color-text-tertiary)"></div>Exam scheduling (activate at specific time)</div>
+    <div class="row"><div class="dot dot" style="background:var(--color-text-tertiary)"></div>Admin role + screen</div>
+    <div class="row"><div class="dot dot" style="background:var(--color-text-tertiary)"></div>Negative marking configuration</div>
+    <div class="row"><div class="dot dot" style="background:var(--color-text-tertiary)"></div>Material library with reuse across exams</div>
+    <div class="row"><div class="dot dot" style="background:var(--color-text-tertiary)"></div>Exam clone / duplicate feature</div>
+    <div class="row"><div class="dot dot" style="background:var(--color-text-tertiary)"></div>Indic language support</div>
+  </div>
+
+  <div style="background: var(--color-background-success); border-radius: var(--border-radius-lg); padding: 1rem 1.25rem; margin-top: 4px;">
+    <div style="font-size: 14px; font-weight: 500; color: var(--color-text-success); margin-bottom: 6px;">Bottom line</div>
+    <div style="font-size: 13px; color: var(--color-text-success); line-height: 1.7;">Your plan is 91% complete at the architectural level. The 3 P0 fixes take under 2 hours to add to the spec and prevent the most likely demo-day embarrassments. The P1 items are all design decisions, not code — they take 1–2 hours to spec and save 3–4 hours of confusion during Sprint 3–5. Add those 9 items and your plan is genuinely Round 2-ready before a single line of code is written.</div>
+  </div>
+</div>
+
+<script>
+function show(id) {
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+  event.target.classList.add('active');
+}
+</script>
