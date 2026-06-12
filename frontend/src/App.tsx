@@ -272,6 +272,34 @@ function App() {
   const [theme, setTheme] = useState<'light' | 'dark'>(() => (window.localStorage.getItem('examguard-theme') === 'light' ? 'light' : 'dark'))
 
   useEffect(() => {
+    if (auth?.role !== 'student' || !studentSessionId() || typeof BroadcastChannel === 'undefined') return
+    const sessionId = studentSessionId()
+    const channel = new BroadcastChannel('examguard-student-sessions')
+    const claimId = crypto.randomUUID()
+    let occupied = false
+    channel.onmessage = (event) => {
+      const message = event.data as { type?: string; sessionId?: string; claimId?: string }
+      if (message.sessionId !== sessionId) return
+      if (message.type === 'probe' && message.claimId !== claimId) {
+        channel.postMessage({ type: 'occupied', sessionId, claimId: message.claimId })
+      }
+      if (message.type === 'occupied' && message.claimId === claimId) occupied = true
+    }
+    channel.postMessage({ type: 'probe', sessionId, claimId })
+    const timer = window.setTimeout(() => {
+      if (!occupied) return
+      window.sessionStorage.removeItem('examguard-student-auth')
+      window.sessionStorage.removeItem('examguard-session-id')
+      window.sessionStorage.removeItem('examguard-tab-owner')
+      setAuth(null)
+      setView('landing')
+      window.history.replaceState(null, '', '#landing')
+      notify('warning', 'This copied tab was reset. Join as a different student here.')
+    }, 350)
+    return () => { window.clearTimeout(timer); channel.close() }
+  }, [auth?.role])
+
+  useEffect(() => {
     document.documentElement.dataset.theme = theme
     window.localStorage.setItem('examguard-theme', theme)
   }, [theme])
