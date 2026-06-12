@@ -391,9 +391,16 @@ def exam_materials(exam_id: str) -> list[dict[str, object]]:
     ]
 
 
+def owned_exam_sessions(exam_id: str, teacher: dict[str, object]) -> list[dict[str, object]]:
+    require_owned_exam(exam_id, teacher)
+    if hasattr(store, "exam_students"):
+        return store.exam_students(exam_id)
+    return [session for session in store.sessions.values() if session["exam_id"] == exam_id]
+
+
 @app.get("/api/v1/exams/{exam_id}/reports")
-def exam_reports(exam_id: str) -> dict[str, object]:
-    sessions = exam_students(exam_id)
+def exam_reports(exam_id: str, teacher: dict[str, object] = Depends(current_teacher)) -> dict[str, object]:
+    sessions = owned_exam_sessions(exam_id, teacher)
     return {
         "exam_id": exam_id,
         "reports_ready": len(sessions),
@@ -403,9 +410,9 @@ def exam_reports(exam_id: str) -> dict[str, object]:
 
 
 @app.get("/api/v1/exams/{exam_id}/reports/csv")
-def exam_reports_csv(exam_id: str) -> StreamingResponse:
+def exam_reports_csv(exam_id: str, teacher: dict[str, object] = Depends(current_teacher)) -> StreamingResponse:
     """Export exam reports as CSV download."""
-    sessions = exam_students(exam_id)
+    sessions = owned_exam_sessions(exam_id, teacher)
     output = io.StringIO()
     writer = csv.writer(output)
     writer.writerow(["student_name", "student_id", "integrity_score", "integrity_status", "status", "review_status", "grade_released"])
@@ -429,9 +436,9 @@ def exam_reports_csv(exam_id: str) -> StreamingResponse:
 
 
 @app.get("/api/v1/exams/{exam_id}/reports/summary")
-def exam_summary(exam_id: str) -> dict[str, object]:
+def exam_summary(exam_id: str, teacher: dict[str, object] = Depends(current_teacher)) -> dict[str, object]:
     """Summary statistics for an exam."""
-    sessions = exam_students(exam_id)
+    sessions = owned_exam_sessions(exam_id, teacher)
     if not sessions:
         return {"exam_id": exam_id, "total_students": 0, "average_integrity": 0, "status_counts": {}, "appeals_open": 0}
     scores = [s["integrity"]["score"] for s in sessions if s.get("integrity", {}).get("score") is not None]
