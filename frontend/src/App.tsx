@@ -272,22 +272,13 @@ function App() {
   const [theme, setTheme] = useState<'light' | 'dark'>(() => (window.localStorage.getItem('examguard-theme') === 'light' ? 'light' : 'dark'))
 
   useEffect(() => {
-    if (auth?.role !== 'student' || !studentSessionId() || typeof BroadcastChannel === 'undefined') return
+    if (auth?.role !== 'student' || !studentSessionId()) return
     const sessionId = studentSessionId()
-    const channel = new BroadcastChannel('examguard-student-sessions')
-    const claimId = crypto.randomUUID()
-    let occupied = false
-    channel.onmessage = (event) => {
-      const message = event.data as { type?: string; sessionId?: string; claimId?: string }
-      if (message.sessionId !== sessionId) return
-      if (message.type === 'probe' && message.claimId !== claimId) {
-        channel.postMessage({ type: 'occupied', sessionId, claimId: message.claimId })
-      }
-      if (message.type === 'occupied' && message.claimId === claimId) occupied = true
-    }
-    channel.postMessage({ type: 'probe', sessionId, claimId })
-    const timer = window.setTimeout(() => {
-      if (!occupied) return
+    const ownerId = crypto.randomUUID()
+    const lockKey = `examguard-session-owner-${sessionId}`
+    let existing: { ownerId?: string; updatedAt?: number } | null = null
+    try { existing = JSON.parse(window.localStorage.getItem(lockKey) || 'null') } catch { existing = null }
+    if (existing?.ownerId && Date.now() - Number(existing.updatedAt || 0) < 3000) {
       window.sessionStorage.removeItem('examguard-student-auth')
       window.sessionStorage.removeItem('examguard-session-id')
       window.sessionStorage.removeItem('examguard-tab-owner')
@@ -295,8 +286,18 @@ function App() {
       setView('landing')
       window.history.replaceState(null, '', '#landing')
       notify('warning', 'This copied tab was reset. Join as a different student here.')
-    }, 350)
-    return () => { window.clearTimeout(timer); channel.close() }
+      return
+    }
+    const heartbeat = () => window.localStorage.setItem(lockKey, JSON.stringify({ ownerId, updatedAt: Date.now() }))
+    heartbeat()
+    const timer = window.setInterval(heartbeat, 1000)
+    return () => {
+      window.clearInterval(timer)
+      try {
+        const lock = JSON.parse(window.localStorage.getItem(lockKey) || 'null')
+        if (lock?.ownerId === ownerId) window.localStorage.removeItem(lockKey)
+      } catch { window.localStorage.removeItem(lockKey) }
+    }
   }, [auth?.role])
 
   useEffect(() => {
