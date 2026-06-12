@@ -93,6 +93,10 @@ class LocalStore:
         self.users[user["id"]] = user
         return user
 
+    def request_password_reset(self, email: str) -> None:
+        if not any(user.get("email") == email for user in self.users.values()):
+            raise PermissionError("Account not found")
+
     def verify_token(self, token: str) -> dict[str, Any]:
         if not token.startswith("local-"):
             raise PermissionError("Invalid access token")

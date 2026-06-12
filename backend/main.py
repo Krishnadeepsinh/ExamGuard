@@ -226,9 +226,15 @@ def signup(request: Request, payload: LoginRequest) -> dict[str, object]:
 @app.post("/api/v1/auth/reset-request")
 @limiter.limit("3/minute")
 def reset_request(request: Request, payload: dict[str, str]) -> dict[str, str]:
-    if "email" not in payload:
+    email = payload.get("email", "").strip()
+    if not email:
         raise HTTPException(status_code=422, detail="email is required")
-    return {"status": "reset_link_created_local"}
+    try:
+        store.request_password_reset(email)
+    except PermissionError:
+        # Do not reveal whether an account exists.
+        pass
+    return {"status": "reset_link_sent"}
 
 
 @app.post("/api/v1/auth/reset-confirm")

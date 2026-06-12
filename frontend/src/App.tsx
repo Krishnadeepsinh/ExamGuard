@@ -1398,6 +1398,11 @@ function LiveMonitorView(props: {
 }
 
 function ConsentView({ consentScrolled, setConsentScrolled, go, notify }: { consentScrolled: boolean; setConsentScrolled: (value: boolean) => void; go: (view: View) => void; notify: (kind: ToastKind, text: string) => void }) {
+  const consentListRef = useRef<HTMLDivElement | null>(null)
+  useEffect(() => {
+    const list = consentListRef.current
+    if (list && list.scrollHeight <= list.clientHeight + 8) setConsentScrolled(true)
+  }, [setConsentScrolled])
   const handleConsent = async () => {
     const sessionId = window.localStorage.getItem('examguard-session-id')
     if (sessionId) {
@@ -1419,7 +1424,7 @@ function ConsentView({ consentScrolled, setConsentScrolled, go, notify }: { cons
           <span style={{ fontSize: '13px', color: 'var(--eg-text-muted)', marginLeft: '8px' }}>Camera starts only during liveness verification</span>
         </div>
 
-        <div className="consent-list" onScroll={(event) => {
+        <div ref={consentListRef} className="consent-list" onScroll={(event) => {
           const target = event.currentTarget
           setConsentScrolled(target.scrollTop + target.clientHeight >= target.scrollHeight - 8)
         }}>
@@ -1433,7 +1438,7 @@ function ConsentView({ consentScrolled, setConsentScrolled, go, notify }: { cons
           <button className="ghost-btn full" onClick={() => { go('landing') }}>Cancel</button>
           <button className="primary-btn full" style={{ background: 'var(--eg-emerald)', borderColor: 'var(--eg-emerald)' }} disabled={!consentScrolled} onClick={handleConsent}>I Consent</button>
         </div>
-        {!consentScrolled && <span className="hint">Scroll all terms to unlock the consent button.</span>}
+        {!consentScrolled && <span className="hint" aria-live="polite">Scroll inside the terms box to unlock consent.</span>}
       </div>
     </section>
   )
@@ -1560,6 +1565,7 @@ function ExamView(props: {
   const [answers, setAnswers] = useState<Record<string, string>>({})
   const [timeLeft, setTimeLeft] = useState(80 * 60) // 80 minutes default
   const [lastSave, setLastSave] = useState<number>(Date.now())
+  const [saveWarning, setSaveWarning] = useState('')
   const [submitOpen, setSubmitOpen] = useState(false)
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const autoSaveRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -1582,7 +1588,11 @@ function ExamView(props: {
           .then((exam) => {
             setExamTitle(exam.title)
             if (exam && exam.duration_minutes) {
-              setTimeLeft(exam.duration_minutes * 60)
+              const deadlineKey = `examguard-deadline-${sessionId}`
+              const savedDeadline = Number(window.localStorage.getItem(deadlineKey))
+              const deadline = savedDeadline > Date.now() ? savedDeadline : Date.now() + exam.duration_minutes * 60_000
+              window.localStorage.setItem(deadlineKey, String(deadline))
+              setTimeLeft(Math.max(0, Math.ceil((deadline - Date.now()) / 1000)))
             }
           })
           .catch(() => {})
@@ -1629,7 +1639,9 @@ function ExamView(props: {
   const q = questions.at(currentQ)
   const displayQuestions = questions
   const current = displayQuestions.at(currentQ) || displayQuestions.at(0)
-  const answeredCount = Object.keys(answers).filter((k) => (Reflect.get(answers, k) || '').trim()).length
+  const answeredIds = new Set(Object.keys(answers).filter((k) => (Reflect.get(answers, k) || '').trim()))
+  if (current?.id && props.answer.trim()) answeredIds.add(current.id)
+  const answeredCount = answeredIds.size
   const totalQ = displayQuestions.length
 
   const saveCurrentAnswer = useCallback(async () => {
@@ -1640,7 +1652,12 @@ function ExamView(props: {
     setLastSave(Date.now())
     const sessionId = window.localStorage.getItem('examguard-session-id')
     if (sessionId && text.trim()) {
-      try { await api.saveAnswer(sessionId, { question_id: current.id, answer_text: text }) } catch { /* local fallback */ }
+      try {
+        await api.saveAnswer(sessionId, { question_id: current.id, answer_text: text })
+        setSaveWarning('')
+      } catch {
+        setSaveWarning('Offline: answer saved locally and will retry on next save.')
+      }
     }
   }, [current, q, props.answer, answers])
 
@@ -1679,7 +1696,9 @@ function ExamView(props: {
       window.localStorage.setItem('examguard-answers', JSON.stringify(updated))
       const sessionId = window.localStorage.getItem('examguard-session-id')
       if (sessionId) {
-        api.saveAnswer(sessionId, { question_id: current.id, answer_text: opt, selected_option: opt }).catch(() => {})
+        api.saveAnswer(sessionId, { question_id: current.id, answer_text: opt, selected_option: opt })
+          .then(() => setSaveWarning(''))
+          .catch(() => setSaveWarning('Offline: answer saved locally and will retry on next save.'))
       }
       return updated
     })
@@ -1703,15 +1722,28 @@ function ExamView(props: {
   }
 
   useEffect(() => {
+    let blurTimer: number | undefined
+    let lastBlurLoggedAt = 0
     const visibility = () => { if (document.hidden) logEvent('tab_hidden') }
-    const blur = () => logEvent('window_blur')
+    const blur = () => {
+      blurTimer = window.setTimeout(() => {
+        if (!document.hidden && Date.now() - lastBlurLoggedAt >= 30_000) {
+          lastBlurLoggedAt = Date.now()
+          logEvent('window_blur')
+        }
+      }, 3000)
+    }
+    const focus = () => { if (blurTimer) window.clearTimeout(blurTimer) }
     const fullscreen = () => { if (!document.fullscreenElement) logEvent('fullscreen_exit') }
     document.addEventListener('visibilitychange', visibility)
     window.addEventListener('blur', blur)
+    window.addEventListener('focus', focus)
     document.addEventListener('fullscreenchange', fullscreen)
     return () => {
       document.removeEventListener('visibilitychange', visibility)
       window.removeEventListener('blur', blur)
+      window.removeEventListener('focus', focus)
+      if (blurTimer) window.clearTimeout(blurTimer)
       document.removeEventListener('fullscreenchange', fullscreen)
     }
   }, [])
@@ -1736,6 +1768,7 @@ function ExamView(props: {
             <button key={dq.id} className={i === currentQ ? 'current' : (Reflect.get(answers, dq.id) || '').trim() ? 'answered' : 'unvisited'} onClick={() => goToQuestion(i)} aria-label={`Question ${i + 1}`}>{i + 1}</button>
           ))}
         </div>
+        {saveWarning && <span className="hint" role="status">{saveWarning}</span>}
         <button className="primary-btn full" onClick={requestSubmit}>Submit Exam</button>
       </aside>}
 
@@ -2152,9 +2185,10 @@ function SettingsView({ auth, onSaveSettings, notify }: { auth: AuthUser | null;
     if (!strongPassword) { notify('error', 'Password must be 8+ characters with one uppercase letter and one number.'); return }
     if (newPassword !== confirmPassword) { notify('error', 'Password confirmation does not match.'); return }
     try {
-      await api.resetRequest('current-user@demo.examguard.ai')
+      if (!auth?.email) throw new Error('Signed-in email is unavailable.')
+      await api.resetRequest(auth.email)
       notify('info', 'Password reset email sent.')
-    } catch { notify('info', 'Password reset email sent.') }
+    } catch (error) { notify('error', error instanceof Error ? error.message : 'Password reset request failed.') }
   }
 
   return (
@@ -2476,6 +2510,10 @@ function SubmitDialog({ onClose, go, answeredCount, totalCount, markedCount }: {
   const [submitError, setSubmitError] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const handleSubmit = async () => {
+    if (answeredCount === 0) {
+      setSubmitError('Answer at least one question before submitting.')
+      return
+    }
     setSubmitting(true)
     setSubmitError('')
     const sessionId = window.localStorage.getItem('examguard-session-id')
@@ -2488,6 +2526,7 @@ function SubmitDialog({ onClose, go, answeredCount, totalCount, markedCount }: {
       }
     }
     window.localStorage.removeItem('examguard-answers')
+    if (sessionId) window.localStorage.removeItem(`examguard-deadline-${sessionId}`)
     go()
   }
   return (
@@ -2503,7 +2542,7 @@ function SubmitDialog({ onClose, go, answeredCount, totalCount, markedCount }: {
         {submitError && <p className="form-error" role="alert">{submitError}</p>}
         <div className="inline-actions" style={{ justifyContent: 'flex-end' }}>
           <button className="ghost-btn" onClick={onClose}>Review Answers</button>
-          <button className="primary-btn" disabled={submitting} onClick={handleSubmit}>{submitting ? 'Submitting...' : 'Submit Exam'}</button>
+          <button className="primary-btn" disabled={submitting || answeredCount === 0} onClick={handleSubmit}>{submitting ? 'Submitting...' : 'Submit Exam'}</button>
         </div>
       </div>
     </div>

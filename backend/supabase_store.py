@@ -141,6 +141,9 @@ class SupabaseStore:
             })[0]
         return {**profile, "access_token": auth.get("access_token", ""), "refresh_token": auth.get("refresh_token", "")}
 
+    def request_password_reset(self, email: str) -> None:
+        self.auth_request("recover", {"email": email})
+
     def create_exam(self, teacher_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         existing_codes = {exam["join_code"] for exam in self.rest("GET", "exams", query="?select=join_code")}
         created = self.rest("POST", "exams", {
