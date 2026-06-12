@@ -136,6 +136,13 @@ function isValidEmail(value: string) {
   return emailPattern.test(value.trim())
 }
 
+function currentTabId(): string {
+  if (!window.name.startsWith('examguard-tab-')) {
+    window.name = `examguard-tab-${crypto.randomUUID()}`
+  }
+  return window.name
+}
+
 function wordCount(value: string) {
   return value.trim().split(/\s+/).filter(Boolean).length
 }
@@ -147,7 +154,12 @@ function viewFromHash(): View {
 
 function storedAuth(): AuthUser | null {
   try {
-    const raw = window.sessionStorage.getItem('examguard-student-auth') || window.localStorage.getItem('examguard-auth')
+    const ownsStudentSession = window.sessionStorage.getItem('examguard-tab-owner') === currentTabId()
+    if (!ownsStudentSession) {
+      window.sessionStorage.removeItem('examguard-student-auth')
+      window.sessionStorage.removeItem('examguard-session-id')
+    }
+    const raw = (ownsStudentSession ? window.sessionStorage.getItem('examguard-student-auth') : null) || window.localStorage.getItem('examguard-auth')
     return raw ? (JSON.parse(raw) as AuthUser) : null
   } catch {
     return null
@@ -155,7 +167,8 @@ function storedAuth(): AuthUser | null {
 }
 
 function studentSessionId(): string | null {
-  return window.sessionStorage.getItem('examguard-session-id') || window.localStorage.getItem('examguard-session-id')
+  if (window.sessionStorage.getItem('examguard-tab-owner') !== currentTabId()) return null
+  return window.sessionStorage.getItem('examguard-session-id')
 }
 
 function formatTime(seconds: number): string {
@@ -354,6 +367,7 @@ function App() {
   const login = (user: AuthUser) => {
     setAuth(user)
     if (user.role === 'student') {
+      window.sessionStorage.setItem('examguard-tab-owner', currentTabId())
       window.sessionStorage.setItem('examguard-student-auth', JSON.stringify(user))
     } else {
       window.localStorage.setItem('examguard-auth', JSON.stringify(user))
@@ -369,6 +383,7 @@ function App() {
       if (!payload.joinCode) throw new Error('Exam join code is required.')
       const session = await api.joinSession({ join_code: payload.joinCode, student_name: payload.name, email: payload.email || undefined })
       window.sessionStorage.setItem('examguard-session-id', session.id)
+      window.sessionStorage.setItem('examguard-tab-owner', currentTabId())
       window.localStorage.setItem('examguard-exam-id', session.exam_id)
       login({ role: 'student', name: session.student_name, email: payload.email || `${payload.name.toLowerCase().replace(/\s+/g, '.')}@student.ai` })
       return
@@ -389,6 +404,7 @@ function App() {
     window.localStorage.removeItem('examguard-access-token')
     window.localStorage.removeItem('examguard-session-id')
     window.sessionStorage.removeItem('examguard-session-id')
+    window.sessionStorage.removeItem('examguard-tab-owner')
     window.localStorage.removeItem('examguard-exam-id')
     notify('info', 'Signed out. Protected screens are locked.')
     setView('landing')

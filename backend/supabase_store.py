@@ -17,7 +17,7 @@ from backend.agents.material_ingestion_agent import chunk_text, detect_chapter, 
 from backend.agents.llm_router import generate_grounded_questions, gemini_router
 from backend.agents.orchestrator_agent import compute_integrity_score
 from backend.agents.paper_config_agent import generate_join_code, validate_paper_config
-from backend.agents.proctoring_agent import behavioral_score, impact_for
+from backend.agents.proctoring_agent import behavioral_score, has_critical_pattern, impact_for
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
 from backend.store import build_pdf_report
@@ -616,7 +616,10 @@ class SupabaseStore:
         rows = self.rest("GET", "integrity_events", query=f"?session_id=eq.{session_id}&select=event_type") or []
         behavioral = behavioral_score([{"type": row["event_type"]} for row in rows])
         factors = {"behavioral": behavioral, "perplexity": 84, "stylometric": 89, "answer_quality": 91, "time_anomaly": 76}
+        event_types = [{"type": row["event_type"]} for row in rows]
         result = compute_integrity_score(factors, baseline_tier=1)
+        if has_critical_pattern(event_types):
+            result = {**result, "score": min(float(result["score"]), 45.0), "status": "FLAGGED"}
         patch: dict[str, Any] = {"integrity_score": result["score"], "integrity_state": result["status"], "integrity_ci": result["ci"]}
         if result["status"] == "FLAGGED":
             patch["review_status"] = "awaiting_response"

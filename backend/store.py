@@ -17,7 +17,7 @@ from backend.agents.material_ingestion_agent import chunk_text, detect_chapter, 
 from backend.agents.llm_router import generate_grounded_questions, gemini_router
 from backend.agents.orchestrator_agent import compute_integrity_score
 from backend.agents.paper_config_agent import generate_join_code, validate_paper_config
-from backend.agents.proctoring_agent import behavioral_score, impact_for
+from backend.agents.proctoring_agent import behavioral_score, has_critical_pattern, impact_for
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
 
@@ -515,6 +515,8 @@ class LocalStore:
         behavioral = behavioral_score(events)
         factors = {"behavioral": behavioral, "perplexity": 84, "stylometric": 89, "answer_quality": 91, "time_anomaly": 76}
         result = compute_integrity_score(factors, baseline_tier=1)
+        if has_critical_pattern(events):
+            result = {**result, "score": min(float(result["score"]), 45.0), "status": "FLAGGED"}
         session = self.sessions[session_id]
         session["integrity"] = result
         if result["status"] == "FLAGGED":

@@ -136,6 +136,15 @@ class StoreBehaviorTests(unittest.TestCase):
         self.assertLess(updated["score"], initial)
         self.assertIn(updated["status"], {"WATCH", "WARN", "FLAGGED"})
 
+    def test_multi_vector_cheating_pattern_is_flagged(self) -> None:
+        self.store.exams["exam-physics"]["status"] = "active"
+        session = self.store.join_session("PHY001", "Pattern Student", "pattern@student.ai")
+        for event in ("tab_hidden", "tab_hidden", "paste_detected", "fullscreen_exit"):
+            self.store.log_integrity_event(session["id"], event, {})
+        updated = self.store.sessions[session["id"]]["integrity"]
+        self.assertEqual(updated["status"], "FLAGGED")
+        self.assertLess(updated["score"], 50)
+
 
 if __name__ == "__main__":
     unittest.main()

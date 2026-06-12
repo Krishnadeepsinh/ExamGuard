@@ -24,3 +24,11 @@ def behavioral_score(events: list[dict[str, object]]) -> float:
     for event in events:
         score += EVENT_IMPACTS.get(str(event.get("type")), 0)
     return max(0, min(100, score))
+
+
+def has_critical_pattern(events: list[dict[str, object]]) -> bool:
+    """Escalate only repeated, multi-vector behavior; one accidental event never flags."""
+    types = [str(event.get("type")) for event in events]
+    tab_events = types.count("tab_hidden") + types.count("tab_switch")
+    high_risk_vectors = sum(event in types for event in ("paste_detected", "fullscreen_exit", "phone_detected"))
+    return tab_events >= 2 and high_risk_vectors >= 2
