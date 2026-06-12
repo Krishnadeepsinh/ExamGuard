@@ -274,11 +274,14 @@ function App() {
   useEffect(() => {
     if (auth?.role !== 'student' || !studentSessionId()) return
     const sessionId = studentSessionId()
-    const ownerId = crypto.randomUUID()
+    const ownerId = currentTabId()
     const lockKey = `examguard-session-owner-${sessionId}`
+    const navigationType = (performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming | undefined)?.type
     let existing: { ownerId?: string; updatedAt?: number } | null = null
     try { existing = JSON.parse(window.localStorage.getItem(lockKey) || 'null') } catch { existing = null }
-    if (existing?.ownerId && Date.now() - Number(existing.updatedAt || 0) < 3000) {
+    const activeLock = existing?.ownerId && Date.now() - Number(existing.updatedAt || 0) < 3000
+    const reclaimingReload = activeLock && existing?.ownerId === ownerId && navigationType === 'reload'
+    if (activeLock && !reclaimingReload) {
       window.sessionStorage.removeItem('examguard-student-auth')
       window.sessionStorage.removeItem('examguard-session-id')
       window.sessionStorage.removeItem('examguard-tab-owner')
