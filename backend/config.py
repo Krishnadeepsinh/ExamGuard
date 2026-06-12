@@ -15,6 +15,9 @@ class Settings:
     upstash_redis_rest_url: str
     upstash_redis_rest_token: str
     store_backend: str
+    gemini_api_keys: tuple[str, ...]
+    gemini_model: str
+    cors_origins: tuple[str, ...]
 
     @property
     def supabase_enabled(self) -> bool:
@@ -33,7 +36,7 @@ class Settings:
         )
 
 
-def load_env_file(path: Path) -> None:
+def load_env_file(path: Path, *, override: bool = False) -> None:
     if not path.exists():
         return
     for raw_line in path.read_text(encoding="utf-8").splitlines():
@@ -41,13 +44,19 @@ def load_env_file(path: Path) -> None:
         if not line or line.startswith("#") or "=" not in line:
             continue
         key, value = line.split("=", 1)
-        os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
+        key = key.strip().lstrip("\ufeff")
+        value = value.strip().strip('"').strip("'")
+        if override or key not in os.environ:
+            os.environ[key] = value
 
 
 def load_settings() -> Settings:
     root = Path(__file__).resolve().parents[1]
+    # Backend-local secrets take precedence over repository-level defaults.
+    load_env_file(root / "backend" / ".env", override=True)
     load_env_file(root / ".env")
-    load_env_file(root / "backend" / ".env")
+    raw_gemini_keys = os.getenv("GEMINI_API_KEYS", "") or os.getenv("GEMINI_API_KEY", "")
+    gemini_api_keys = tuple(dict.fromkeys(key.strip() for key in raw_gemini_keys.split(",") if key.strip()))
     return Settings(
         supabase_url=os.getenv("SUPABASE_URL", "").rstrip("/"),
         supabase_anon_key=os.getenv("SUPABASE_ANON_KEY", ""),
@@ -55,6 +64,11 @@ def load_settings() -> Settings:
         upstash_redis_rest_url=os.getenv("UPSTASH_REDIS_REST_URL", "").rstrip("/"),
         upstash_redis_rest_token=os.getenv("UPSTASH_REDIS_REST_TOKEN", ""),
         store_backend=os.getenv("EXAMGUARD_STORE", "local").lower(),
+        gemini_api_keys=gemini_api_keys,
+        gemini_model=os.getenv("GEMINI_MODEL", "gemini-2.5-flash"),
+        cors_origins=tuple(origin.strip() for origin in os.getenv(
+            "CORS_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173,http://localhost:3000"
+        ).split(",") if origin.strip()),
     )
 
 

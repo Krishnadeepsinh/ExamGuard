@@ -1,13 +1,57 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap');
 
+:root {
+  --eg-navy:        #0A0F1E;   /* primary background */
+  --eg-navy-800:    #111827;   /* card background */
+  --eg-navy-700:    #1E2A3A;   /* elevated surface */
+  --eg-navy-600:    #243447;   /* border/divider */
+  --eg-indigo:      #4F46E5;   /* primary accent */
+  --eg-indigo-hover:#6366F1;   /* primary hover */
+  --eg-teal:        #0EA5E9;   /* secondary accent, data highlights */
+  --eg-emerald:     #10B981;   /* success, CLEAN integrity */
+  --eg-amber:       #F59E0B;   /* warning, WATCH integrity */
+  --eg-orange:      #F97316;   /* caution, WARN integrity */
+  --eg-red:         #EF4444;   /* danger, FLAGGED integrity */
+  --eg-text:        #F1F5F9;   /* primary text */
+  --eg-text-muted:  #94A3B8;   /* secondary text */
+  --eg-text-faint:  #475569;   /* placeholder / disabled */
+  
+  --shadow-card: 0 1px 3px rgba(0,0,0,0.4), 0 8px 24px rgba(0,0,0,0.25);
+  --shadow-elevated: 0 4px 6px rgba(0,0,0,0.5), 0 16px 48px rgba(0,0,0,0.35);
+}
+
+:root[data-theme="light"] {
+  --eg-navy: #f5f7fb;
+  --eg-navy-800: #ffffff;
+  --eg-navy-700: #eef2f7;
+  --eg-navy-600: #d7dee9;
+  --eg-indigo: #4f46e5;
+  --eg-indigo-hover: #4338ca;
+  --eg-teal: #0284c7;
+  --eg-emerald: #15803d;
+  --eg-amber: #b45309;
+  --eg-orange: #c2410c;
+  --eg-red: #b91c1c;
+  --eg-text: #142033;
+  --eg-text-muted: #526174;
+  --eg-text-faint: #8793a4;
+  --shadow-card: 0 1px 3px rgba(15,23,42,0.08), 0 8px 24px rgba(15,23,42,0.06);
+  --shadow-elevated: 0 8px 30px rgba(15,23,42,0.14);
+  color-scheme: light;
+}
+
 html {
   font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  background: #f8f9fc;
+  background: var(--eg-navy);
+  color: var(--eg-text);
+  color-scheme: dark;
 }
 
 body {
   margin: 0;
   min-width: 320px;
+  background: var(--eg-navy);
+  color: var(--eg-text);
 }
 
 #root {
@@ -15,6 +59,6 @@ body {
 }
 
 :focus-visible {
-  outline: 3px solid rgba(107, 53, 184, 0.25);
+  outline: 3px solid rgba(79, 70, 229, 0.4);
   outline-offset: 2px;
 }

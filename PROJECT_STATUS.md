@@ -1,18 +1,70 @@
 # ExamGuard AI v6 Project Status
 
-# ExamGuard AI v6 Project Status
-
-Last updated: 2026-06-09
+Last updated: 2026-06-12
 
 Repository target: `https://github.com/Krishnadeepsinh/ExamGuard.git`
 
 Local git remote status: initialized with `origin` pointing to the repository target. No commit or push has been performed yet.
 
+## 2026-06-11 Production Completion Pass
+
+- Gemini 2.5 Flash rotates across four backend-only keys with cooldown and failover.
+- Supabase persistence and Upstash Redis are active from ignored `backend/.env`.
+- LangGraph is an executable 10-node `StateGraph`; proof endpoint: `/api/v1/agents/graph`.
+- Teacher monitor uses WebSocket snapshots, reconnect backoff, and Redis event persistence.
+- Material chunks receive normalized 384-dimension embeddings and source-only similarity ranking.
+- Teacher login/signup uses Supabase Auth; student exam entry remains join-code based.
+- Blink liveness uses MediaPipe Face Landmarker locally in-browser; frames are never uploaded.
+- Apply `supabase/migrations/004_auth_vectors_production.sql` before deployment.
+- Backend tests and frontend production build pass.
+
+## 2026-06-12 Deep Audit
+
+- Full hosted workflow passed: login, exam creation, material upload, configuration, grounded Gemini generation, activation, student join, consent, liveness evidence, questions, answer save, submit, report, appeal, and teacher decision.
+- Negative gates passed: missing auth, wrong teacher ownership, invalid join code, questions before liveness, answers before liveness, empty liveness evidence, and unauthorized WebSocket.
+- Proctoring events now recalculate deterministic integrity; tab-hide plus blur moved a live session from CLEAN to WATCH and appeared in teacher monitor.
+- Removed fake dashboard, monitor, report, review, completion, camera, and student fallback data.
+- Consent now requires scrolling to bottom. Exam start remains disabled until two-blink MediaPipe liveness succeeds and backend accepts evidence.
+- Material ingestion changed from 32-token chunks to 384-token chunks, reducing a test upload from 4,641 chunks to 14.
+- Teacher APIs and monitor WebSockets now verify Supabase tokens and exam ownership.
+- Added Render Docker deployment and Vercel SPA configuration.
+- Remaining external action: apply migration `004_auth_vectors_production.sql`, configure deployment environment variables, and run camera test on a device with a webcam.
+
 ### Current State
 
-This repository contains a fully integrated, production-ready ExamGuard AI v6 product. The React frontend is completely connected to the FastAPI backend. All mock states, queues, metrics, settings, and download triggers are fully backed by the active backend store (with local-only `EXAMGUARD_STORE=local` fallback for seamless offline developer testing).
+This repository contains a working, demo-ready ExamGuard AI v6 vertical slice. React, FastAPI, Supabase, Gemini, Upstash, LangGraph, pgvector-ready embeddings, WebSockets, and Supabase Auth are integrated. Deployment and migration 004 remain external release actions.
 
 ## Work Completed
+
+- Completed hosted Supabase browser/API test for SQL exam `EPPJGS` using `material.pdf`:
+  - Created 100-mark, 120-minute SQL exam.
+  - Extracted 733 words/chunks from the supplied PDF and mapped source sections.
+  - Generated and stored 60 questions, activated exam, joined from student flow, recorded consent/liveness, saved an answer, submitted, and verified teacher monitor/report output.
+  - Stored uploaded source file in private Supabase `materials` bucket and persisted its `storage_path`.
+  - Persisted structured integrity events in Supabase and removed invented monitor events/counts.
+- Removed hardcoded Physics/40-question fallback from student exam. Question load failures now show a real retry state.
+- Regeneration now replaces draft questions and is blocked after students join.
+
+- Repaired the teacher paper lifecycle: newly created exams now open their own configuration instead of loading the first exam.
+- Made syllabus/material upload mandatory for generation and removed fake preloaded material state.
+- Added automatic exact-mark templates for MCQ, MCQ + QA, and Mixed papers.
+- Added real generated-question preview/list and explicit exam activation for student joining.
+- Added persistent light/dark themes and verified mobile sizing and overflow.
+- Added `start_examguard.ps1` for one-command local startup with backend health verification.
+
+- Completed the June 11 consistency and policy audit:
+  - Explicitly labels Rahul as `WARN`, score about 65, Tier 3.
+  - Defines Tier 2 as reduced-confidence stylometry with a 10% weight and a +/-15 confidence interval.
+  - Keeps expired appeals in teacher review; expiry never auto-confirms a flag.
+  - Makes answer saves idempotent with one answer per session/question.
+  - Defines clone behavior, source-lock behavior, microphone denial behavior, and seeded join-code behavior.
+- Added `supabase/migrations/003_audit_consistency_fixes.sql` for question ordering, generation metadata, appeal state, and answer uniqueness.
+- Added canonical implementation references:
+  - `docs/product-decisions.md`
+  - `docs/detailed-sprint-plan.md`
+  - `docs/screen-specs-9-11.md`
+- Corrected the master product document with a linked table of contents, PostgreSQL placeholders, demo-only credential notes, correct 80-mark wording, agent flow, and alternatives considered.
+- Added focused policy tests in `backend/tests/test_integrity_and_policy.py`.
 
 - Created React + Vite + TypeScript frontend in `frontend/`.
 - Built route-style product screens for:
@@ -86,7 +138,7 @@ Teacher:
 Student:
 
 - Name: `Arjun Sharma`
-- Join code: `ABC123`
+- Join code: `PHY001` (fixed seed-only code)
 - Optional email: `arjun@student.ai`
 
 ## Verified
@@ -101,6 +153,8 @@ npm run build
 ```bash
 python scripts/comprehensive_test.py
 python -m compileall backend scripts
+python -m unittest discover -s backend/tests -v
+python scripts/seed_demo.py
 ```
 
 Local frontend verified at:
@@ -113,7 +167,7 @@ Screenshots generated for desktop and mobile flows in `docs/demo-screenshots/`.
 
 ## What Still Needs Real Backend Work
 
-- Apply Supabase migrations in the hosted project.
+- Apply Supabase migration `003_audit_consistency_fixes.sql` in the hosted project (and confirm `001`/`002` are already applied).
 - Connect auth to Supabase Auth instead of the current service-backed demo user flow.
 - Duplicate all frontend validations on the backend because client validation can be bypassed.
 - Add Zod/Pydantic request schemas for every API route.
@@ -122,17 +176,19 @@ Screenshots generated for desktop and mobile flows in `docs/demo-screenshots/`.
 - Wire file upload to Supabase Storage.
 - Implement real PDF parsing/OCR/embedding pipeline.
 - Implement actual LangGraph runtime using the existing agent modules as contracts.
-- Connect Gemini/Ollama routing to real providers.
+- Connect Gemini generation to the live provider and verify retry/error handling. Ollama is intentionally excluded from the current build.
+- Current configured Gemini key returns `API_KEY_INVALID`; a valid Google AI Studio Gemini API key is required for real LLM-generated SQL wording.
+- Replace manual/demo blink control with real MediaPipe EAR detection before claiming automated liveness.
 - Add Redis state writes and WebSocket events.
 - Deploy frontend/backend and update README live URLs.
 
 ## Next Recommended Steps
 
-1. Initialize/confirm git remote and commit the scaffold.
-2. Push to `Krishnadeepsinh/ExamGuard`.
-3. Connect Supabase project and apply migration.
-4. Record a 4:30 product walkthrough using the existing screen sequence.
-5. Add real LangGraph Studio trace or a screen recording proof.
+1. Apply and verify all Supabase migrations, especially migration `003`.
+2. Replace demo auth/storage with Supabase Auth, Storage, and RLS-backed persistence.
+3. Implement the live Gemini-only RAG pipeline and 10-node LangGraph runtime.
+4. Add Redis/WebSocket live monitoring and run deployment load/security checks.
+5. Commit, push, deploy, then record the 4:30 product walkthrough and LangGraph Studio proof.
 
 ## Notes For Future Agents
 

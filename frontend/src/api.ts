@@ -1,10 +1,16 @@
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? 'http://127.0.0.1:8000/api/v1'
+export const examSocketUrl = (examId: string) => {
+  const token = window.localStorage.getItem('examguard-access-token') ?? ''
+  return `${API_BASE.replace(/^http/, 'ws')}/ws/exams/${examId}?token=${encodeURIComponent(token)}`
+}
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const token = window.localStorage.getItem('examguard-access-token')
   const response = await fetch(`${API_BASE}${path}`, {
     ...options,
     headers: {
       ...(options.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }),
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...options.headers,
     },
   })
@@ -16,10 +22,12 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 }
 
 async function requestRaw(path: string, options: RequestInit = {}): Promise<Response> {
+  const token = window.localStorage.getItem('examguard-access-token')
   const response = await fetch(`${API_BASE}${path}`, {
     ...options,
     headers: {
       ...(options.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }),
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...options.headers,
     },
   })
@@ -96,6 +104,9 @@ export type ApiSession = {
   }
   review_status: string
   grade_released: boolean
+  answers_count?: number
+  events_count?: number
+  joined_at?: string
 }
 
 export type ApiAnswer = {
@@ -196,11 +207,14 @@ export const api = {
   saveConsent: (sessionId: string) =>
     request<ApiSession>(`/sessions/${sessionId}/consent`, { method: 'POST' }),
 
-  saveLiveness: (sessionId: string) =>
-    request<ApiSession>(`/sessions/${sessionId}/liveness`, { method: 'POST' }),
+  saveLiveness: (sessionId: string, evidence: { method: 'mediapipe_ear'; blink_count: number; duration_ms: number; threshold: number }) =>
+    request<ApiSession>(`/sessions/${sessionId}/liveness`, { method: 'POST', body: JSON.stringify(evidence) }),
 
   sessionQuestions: (sessionId: string) =>
     request<ApiQuestion[]>(`/sessions/${sessionId}/questions`),
+
+  sessionExam: (sessionId: string) =>
+    request<Pick<ApiExam, 'id' | 'title' | 'subject' | 'duration_minutes' | 'total_marks' | 'status'>>(`/sessions/${sessionId}/exam`),
 
   saveAnswer: (sessionId: string, payload: { question_id: string; answer_text: string; selected_option?: string; time_spent_seconds?: number }) =>
     request<ApiAnswer>(`/sessions/${sessionId}/answers`, { method: 'POST', body: JSON.stringify(payload) }),

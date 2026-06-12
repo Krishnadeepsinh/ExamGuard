@@ -9,6 +9,20 @@ ExamGuard AI is a syllabus-aware exam platform for teachers, coaching institutes
 
 ## Quick Start
 
+Apply Supabase migrations `001` through `004` in numeric order. Migration `004` adds the Auth profile trigger, ownership policies, and pgvector matching function.
+
+### Simplest Windows start
+
+```powershell
+.\start_examguard.ps1
+```
+
+This starts the FastAPI backend on port `8000`, starts the React app on port `5173`, verifies backend health, and opens ExamGuard. It intentionally uses the local store so the complete demo works without waiting for hosted database setup.
+
+Teacher flow: create exam -> upload required syllabus/material -> choose marks, difficulty, and paper type -> generate -> activate for students.
+
+For hosted Supabase mode, apply migrations `001`, `002`, and `003` before setting `EXAMGUARD_STORE=supabase`.
+
 Backend:
 
 ```bash
@@ -56,7 +70,7 @@ Teacher access:
 Student access:
 
 - Name: `Arjun Sharma`
-- Join code: `ABC123`
+- Join code: `PHY001` (fixed seed-only code; production codes are random)
 - Optional email: `arjun@student.ai`
 - Opens: consent, liveness, exam session, post-exam appeal, settings.
 
@@ -94,7 +108,7 @@ Browser layer: React, MediaPipe WASM, Web Audio API, localStorage backup.
 API layer: FastAPI, REST endpoints, WebSocket rooms.  
 Agent layer: 10 named LangGraph nodes in `backend/agents/`.  
 Data layer: Supabase PostgreSQL, pgvector, Supabase Storage, Upstash Redis.  
-Fallback layer: Gemini -> Ollama -> cached/template degraded mode.
+Generation layer: Gemini API only for the current build. If Gemini is unavailable, generation pauses with a retryable teacher-facing error; the system does not silently fabricate questions.
 
 ## 10 Agents
 

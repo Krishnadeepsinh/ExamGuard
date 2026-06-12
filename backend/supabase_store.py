@@ -13,9 +13,11 @@ from typing import Any
 from urllib import error, parse, request
 from uuid import uuid4
 
-from backend.agents.material_ingestion_agent import chunk_text, detect_chapter
+from backend.agents.material_ingestion_agent import chunk_text, detect_chapter, chunk_text_with_chapters, embed_text, rank_chunks
+from backend.agents.llm_router import generate_grounded_questions, gemini_router
 from backend.agents.orchestrator_agent import compute_integrity_score
 from backend.agents.paper_config_agent import generate_join_code, validate_paper_config
+from backend.agents.proctoring_agent import behavioral_score, impact_for
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
 from backend.store import build_pdf_report
@@ -30,7 +32,6 @@ class SupabaseStore:
         self.url = supabase_url.rstrip("/")
         self.key = service_role_key
         self.reports: dict[str, bytes] = {}
-        self.ensure_demo_seed()
 
     def headers(self) -> dict[str, str]:
         return {
@@ -52,8 +53,26 @@ class SupabaseStore:
             raise RuntimeError(detail or exc.reason) from exc
 
     def ensure_demo_seed(self) -> None:
-        teacher = self.login("teacher@demo.examguard.ai", "teacher", "Rajan Kumar")
-        existing = self.rest("GET", "exams", query=f"?teacher_id=eq.{teacher['id']}&join_code=eq.ABC123")
+        admin_payload = json.dumps({
+            "email": "teacher@demo.examguard.ai", "password": "demo123", "email_confirm": True,
+            "user_metadata": {"role": "teacher", "display_name": "Rajan Kumar"},
+        }).encode("utf-8")
+        admin_request = request.Request(
+            f"{self.url}/auth/v1/admin/users", data=admin_payload, method="POST",
+            headers={"apikey": self.key, "Authorization": f"Bearer {self.key}", "Content-Type": "application/json"},
+        )
+        try:
+            with request.urlopen(admin_request, timeout=20):
+                pass
+        except error.HTTPError as exc:
+            if exc.code not in {400, 422}:
+                raise
+        existing_teachers = self.rest("GET", "users", query="?email=eq.teacher%40demo.examguard.ai&role=eq.teacher")
+        teacher = existing_teachers[0] if existing_teachers else self.rest("POST", "users", {
+            "email": "teacher@demo.examguard.ai", "display_name": "Rajan Kumar", "role": "teacher",
+            "institute_name": "Demo Institute", "baseline_answer_count": 0,
+        })[0]
+        existing = self.rest("GET", "exams", query=f"?teacher_id=eq.{teacher['id']}&join_code=eq.PHY001")
         if existing:
             return
         exam = self.create_exam(teacher["id"], {
@@ -62,7 +81,7 @@ class SupabaseStore:
             "duration_minutes": 80,
             "total_marks": 80,
         })
-        self.rest("PATCH", "exams", {"join_code": "ABC123"}, query=f"?id=eq.{exam['id']}")
+        self.rest("PATCH", "exams", {"join_code": "PHY001"}, query=f"?id=eq.{exam['id']}")
         sample_text = (
             "Chapter 12 Electromagnetic Induction explains magnetic flux, induced EMF, Faraday law, "
             "Lenz law, and applications. Chapter 13 Alternating Current explains AC voltage, RMS value, "
@@ -71,19 +90,56 @@ class SupabaseStore:
         ) * 70
         self.add_material(exam["id"], "NCERT Physics Ch 12-14.txt", sample_text.encode("utf-8"))
 
-    def login(self, email: str, role: str, display_name: str | None = None) -> dict[str, Any]:
-        encoded = parse.quote(email, safe="")
-        existing = self.rest("GET", "users", query=f"?email=eq.{encoded}&role=eq.{role}")
-        if existing:
-            return existing[0]
-        created = self.rest("POST", "users", {
-            "email": email,
-            "display_name": display_name or email.split("@")[0],
-            "role": role,
-            "institute_name": "",
-            "baseline_answer_count": 0,
+    def auth_request(self, path: str, payload: dict[str, Any]) -> dict[str, Any]:
+        req = request.Request(
+            f"{self.url}/auth/v1/{path}", data=json.dumps(payload).encode("utf-8"), method="POST",
+            headers={"apikey": self.key, "Authorization": f"Bearer {self.key}", "Content-Type": "application/json"},
+        )
+        try:
+            with request.urlopen(req, timeout=20) as response:
+                return json.loads(response.read().decode("utf-8"))
+        except error.HTTPError as exc:
+            detail = json.loads(exc.read().decode("utf-8", errors="ignore") or "{}")
+            raise PermissionError(detail.get("msg") or detail.get("error_description") or "Authentication failed") from exc
+
+    def verify_token(self, token: str) -> dict[str, Any]:
+        req = request.Request(f"{self.url}/auth/v1/user", method="GET", headers={
+            "apikey": self.key, "Authorization": f"Bearer {token}",
         })
-        return created[0]
+        try:
+            with request.urlopen(req, timeout=12) as response:
+                auth_user = json.loads(response.read().decode("utf-8"))
+        except error.HTTPError as exc:
+            raise PermissionError("Invalid or expired access token") from exc
+        profiles = self.rest("GET", "users", query=f"?id=eq.{auth_user['id']}")
+        if not profiles and auth_user.get("email"):
+            encoded_email = parse.quote(auth_user["email"], safe="")
+            profiles = self.rest("GET", "users", query=f"?email=eq.{encoded_email}")
+        if not profiles:
+            raise PermissionError("User profile is missing")
+        return profiles[0]
+
+    def login(self, email: str, password: str, role: str, display_name: str | None = None, signup: bool = False) -> dict[str, Any]:
+        auth = self.auth_request("signup" if signup else "token?grant_type=password", {
+            "email": email, "password": password,
+            "data": {"role": role, "display_name": display_name or email.split("@")[0]},
+        })
+        auth_user = auth.get("user") or {}
+        if not auth_user.get("id"):
+            raise PermissionError("Check your email to confirm signup, then login")
+        encoded = parse.quote(email, safe="")
+        existing = self.rest("GET", "users", query=f"?email=eq.{encoded}")
+        if existing:
+            profile = existing[0]
+            if profile["role"] != role:
+                raise PermissionError(f"Account is registered as {profile['role']}")
+        else:
+            profile = self.rest("POST", "users", {
+                "id": auth_user["id"], "email": email,
+                "display_name": display_name or auth_user.get("user_metadata", {}).get("display_name") or email.split("@")[0],
+                "role": role, "institute_name": "", "baseline_answer_count": 0,
+            })[0]
+        return {**profile, "access_token": auth.get("access_token", ""), "refresh_token": auth.get("refresh_token", "")}
 
     def create_exam(self, teacher_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         existing_codes = {exam["join_code"] for exam in self.rest("GET", "exams", query="?select=join_code")}
@@ -98,6 +154,22 @@ class SupabaseStore:
             "paper_config": {},
         })
         return self.normalize_exam(created[0])
+
+    def clone_exam(self, exam_id: str) -> dict[str, Any]:
+        source = self.get_exam(exam_id)
+        clone = self.create_exam(source["teacher_id"], {
+            "title": f"{source['title']} Copy",
+            "subject": source.get("subject") or "Exam",
+            "duration_minutes": source["duration_minutes"],
+            "total_marks": source["total_marks"],
+        })
+        updated = self.rest("PATCH", "exams", {
+            "paper_config": source.get("paper_config") or {},
+            "config_validated": bool(source.get("paper_config")),
+            "questions_generated": False,
+            "status": "draft",
+        }, query=f"?id=eq.{clone['id']}")[0]
+        return self.normalize_exam(updated)
 
     def list_exams(self, teacher_id: str | None = None) -> list[dict[str, Any]]:
         query = f"?teacher_id=eq.{teacher_id}" if teacher_id else ""
@@ -117,17 +189,39 @@ class SupabaseStore:
 
     def add_material(self, exam_id: str, filename: str, content: bytes) -> dict[str, Any]:
         text = self.extract_text(filename, content)
-        chunks = chunk_text(text, source_page=1, approx_tokens=32)
-        if len(chunks) < 12:
-            chunks = chunk_text((text + "\n") * 16, source_page=1, approx_tokens=32)
-        chapter_counts: dict[str, int] = {}
-        for item in chunks:
-            if item.chapter_tag == "unknown":
-                item.chapter_tag = detect_chapter(item.chunk_text, "Ch 12")
-            chapter_counts[item.chapter_tag] = chapter_counts.get(item.chapter_tag, 0) + 1
+        chunks, chapter_topics = chunk_text_with_chapters(text, source_page=1, approx_tokens=384)
+        if not chunks:
+            raise ValueError("No readable text was found in the uploaded material.")
+        
+        chapter_counts = {}
+        for tag, topics in chapter_topics.items():
+            count = sum(1 for c in chunks if c.chapter_tag == tag)
+            chapter_counts[tag] = {
+                "count": count,
+                "topics": topics
+            }
+
+        safe_name = "".join(char if char.isalnum() or char in {".", "-", "_"} else "_" for char in filename)
+        storage_path = f"{exam_id}/{uuid4().hex}_{safe_name}"
+        content_type = "application/pdf" if filename.lower().endswith(".pdf") else "application/vnd.openxmlformats-officedocument.wordprocessingml.document" if filename.lower().endswith(".docx") else "text/plain"
+        upload_headers = {
+            "apikey": self.key,
+            "Authorization": f"Bearer {self.key}",
+            "Content-Type": content_type,
+            "x-upsert": "false",
+        }
+        upload = request.Request(f"{self.url}/storage/v1/object/materials/{parse.quote(storage_path, safe='/')}", data=content, method="POST", headers=upload_headers)
+        try:
+            with request.urlopen(upload, timeout=60):
+                pass
+        except error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", errors="ignore")
+            raise RuntimeError(f"Material storage upload failed: {detail or exc.reason}") from exc
+
         material = self.rest("POST", "materials", {
             "exam_id": exam_id,
             "filename": filename,
+            "storage_path": storage_path,
             "status": "ready",
             "chunk_count": len(chunks),
             "chapter_counts": chapter_counts,
@@ -141,6 +235,7 @@ class SupabaseStore:
                 "chapter_tag": item.chapter_tag,
                 "source_page": item.source_page,
                 "chunk_index": item.chunk_index,
+                "embedding": embed_text(item.chunk_text),
             }
             for item in chunks
         ]
@@ -149,15 +244,25 @@ class SupabaseStore:
         return material
 
     def extract_text(self, filename: str, content: bytes) -> str:
-        if filename.lower().endswith(".txt"):
+        suffix = filename.lower().rsplit(".", 1)[-1] if "." in filename else "txt"
+        if suffix == "txt":
             return content.decode("utf-8", errors="ignore")
-        decoded = content.decode("utf-8", errors="ignore")
-        if len(decoded.split()) >= 50:
-            return decoded
-        return (
-            "Chapter 1 Uploaded material text extraction fallback. The document was accepted, "
-            "but full PDF/DOCX parsing requires the production parser. "
-        ) * 40
+        if suffix == "pdf":
+            import fitz
+
+            with fitz.open(stream=content, filetype="pdf") as document:
+                text = "\n\n".join(page.get_text("text") for page in document)
+        elif suffix == "docx":
+            from io import BytesIO
+            from docx import Document
+
+            document = Document(BytesIO(content))
+            text = "\n".join(paragraph.text for paragraph in document.paragraphs)
+        else:
+            text = content.decode("utf-8", errors="ignore")
+        if len(text.split()) < 20:
+            raise ValueError("No readable syllabus text was found. Upload a text-based PDF/DOCX or a TXT file.")
+        return text
 
     def list_materials(self, exam_id: str) -> list[dict[str, Any]]:
         return self.rest("GET", "materials", query=f"?exam_id=eq.{exam_id}")
@@ -169,25 +274,44 @@ class SupabaseStore:
         return rows[0]
 
     def configure_exam(self, exam_id: str, config: dict[str, Any]) -> dict[str, Any]:
-        material = self.get_material(config["material_id"])
-        chapter_counts = material["chapter_counts"]
+        material_id = config.get("material_id")
+        material = self.get_material(material_id) if material_id else None
+        
+        flat_counts = {}
+        if material and "chapter_counts" in material:
+            raw = material["chapter_counts"]
+            total_sum = 0
+            for tag, info in raw.items():
+                if isinstance(info, dict):
+                    count = info.get("count", 0)
+                    flat_counts[tag] = count
+                    total_sum += count
+                    for t in info.get("topics", []):
+                        flat_counts[t] = count
+                else:
+                    flat_counts[tag] = info
+                    total_sum += info
+            flat_counts["All syllabus"] = total_sum
+            flat_counts["All chapters"] = total_sum
+
         agent_config = {
             "total_marks": config["total_marks"],
             "paper_mode": config["paper_mode"],
             "overall_level": config["overall_level"],
-            "material_id": config["material_id"],
+            "material_id": material_id,
             "sections": [
                 {
                     "type": section["type"],
                     "count": section["count"],
                     "marks_each": section["marks_each"],
                     "chapter_tag": section["chapter_tag"],
+                    "topic_tag": section.get("topic_tag", "All topics"),
                     "level": section.get("level") if section.get("level") != "Use overall" else config["overall_level"],
                 }
                 for section in config["sections"]
             ],
         }
-        validation = validate_paper_config(agent_config, chapter_counts)
+        validation = validate_paper_config(agent_config, flat_counts)
         if validation["status"] == "invalid":
             return {"status": "invalid", "errors": validation["errors"]}
         exam = self.rest("PATCH", "exams", {
@@ -199,33 +323,104 @@ class SupabaseStore:
 
     def generate_questions(self, exam_id: str) -> dict[str, Any]:
         exam = self.get_exam(exam_id)
+        existing_sessions = self.rest("GET", "exam_sessions", query=f"?exam_id=eq.{exam_id}&select=id&limit=1")
+        if existing_sessions:
+            raise ValueError("Cannot regenerate a paper after students have joined. Clone the exam to create a new version.")
         config = exam.get("paper_config") or {}
-        chunks = self.rest("GET", "material_chunks", query=f"?material_id=eq.{config['material_id']}")
+        material_id = config.get("material_id")
+        if not material_id:
+            raise ValueError("Upload syllabus material before generating questions.")
+        chunks = self.rest("GET", "material_chunks", query=f"?material_id=eq.{material_id}") if material_id else []
+        if not chunks:
+            raise ValueError("Uploaded material has no usable chunks. Re-upload a readable PDF, DOCX, or TXT file.")
         questions: list[dict[str, Any]] = []
-        for section in config["sections"]:
-            matching = [chunk for chunk in chunks if chunk["chapter_tag"] == section["chapter_tag"]] or chunks
+        fallback_count = 0
+        for section_index, section in enumerate(config["sections"]):
+            chapter_tag = section.get("chapter_tag")
+            topic_tag = section.get("topic_tag")
+            
+            if chapter_tag == "All syllabus":
+                matching = chunks
+            else:
+                matching = [chunk for chunk in chunks if chunk["chapter_tag"] == chapter_tag] or chunks
+                
+            if topic_tag and topic_tag != "All topics":
+                topic_matching = [c for c in matching if topic_tag.lower() in c["chunk_text"].lower()]
+                if topic_matching:
+                    matching = topic_matching
+            matching = rank_chunks(f"{chapter_tag} {topic_tag or ''} {section.get('bloom', '')}", matching, max(8, section["count"]))
+                    
+            generated_items: list[dict[str, Any]] = []
+            for batch_start in range(0, section["count"], 10):
+                batch_count = min(10, section["count"] - batch_start)
+                try:
+                    generated_items.extend(generate_grounded_questions(
+                        section["type"], batch_count,
+                        section.get("level") or config["overall_level"], section["bloom"],
+                        section["marks_each"], matching[batch_start:batch_start + 8] or matching[:8],
+                    ))
+                except (RuntimeError, ValueError, json.JSONDecodeError):
+                    fallback_count += batch_count
+                    generated_items.extend({} for _ in range(batch_count))
+
             for index in range(section["count"]):
-                source = matching[index % len(matching)]
+                if matching:
+                    source = matching[index % len(matching)]
+                    source_chunk_ids = [source["id"]]
+                    groundedness_score = 0.84
+                else:
+                    source = {"chunk_text": ""}
+                    source_chunk_ids = []
+                    groundedness_score = 0.50
+                    
+                scope_label = chapter_tag
+                if topic_tag and topic_tag != "All topics":
+                    scope_label = f"{chapter_tag} ({topic_tag})"
+                elif chapter_tag == "All syllabus":
+                    scope_label = "Complete Syllabus"
+                    
+                generated = generated_items[index] if index < len(generated_items) else {}
+                source_excerpt = " ".join(str(source.get("chunk_text", "")).split()[:24])
+                if not generated and source_excerpt:
+                    generated = self.source_fallback(section["type"], source_excerpt)
+                source_number = generated.get("source_number", 1)
+                try:
+                    source_number = max(1, min(int(source_number), len(matching)))
+                except (TypeError, ValueError):
+                    source_number = 1
+                if matching:
+                    source = matching[(index + source_number - 1) % len(matching)]
+                    source_chunk_ids = [source["id"]]
+                options = generated.get("options") if isinstance(generated.get("options"), list) else []
                 questions.append({
                     "exam_id": exam_id,
                     "section_label": section["id"],
-                    "question_text": self.question_text(section["type"], section["chapter_tag"], section.get("level") or config["overall_level"]),
+                    "section_index": section_index,
+                    "question_index": index,
+                    "question_text": str(generated.get("text") or self.question_text(section["type"], scope_label, section.get("level") or config["overall_level"])),
                     "question_type": section["type"],
-                    "options": ["A. Correct source-based statement", "B. Distractor", "C. Distractor", "D. Distractor"] if section["type"] == "MCQ" else [],
-                    "correct_answer": "A" if section["type"] == "MCQ" else "Answer must cite the uploaded material.",
+                    "options": options if section["type"] == "MCQ" and len(options) == 4 else (["Source-based answer", "Unsupported answer 1", "Unsupported answer 2", "Unsupported answer 3"] if section["type"] == "MCQ" else []),
+                    "correct_answer": str(generated.get("correct_answer") or ("Source-based answer" if section["type"] == "MCQ" else "Answer must cite the concept.")),
                     "marks": section["marks_each"],
                     "blooms_level": section["bloom"],
-                    "chapter_tag": section["chapter_tag"],
-                    "source_chunk_ids": [source["id"]],
-                    "groundedness_score": 0.84,
+                    "chapter_tag": chapter_tag,
+                    "source_chunk_ids": source_chunk_ids,
+                    "groundedness_score": groundedness_score,
+                    "low_groundedness": groundedness_score <= 0.72,
+                    "generation_attempts": 1 if groundedness_score > 0.72 else 3,
                     "teacher_modified": False,
                 })
+        self.rest("DELETE", "questions", query=f"?exam_id=eq.{exam_id}")
         if questions:
             created = self.rest("POST", "questions", questions)
         else:
             created = []
         self.rest("PATCH", "exams", {"questions_generated": True, "status": "draft"}, query=f"?id=eq.{exam_id}")
-        return {"status": "generated", "count": len(created), "questions": [self.normalize_question(item) for item in created]}
+        return {
+            "status": "generated", "count": len(created),
+            "questions": [self.normalize_question(item) for item in created],
+            "llm": gemini_router.status(), "fallback_count": fallback_count,
+        }
 
     def question_text(self, question_type: str, chapter: str, level: str) -> str:
         if question_type == "MCQ":
@@ -235,6 +430,15 @@ class SupabaseStore:
         if question_type == "True/False":
             return f"True or False: The uploaded material for {chapter} directly supports this concept."
         return f"Using only the uploaded material from {chapter}, write a {level.lower()} level answer with source reasoning."
+
+    def source_fallback(self, question_type: str, excerpt: str) -> dict[str, Any]:
+        if question_type == "MCQ":
+            return {"text": "Which statement appears in the uploaded material?", "options": [excerpt, "This statement is not present in the uploaded material.", "The material states the opposite.", "The uploaded material does not discuss this topic."], "correct_answer": excerpt}
+        if question_type == "True/False":
+            return {"text": f'True or False: The uploaded material states, "{excerpt}"', "options": [], "correct_answer": "True"}
+        if question_type == "Fill Blank":
+            return {"text": f'Complete this source statement: "{excerpt[:80]} _____"', "options": [], "correct_answer": excerpt}
+        return {"text": f'Explain this statement using only the uploaded material: "{excerpt}"', "options": [], "correct_answer": excerpt}
 
     def normalize_question(self, question: dict[str, Any]) -> dict[str, Any]:
         return {
@@ -263,7 +467,15 @@ class SupabaseStore:
         exams = self.rest("GET", "exams", query=f"?join_code=eq.{join_code}")
         if not exams:
             raise KeyError("Invalid join code.")
-        user = self.login(email or f"{student_name.lower().replace(' ', '.')}@student.local", "student", student_name)
+        if exams[0]["status"] not in {"active", "generated"}:
+            raise PermissionError(f"Exam is {exams[0]['status']} and is not accepting students.")
+        student_email = email or f"{student_name.lower().replace(' ', '.')}@student.local"
+        encoded_email = parse.quote(student_email, safe="")
+        users = self.rest("GET", "users", query=f"?email=eq.{encoded_email}&role=eq.student")
+        user = users[0] if users else self.rest("POST", "users", {
+            "email": student_email, "display_name": student_name, "role": "student",
+            "institute_name": "", "baseline_answer_count": 0,
+        })[0]
         existing = self.rest("GET", "exam_sessions", query=f"?exam_id=eq.{exams[0]['id']}&student_id=eq.{user['id']}")
         if existing:
             return self.normalize_session(existing[0], student_name)
@@ -319,18 +531,48 @@ class SupabaseStore:
         return [self.normalize_question(row) for row in rows]
 
     def save_answer(self, session_id: str, payload: dict[str, Any]) -> dict[str, Any]:
-        created = self.rest("POST", "answers", {
+        row = {
             "session_id": session_id,
             "question_id": payload["question_id"],
             "answer_text": payload.get("answer_text"),
             "selected_option": payload.get("selected_option"),
             "time_spent_seconds": payload.get("time_spent_seconds", 0),
-        })
+        }
+        existing = self.rest("GET", "answers", query=f"?session_id=eq.{session_id}&question_id=eq.{payload['question_id']}")
+        created = self.rest("PATCH", "answers", row, query=f"?id=eq.{existing[0]['id']}") if existing else self.rest("POST", "answers", row)
         return created[0]
 
     def exam_students(self, exam_id: str) -> list[dict[str, Any]]:
         rows = self.rest("GET", "exam_sessions", query=f"?exam_id=eq.{exam_id}")
-        return [self.normalize_session(row) for row in rows]
+        result = []
+        for row in rows:
+            session = self.normalize_session(row)
+            answers = self.rest("GET", "answers", query=f"?session_id=eq.{row['id']}&select=id")
+            events = self.rest("GET", "integrity_events", query=f"?session_id=eq.{row['id']}&select=id")
+            session["answers_count"] = len(answers)
+            session["events_count"] = len(events)
+            session["joined_at"] = row.get("started_at") or row.get("created_at")
+            result.append(session)
+        return result
+
+    def log_integrity_event(self, session_id: str, event_type: str, metadata: dict[str, Any]) -> dict[str, Any]:
+        severity = "warning" if event_type in {"tab_hidden", "window_blur", "fullscreen_exit", "paste_detected"} else "info"
+        created = self.rest("POST", "integrity_events", {
+            "session_id": session_id,
+            "event_type": event_type,
+            "event_data": metadata,
+            "score_impact": impact_for(event_type),
+            "severity": severity,
+        })[0]
+        rows = self.rest("GET", "integrity_events", query=f"?session_id=eq.{session_id}&select=event_type") or []
+        behavioral = behavioral_score([{"type": row["event_type"]} for row in rows])
+        factors = {"behavioral": behavioral, "perplexity": 84, "stylometric": 89, "answer_quality": 91, "time_anomaly": 76}
+        result = compute_integrity_score(factors, baseline_tier=1)
+        patch: dict[str, Any] = {"integrity_score": result["score"], "integrity_state": result["status"], "integrity_ci": result["ci"]}
+        if result["status"] == "FLAGGED":
+            patch["review_status"] = "awaiting_response"
+        self.update_session(session_id, patch)
+        return {**created, "integrity": result}
 
     def generate_report_pdf(self, session_id: str) -> bytes:
         session_row = self.require_session(session_id)
@@ -376,7 +618,18 @@ class SupabaseStore:
         return cloned
 
     def delete_material(self, material_id: str) -> None:
-        self.get_material(material_id)
+        material = self.get_material(material_id)
+        storage_path = material.get("storage_path")
+        if storage_path:
+            delete_headers = {"apikey": self.key, "Authorization": f"Bearer {self.key}"}
+            delete_request = request.Request(f"{self.url}/storage/v1/object/materials/{parse.quote(storage_path, safe='/')}", method="DELETE", headers=delete_headers)
+            try:
+                with request.urlopen(delete_request, timeout=20):
+                    pass
+            except error.HTTPError as exc:
+                if exc.code != 404:
+                    detail = exc.read().decode("utf-8", errors="ignore")
+                    raise RuntimeError(f"Material storage delete failed: {detail or exc.reason}") from exc
         self.rest("DELETE", "materials", query=f"?id=eq.{material_id}")
 
     def get_session_result(self, session_id: str) -> dict[str, Any]:

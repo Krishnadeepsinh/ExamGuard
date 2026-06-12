@@ -36,8 +36,8 @@ def main() -> None:
         "overall_level": "Standard",
         "paper_mode": "Mixed",
         "sections": [
-            {"id": "A", "type": "MCQ", "count": 10, "marks_each": 1, "bloom": "Understand", "chapter_tag": "Ch 12", "level": "Use overall"},
-            {"id": "B", "type": "Short Answer", "count": 5, "marks_each": 2, "bloom": "Analyze", "chapter_tag": "Ch 13", "level": "Challenging"},
+            {"id": "A", "type": "MCQ", "count": 2, "marks_each": 5, "bloom": "Understand", "chapter_tag": "Chapter 12: Electromagnetic", "level": "Use overall"},
+            {"id": "B", "type": "Short Answer", "count": 2, "marks_each": 5, "bloom": "Analyze", "chapter_tag": "Chapter 13: Alternating", "level": "Challenging"},
         ],
     }
     call("PUT", f"/exams/{exam['id']}/paper-config", config)

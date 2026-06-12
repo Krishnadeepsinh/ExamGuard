@@ -1,8 +1,15 @@
-"""Documented model routing table for every ExamGuard AI task."""
+"""Gemini-only model routing with backend-side key rotation."""
 
 from __future__ import annotations
 
+import json
+import threading
+import time
 from dataclasses import dataclass
+from typing import Any
+from urllib import error, request
+
+from backend.config import settings
 
 
 @dataclass(frozen=True)
@@ -15,8 +22,8 @@ class Route:
 
 ROUTES = {
     "question_generation": Route(
-        preferred="gemini-1.5-flash",
-        fallback="ollama:mistral:7b",
+        preferred="gemini-2.5-flash",
+        fallback="next_gemini_key",
         degraded="cached_question_pool",
         user_message="Using cached questions because generation queue is busy.",
     ),
@@ -55,3 +62,100 @@ ROUTES = {
 
 def route_for(task: str) -> Route:
     return ROUTES[task]
+
+
+class GeminiRouter:
+    """Rotate keys without ever exposing key values outside this module."""
+
+    def __init__(self, keys: tuple[str, ...] | None = None, model: str | None = None) -> None:
+        self.keys = keys if keys is not None else settings.gemini_api_keys
+        self.model = model or settings.gemini_model
+        self._index = 0
+        self._lock = threading.Lock()
+        self._cooldown_until: dict[int, float] = {}
+
+    @property
+    def enabled(self) -> bool:
+        return bool(self.keys)
+
+    def status(self) -> dict[str, Any]:
+        return {"enabled": self.enabled, "provider": "gemini", "model": self.model, "key_count": len(self.keys)}
+
+    def _ordered_indices(self) -> list[int]:
+        with self._lock:
+            start = self._index % max(1, len(self.keys))
+            self._index = (start + 1) % max(1, len(self.keys))
+        return [(start + offset) % len(self.keys) for offset in range(len(self.keys))]
+
+    def generate(self, prompt: str, *, timeout: int = 45) -> str:
+        if not self.keys:
+            raise RuntimeError("Gemini is not configured")
+        last_error = "all Gemini keys failed"
+        now = time.monotonic()
+        for index in self._ordered_indices():
+            if self._cooldown_until.get(index, 0) > now:
+                continue
+            payload = json.dumps({
+                "contents": [{"parts": [{"text": prompt}]}],
+                "generationConfig": {"temperature": 0.25, "responseMimeType": "application/json"},
+            }).encode("utf-8")
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.model}:generateContent"
+            req = request.Request(url, data=payload, method="POST", headers={
+                "Content-Type": "application/json",
+                "x-goog-api-key": self.keys[index],
+            })
+            try:
+                with request.urlopen(req, timeout=timeout) as response:
+                    body = json.loads(response.read().decode("utf-8"))
+                return body["candidates"][0]["content"]["parts"][0]["text"]
+            except error.HTTPError as exc:
+                last_error = f"Gemini HTTP {exc.code}"
+                self._cooldown_until[index] = now + (300 if exc.code in {400, 401, 403} else 60)
+            except (error.URLError, TimeoutError, KeyError, IndexError, json.JSONDecodeError) as exc:
+                last_error = f"Gemini request failed: {type(exc).__name__}"
+                self._cooldown_until[index] = now + 30
+        raise RuntimeError(last_error)
+
+
+def parse_question_json(raw: str) -> list[dict[str, Any]]:
+    text = raw.strip()
+    if text.startswith("```"):
+        text = text.split("\n", 1)[1].rsplit("```", 1)[0]
+    data = json.loads(text)
+    if isinstance(data, dict):
+        data = data.get("questions", [])
+    if not isinstance(data, list):
+        raise ValueError("Gemini response must be a question array")
+    return [item for item in data if isinstance(item, dict) and str(item.get("text", "")).strip()]
+
+
+gemini_router = GeminiRouter()
+
+
+def generate_grounded_questions(
+    question_type: str,
+    count: int,
+    level: str,
+    bloom: str,
+    marks_each: int,
+    source_chunks: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    excerpts = "\n\n".join(
+        f"SOURCE {i + 1} [{chunk.get('id', chunk.get('chunk_index', i))}]: {chunk.get('chunk_text', '')[:1800]}"
+        for i, chunk in enumerate(source_chunks[:8])
+    )
+    prompt = f"""Create exactly {count} {question_type} exam questions.
+Difficulty: {level}. Bloom level: {bloom}. Marks each: {marks_each}.
+Use ONLY facts present in SOURCE MATERIAL. Never use outside knowledge.
+Return JSON array only. Each item: {{"text":"...","options":[],"correct_answer":"...","source_number":1}}.
+For MCQ, options must contain exactly 4 plain strings and correct_answer must exactly match one option.
+For Fill Blank, include one clear blank as _____. For True/False, correct_answer must be True or False.
+For subjective questions, correct_answer is a concise marking guide grounded in source.
+
+SOURCE MATERIAL:
+{excerpts}
+"""
+    questions = parse_question_json(gemini_router.generate(prompt))
+    if len(questions) != count:
+        raise ValueError(f"Gemini returned {len(questions)} questions; expected {count}")
+    return questions

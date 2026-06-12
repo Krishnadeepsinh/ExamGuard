@@ -27,6 +27,17 @@ TIER3_WEIGHTS = {
     "time_anomaly": 0.10,
 }
 
+# Tier 2 has only 1-2 prior exams. Stylometric evidence remains available but
+# is deliberately downweighted; the removed weight is redistributed across
+# the four stronger signals. Weights sum to 1.00.
+TIER2_WEIGHTS = {
+    "behavioral": 0.35,
+    "perplexity": 0.17,
+    "stylometric": 0.10,
+    "answer_quality": 0.32,
+    "time_anomaly": 0.06,
+}
+
 
 def status_for_score(score: float) -> IntegrityStatus:
     """Unified v6 thresholds used by UI, API, tests, reports, and demo."""

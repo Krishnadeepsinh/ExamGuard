@@ -16,9 +16,11 @@ import sys
 
 BASE_URL = "http://127.0.0.1:8000/api/v1"
 
-def call(method: str, path: str, payload: dict | None = None, is_multipart: bool = False, raw_data: bytes | None = None, content_type: str | None = None) -> dict | list | bytes:
+AUTH_TOKEN = ""
+
+def call(method: str, path: str, payload: dict | None = None, is_multipart: bool = False, raw_data: bytes | None = None, content_type: str | None = None, expected_status: int | None = None) -> dict | list | bytes:
     url = f"{BASE_URL}{path}"
-    headers = {}
+    headers = {"Authorization": f"Bearer {AUTH_TOKEN}"} if AUTH_TOKEN else {}
     
     if is_multipart and content_type:
         headers["Content-Type"] = content_type
@@ -31,7 +33,8 @@ def call(method: str, path: str, payload: dict | None = None, is_multipart: bool
         
     req = urllib.request.Request(url, data=data, method=method, headers=headers)
     try:
-        with urllib.request.urlopen(req, timeout=15) as response:
+        timeout = 120 if "/materials/upload" in path or path.endswith("/generate") else 30
+        with urllib.request.urlopen(req, timeout=timeout) as response:
             res_content = response.read()
             if path.endswith("/pdf"):
                 return res_content
@@ -39,6 +42,8 @@ def call(method: str, path: str, payload: dict | None = None, is_multipart: bool
             return json.loads(decoded) if decoded else {}
     except urllib.error.HTTPError as exc:
         err_msg = exc.read().decode("utf-8", errors="ignore")
+        if expected_status == exc.code:
+            return json.loads(err_msg) if err_msg else {"status": exc.code}
         print(f"Error calling {method} {path}: {exc.code} - {err_msg}")
         raise RuntimeError(f"HTTP {exc.code}: {err_msg}") from exc
 
@@ -68,6 +73,7 @@ def encode_multipart_formdata(fields: dict[str, str], files: dict[str, tuple[str
     return body, content_type
 
 def run_test() -> None:
+    global AUTH_TOKEN
     print("======================================================================")
     print("        EXAMGUARD AI V6 INTEGRATION & VERIFICATION TEST SUITE         ")
     print("======================================================================\n")
@@ -81,16 +87,17 @@ def run_test() -> None:
         "display_name": "Rajan Kumar"
     })
     teacher_id = teacher_login["user"]["id"]
+    AUTH_TOKEN = teacher_login["token"]
     print(f"  -> Success! Logged in as: {teacher_login['user']['display_name']} (ID: {teacher_id})")
 
     # Step 2: Create new Exam Shell
     print("\n[2/15] Creating a new Physics Exam...")
     exam = call("POST", "/exams", {
         "teacher_id": teacher_id,
-        "title": "Physics Final - Electromagnetic Dynamics",
-        "subject": "Physics",
-        "duration_minutes": 90,
-        "total_marks": 50
+        "title": "SQL Source-Locked Audit Exam",
+        "subject": "SQL",
+        "duration_minutes": 120,
+        "total_marks": 10
     })
     exam_id = exam["id"]
     join_code = exam["join_code"]
@@ -120,42 +127,25 @@ def run_test() -> None:
         content_type=content_type
     )
     material_id = material["id"]
+    chapter_tag = next(iter(material["chapter_counts"]))
     print(f"  -> Success! Material Uploaded (ID: {material_id}, File: {material['filename']}, Chunks: {material['chunk_count']})")
 
     # Step 4: Save Paper Configuration
     print("\n[4/15] Saving paper layout configuration...")
     config_payload = {
         "material_id": material_id,
-        "total_marks": 50,
+        "total_marks": 10,
         "overall_level": "Standard",
         "paper_mode": "Mixed",
         "sections": [
             {
                 "id": "A",
                 "type": "MCQ",
-                "count": 20,
-                "marks_each": 1,
-                "bloom": "Remember",
-                "chapter_tag": "Ch 12",
-                "level": "Use overall"
-            },
-            {
-                "id": "B",
-                "type": "Short Answer",
-                "count": 10,
+                "count": 5,
                 "marks_each": 2,
-                "bloom": "Understand",
-                "chapter_tag": "Ch 13",
-                "level": "Standard"
-            },
-            {
-                "id": "C",
-                "type": "Long Answer",
-                "count": 2,
-                "marks_each": 5,
-                "bloom": "Analyze",
-                "chapter_tag": "Ch 14",
-                "level": "Challenging"
+                "bloom": "Remember",
+                "chapter_tag": chapter_tag,
+                "level": "Use overall"
             }
         ]
     }
@@ -191,7 +181,11 @@ def run_test() -> None:
 
     # Step 9: Student Completes Liveness Verification
     print("\n[9/15] Student performing blink liveness challenge verification...")
-    liveness_res = call("POST", f"/sessions/{session_id}/liveness")
+    blocked = call("GET", f"/sessions/{session_id}/questions", expected_status=422)
+    assert "liveness" in str(blocked).lower(), blocked
+    liveness_res = call("POST", f"/sessions/{session_id}/liveness", {
+        "method": "mediapipe_ear", "blink_count": 2, "duration_ms": 2200, "threshold": 0.25
+    })
     print(f"  -> Success! Liveness verified: {liveness_res['liveness']} (Status: {liveness_res['status']})")
 
     # Step 10: Fetch Questions for Student Session

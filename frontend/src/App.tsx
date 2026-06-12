@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { FaceLandmarker, FilesetResolver } from '@mediapipe/tasks-vision'
 import {
   Activity,
   AlertTriangle,
@@ -22,6 +23,7 @@ import {
   Lock,
   Menu,
   Mic,
+  Moon,
   PauseCircle,
   PlayCircle,
   Plus,
@@ -31,16 +33,15 @@ import {
   Search,
   Settings,
   Shield,
-  Sparkles,
+  Sun,
   Timer,
   Upload,
   UserCheck,
   Users,
   X,
-  Zap,
 } from 'lucide-react'
 import './App.css'
-import { api, type ApiExam, type ApiQuestion, type ApiSession } from './api'
+import { api, examSocketUrl, type ApiExam, type ApiQuestion, type ApiSession } from './api'
 
 type IntegrityStatus = 'CLEAN' | 'WATCH' | 'WARN' | 'FLAGGED'
 type AuthRole = 'teacher' | 'student'
@@ -85,13 +86,6 @@ const teacherViews: View[] = ['dashboard', 'config', 'live', 'review', 'reports'
 const studentViews: View[] = ['consent', 'liveness', 'exam', 'complete', 'settings']
 const publicViews: View[] = ['landing']
 
-const demoStudents = [
-  { name: 'Arjun Sharma', score: 88, status: 'CLEAN' as IntegrityStatus, tier: 1, answered: 76, events: 1, consent: true, joined: '10:01', ci: 7, factors: [92, 84, 89, 91, 76] },
-  { name: 'Priya Patel', score: 43, status: 'FLAGGED' as IntegrityStatus, tier: 1, answered: 68, events: 9, consent: true, joined: '10:03', ci: 7, factors: [35, 28, 31, 62, 42] },
-  { name: 'Rahul Singh', score: 65, status: 'WARN' as IntegrityStatus, tier: 3, answered: 72, events: 4, consent: true, joined: '10:05', ci: 0, factors: [68, 59, 0, 72, 60] },
-  { name: 'Nisha Rao', score: 74, status: 'WATCH' as IntegrityStatus, tier: 2, answered: 70, events: 3, consent: true, joined: '10:07', ci: 15, factors: [77, 69, 61, 81, 70] },
-]
-
 type QuestionType = 'MCQ' | 'Short Answer' | 'Long Answer' | 'Fill Blank' | 'True/False' | 'Essay'
 type ExamLevel = 'Easy' | 'Standard' | 'Challenging'
 type PaperMode = 'MCQ only' | 'MCQ + QA' | 'Mixed'
@@ -102,21 +96,38 @@ type PaperSection = {
   marks: number
   bloom: string
   chapter: string
+  topic?: string
   level: ExamLevel | 'Use overall'
   negative: 'none' | 'quarter'
 }
 
-const initialSections: PaperSection[] = [
-  { id: 'A', type: 'MCQ', count: 20, marks: 1, bloom: 'Remember', chapter: 'Ch 12', level: 'Use overall', negative: 'quarter' },
-  { id: 'B', type: 'Short Answer', count: 10, marks: 3, bloom: 'Understand', chapter: 'Ch 13', level: 'Use overall', negative: 'none' },
-  { id: 'C', type: 'Long Answer', count: 5, marks: 5, bloom: 'Analyze', chapter: 'Ch 14', level: 'Use overall', negative: 'none' },
-  { id: 'D', type: 'Essay', count: 1, marks: 5, bloom: 'Create', chapter: 'Ch 14', level: 'Use overall', negative: 'none' },
-]
-
-const chapterChunks: Record<string, number> = {
-  'Ch 12': 128,
-  'Ch 13': 112,
-  'Ch 14': 100,
+function sectionsForMode(mode: PaperMode, totalMarks: number, chapter = 'All syllabus'): PaperSection[] {
+  const marks = Math.max(10, Math.min(300, Math.floor(totalMarks || 10)))
+  const budgetSection = (id: string, type: QuestionType, budget: number, bloom: string): PaperSection => {
+    const preferred = type === 'Short Answer' ? 5 : type === 'Long Answer' || type === 'Essay' ? 10 : 1
+    let marksEach = Math.min(20, preferred, budget)
+    while (marksEach > 1 && budget % marksEach !== 0) marksEach -= 1
+    return { id, type, count: budget / marksEach, marks: marksEach, bloom, chapter, level: 'Use overall', negative: 'none' }
+  }
+  if (mode === 'MCQ only') {
+    return [budgetSection('A', 'MCQ', marks, 'Understand')]
+  }
+  if (mode === 'MCQ + QA') {
+    const qaMarks = Math.max(2, Math.floor(marks / 2))
+    const mcqMarks = marks - qaMarks
+    return [
+      budgetSection('A', 'MCQ', mcqMarks, 'Understand'),
+      budgetSection('B', 'Short Answer', qaMarks, 'Apply'),
+    ]
+  }
+  const shortMarks = Math.max(2, Math.floor(marks * 0.3))
+  const fillMarks = Math.max(1, Math.floor(marks * 0.1))
+  const mcqMarks = marks - shortMarks - fillMarks
+  return [
+    budgetSection('A', 'MCQ', mcqMarks, 'Understand'),
+    budgetSection('B', 'Short Answer', shortMarks, 'Apply'),
+    budgetSection('C', 'Fill Blank', fillMarks, 'Remember'),
+  ]
 }
 
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
@@ -165,10 +176,10 @@ function mapSessionToStudent(session: ApiSession) {
     score: session.integrity?.score ?? 100,
     status: (session.integrity?.status ?? 'CLEAN') as IntegrityStatus,
     tier: session.integrity?.baseline_tier ?? 1,
-    answered: (session as any).answers_count ?? 21,
-    events: (session as any).events_count ?? 1,
+    answered: session.answers_count ?? 0,
+    events: session.events_count ?? 0,
     consent: session.consent,
-    joined: (session as any).joined_at ? new Date((session as any).joined_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '10:00',
+    joined: session.joined_at ? new Date(session.joined_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '--:--',
     ci: session.integrity?.ci ?? null,
     factors: factors,
     appealResponse: (session as any).appeal?.response || '',
@@ -178,21 +189,75 @@ function mapSessionToStudent(session: ApiSession) {
   }
 }
 
+// Student Step Indicator
+function StudentStepIndicator({ currentStep }: { currentStep: 'join' | 'consent' | 'liveness' | 'exam' }) {
+  const steps = [
+    { key: 'join', label: 'Join' },
+    { key: 'consent', label: 'Consent' },
+    { key: 'liveness', label: 'Liveness' },
+    { key: 'exam', label: 'Exam' }
+  ]
+  const currentIndex = steps.findIndex(s => s.key === currentStep)
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '16px', marginBottom: '32px', width: '100%', flexWrap: 'wrap' }}>
+      {steps.map((step, index) => {
+        const isActive = step.key === currentStep
+        const isCompleted = index < currentIndex
+        return (
+          <div key={step.key} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <div style={{
+              width: '24px',
+              height: '24px',
+              borderRadius: '50%',
+              display: 'grid',
+              placeItems: 'center',
+              fontSize: '11px',
+              fontWeight: 700,
+              background: isCompleted ? 'rgba(16, 185, 129, 0.15)' : isActive ? 'rgba(79, 70, 229, 0.15)' : 'var(--eg-navy-700)',
+              color: isCompleted ? 'var(--eg-emerald)' : isActive ? 'var(--eg-indigo-hover)' : 'var(--eg-text-faint)',
+              border: `1px solid ${isCompleted ? 'var(--eg-emerald)' : isActive ? 'var(--eg-indigo)' : 'var(--eg-navy-600)'}`,
+              transition: 'all 150ms ease'
+            }}>
+              {isCompleted ? <Check size={12} /> : index + 1}
+            </div>
+            <span style={{
+              fontSize: '12px',
+              fontWeight: isActive ? 600 : 500,
+              color: isActive ? 'var(--eg-text)' : 'var(--eg-text-muted)',
+              textTransform: 'uppercase',
+              letterSpacing: '0.04em'
+            }}>{step.label}</span>
+            {index < steps.length - 1 && (
+              <ChevronRight size={14} style={{ color: 'var(--eg-navy-600)' }} />
+            )}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 function App() {
   const [view, setView] = useState<View>(() => viewFromHash())
   const [auth, setAuth] = useState<AuthUser | null>(() => storedAuth())
   const [mobileOpen, setMobileOpen] = useState(false)
   const [toast, setToast] = useState<{ kind: ToastKind; text: string } | null>(null)
-  const [selectedStudent, setSelectedStudent] = useState<any>(demoStudents[1])
+  const [selectedStudent, setSelectedStudent] = useState<any>(null)
   const [filter, setFilter] = useState<IntegrityStatus | 'ALL'>('ALL')
   const [sort, setSort] = useState<'risk' | 'name' | 'join'>('risk')
-  const [consentScrolled, setConsentScrolled] = useState(true)
+  const [consentScrolled, setConsentScrolled] = useState(false)
   const [answer, setAnswer] = useState('Faraday law states that induced EMF is proportional to the rate of change of magnetic flux through a circuit.')
   const [marked, setMarked] = useState(false)
   const [selectedExamId, setSelectedExamId] = useState<string>(() => {
     return window.localStorage.getItem('examguard-exam-id') || 'exam-physics'
   })
   const [studentsList, setStudentsList] = useState<any[]>([])
+  const [theme, setTheme] = useState<'light' | 'dark'>(() => (window.localStorage.getItem('examguard-theme') === 'light' ? 'light' : 'dark'))
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme
+    window.localStorage.setItem('examguard-theme', theme)
+  }, [theme])
 
   useEffect(() => {
     if (auth && auth.role === 'teacher') {
@@ -221,15 +286,9 @@ function App() {
     const poll = () => {
       api.examStudents(selectedExamId)
         .then((sessions) => {
-          if (sessions && sessions.length > 0) {
-            setStudentsList(sessions.map(mapSessionToStudent))
-          } else {
-            setStudentsList(demoStudents)
-          }
+          setStudentsList(sessions.map(mapSessionToStudent))
         })
-        .catch(() => {
-          setStudentsList(demoStudents)
-        })
+        .catch(() => setStudentsList([]))
     }
 
     poll()
@@ -238,14 +297,23 @@ function App() {
   }, [auth, view, selectedExamId])
 
   useEffect(() => {
-    const list = studentsList.length > 0 ? studentsList : demoStudents
+    const list = studentsList
     const found = list.find(s => s.name === selectedStudent?.name || s.id === selectedStudent?.id)
     if (found) {
       setSelectedStudent(found)
     } else if (list.length > 0) {
       setSelectedStudent(list[0])
+    } else {
+      setSelectedStudent(null)
     }
   }, [studentsList])
+
+  const canAccess = useCallback((next: View, user = auth) => {
+    if (publicViews.includes(next)) return true
+    if (!user) return false
+    if (user.role === 'teacher') return teacherViews.includes(next)
+    return studentViews.includes(next)
+  }, [auth])
 
   useEffect(() => {
     const handleHashChange = () => {
@@ -259,18 +327,11 @@ function App() {
     }
     window.addEventListener('hashchange', handleHashChange)
     return () => window.removeEventListener('hashchange', handleHashChange)
-  }, [auth])
+  }, [canAccess])
 
   const notify = (kind: ToastKind, text: string) => {
     setToast({ kind, text })
     window.setTimeout(() => setToast(null), kind === 'error' ? 7000 : kind === 'warning' ? 5000 : 3200)
-  }
-
-  const canAccess = (next: View, user = auth) => {
-    if (publicViews.includes(next)) return true
-    if (!user) return false
-    if (user.role === 'teacher') return teacherViews.includes(next)
-    return studentViews.includes(next)
   }
 
   const navigate = (next: View) => {
@@ -293,16 +354,20 @@ function App() {
     window.history.replaceState(null, '', `#${next}`)
   }
 
-  const loginWithApi = async (payload: { role: AuthRole; email: string; password: string; name: string; joinCode?: string }) => {
+  const loginWithApi = async (payload: { role: AuthRole; email: string; password: string; name: string; joinCode?: string; signup?: boolean }) => {
     if (payload.role === 'student') {
-      const session = await api.joinSession({ join_code: payload.joinCode ?? 'ABC123', student_name: payload.name, email: payload.email || undefined })
+      if (!payload.joinCode) throw new Error('Exam join code is required.')
+      const session = await api.joinSession({ join_code: payload.joinCode, student_name: payload.name, email: payload.email || undefined })
       window.localStorage.setItem('examguard-session-id', session.id)
       window.localStorage.setItem('examguard-exam-id', session.exam_id)
       login({ role: 'student', name: session.student_name, email: payload.email || `${payload.name.toLowerCase().replace(/\s+/g, '.')}@student.ai` })
       return
     }
-    const result = await api.login({ email: payload.email, password: payload.password, role: payload.role, display_name: payload.name })
+    const result = payload.signup
+      ? await api.signup({ email: payload.email, password: payload.password, role: payload.role, display_name: payload.name })
+      : await api.login({ email: payload.email, password: payload.password, role: payload.role, display_name: payload.name })
     window.localStorage.setItem('examguard-user-id', result.user.id)
+    window.localStorage.setItem('examguard-access-token', result.token)
     login({ role: 'teacher', name: result.user.display_name, email: result.user.email, userId: result.user.id })
   }
 
@@ -310,6 +375,7 @@ function App() {
     setAuth(null)
     window.localStorage.removeItem('examguard-auth')
     window.localStorage.removeItem('examguard-user-id')
+    window.localStorage.removeItem('examguard-access-token')
     window.localStorage.removeItem('examguard-session-id')
     window.localStorage.removeItem('examguard-exam-id')
     notify('info', 'Signed out. Protected screens are locked.')
@@ -318,12 +384,15 @@ function App() {
   }
 
   const filteredStudents = useMemo(() => {
-    const sourceList = studentsList.length > 0 ? studentsList : demoStudents
+    const sourceList = studentsList
     const list = filter === 'ALL' ? sourceList : sourceList.filter((student) => student.status === filter)
+    const getStatusRank = (status: IntegrityStatus): number => {
+      return Reflect.get(statusRank, status) ?? 3
+    }
     return [...list].sort((a, b) => {
       if (sort === 'name') return a.name.localeCompare(b.name)
       if (sort === 'join') return a.joined.localeCompare(b.joined)
-      return statusRank[a.status as IntegrityStatus] - statusRank[b.status as IntegrityStatus] || a.score - b.score
+      return getStatusRank(a.status as IntegrityStatus) - getStatusRank(b.status as IntegrityStatus) || a.score - b.score
     })
   }, [studentsList, filter, sort])
 
@@ -342,19 +411,20 @@ function App() {
     }
   }
 
-  const content = {
+  const contentMap = {
     landing: <LandingView notify={notify} onLogin={loginWithApi} />,
     dashboard: (
       <DashboardView
         go={navigate}
         notify={notify}
+        students={studentsList}
         onSelectExam={(examId) => {
           setSelectedExamId(examId)
           window.localStorage.setItem('examguard-exam-id', examId)
         }}
       />
     ),
-    config: <ConfigView notify={notify} />,
+    config: <ConfigView examId={selectedExamId} notify={notify} />,
     live: (
       <LiveMonitorView
         examId={selectedExamId}
@@ -368,9 +438,7 @@ function App() {
         notify={notify}
         onRefreshStudents={() => {
           api.examStudents(selectedExamId).then(sessions => {
-            if (sessions && sessions.length > 0) {
-              setStudentsList(sessions.map(mapSessionToStudent))
-            }
+            setStudentsList(sessions.map(mapSessionToStudent))
           }).catch(() => {})
         }}
       />
@@ -381,7 +449,7 @@ function App() {
     complete: <CompleteView notify={notify} />,
     review: (
       <ReviewView
-        students={studentsList.length > 0 ? studentsList : demoStudents}
+        students={studentsList}
         selected={selectedStudent}
         setSelected={setSelectedStudent}
         notify={notify}
@@ -390,12 +458,13 @@ function App() {
     reports: (
       <ReportsView
         examId={selectedExamId}
-        students={studentsList.length > 0 ? studentsList : demoStudents}
+        students={studentsList}
         notify={notify}
       />
     ),
     settings: <SettingsView auth={auth} onSaveSettings={handleSaveSettings} notify={notify} />,
-  }[activeView]
+  }
+  const content = Reflect.get(contentMap, activeView)
 
   return (
     <div className="app-shell">
@@ -419,13 +488,13 @@ function App() {
           })}
         </nav>
         <div className="sidebar-card">
-          <Bot size={18} aria-hidden="true" />
+          <Bot size={18} aria-hidden="true" style={{ color: 'var(--eg-indigo)' }} />
           <strong>10-agent workflow</strong>
           <span>Creates, monitors, scores, and reviews exams.</span>
         </div>
       </aside>
 
-      <main>
+      <main style={{ background: 'var(--eg-navy)', minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
         <header className="topbar">
           <button className="icon-btn mobile-only" aria-label="Open navigation" onClick={() => setMobileOpen(true)}>
             <Menu size={20} />
@@ -435,6 +504,9 @@ function App() {
             <h1>{navItems.find((item) => item.view === activeView)?.label ?? 'ExamGuard AI'}</h1>
           </div>
           <div className="top-actions">
+            <button className="icon-btn" aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`} title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`} onClick={() => setTheme((current) => current === 'dark' ? 'light' : 'dark')}>
+              {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
+            </button>
             {auth ? (
               <div className="auth-pill">
                 <span>{auth.role}</span>
@@ -474,71 +546,109 @@ function App() {
 type LoginPayload = { role: AuthRole; email: string; password: string; name: string; joinCode?: string }
 
 function LandingView({ notify, onLogin }: { notify: (kind: ToastKind, text: string) => void; onLogin: (payload: LoginPayload) => Promise<void> }) {
-  return (
-    <section className="screen landing-screen">
-      <div className="hero-band">
-        <div className="hero-copy">
-          <span className="badge badge-purple"><Sparkles size={14} /> Built for teachers, coaching institutes, and students</span>
-          <h2>The exam platform that knows your syllabus</h2>
-          <p>
-            Upload your own material, generate grounded papers, run privacy-first online exams, and review integrity reports from one place.
-          </p>
-          <div className="hero-actions">
-            <a className="primary-btn" href="#login-panel">Login / Join <ChevronRight size={16} /></a>
-            <button className="outline-light" onClick={() => notify('info', 'Use the sample accounts in the login panel to try both roles.')}>Try sample access</button>
-          </div>
+  const [chosenRole, setChosenRole] = useState<AuthRole | null>(null)
+
+  if (chosenRole) {
+    return (
+      <section className="screen landing-screen" style={{ background: 'var(--eg-navy)', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center' }}>
+        <div style={{ maxWidth: '420px', width: '100%', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          <button className="ghost-btn" onClick={() => setChosenRole(null)} style={{ alignSelf: 'flex-start' }}>
+            &larr; Back to Role Selection
+          </button>
+          <AuthPanel initialRole={chosenRole} onLogin={onLogin} notify={notify} />
         </div>
-        <AuthPanel onLogin={onLogin} notify={notify} />
+      </section>
+    )
+  }
+
+  return (
+    <section className="screen landing-screen" style={{ background: 'var(--eg-navy)', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', margin: '0 auto', maxWidth: '480px' }}>
+      <div style={{ textAlign: 'center', marginBottom: '32px' }}>
+        <div style={{ display: 'inline-block', filter: 'drop-shadow(0 0 12px #4F46E5)', marginBottom: '16px' }}>
+          <Shield size={64} style={{ color: 'var(--eg-indigo)' }} />
+        </div>
+        <h1 style={{ fontSize: '40px', fontWeight: 700, margin: '0 0 8px 0', background: 'linear-gradient(135deg, #4F46E5 0%, #0EA5E9 100%)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
+          ExamGuard AI
+        </h1>
+        <p style={{ fontSize: '16px', color: 'var(--eg-text-muted)', margin: 0 }}>
+          Privacy-first exam platform for institutes
+        </p>
       </div>
-      <div className="metric-grid">
-        <Metric label="Paper setup time saved" value="6-8h" icon={Clock} />
-        <Metric label="Integrity status levels" value="4" icon={Gauge} />
-        <Metric label="Agent workflow steps" value="10" icon={Bot} />
-        <Metric label="Raw video uploaded" value="0" icon={Shield} />
+
+      <div style={{ display: 'flex', gap: '24px', justifyContent: 'center', width: '100%', marginBottom: '40px' }}>
+        {/* Card: Teacher */}
+        <button
+          type="button"
+          onClick={() => setChosenRole('teacher')}
+          className="role-card-select"
+          style={{
+            width: '180px',
+            border: '1.5px solid var(--eg-navy-600)',
+            borderRadius: '12px',
+            padding: '28px 20px',
+            textAlign: 'center',
+            cursor: 'pointer',
+            background: 'var(--eg-navy-800)',
+            color: 'inherit',
+            font: 'inherit',
+          }}
+        >
+          <Users size={48} style={{ color: 'var(--eg-indigo)', marginBottom: '16px' }} />
+          <div style={{ fontWeight: 600, fontSize: '15px', color: 'var(--eg-text)' }}>Teacher Portal</div>
+        </button>
+
+        {/* Card: Student */}
+        <button
+          type="button"
+          onClick={() => setChosenRole('student')}
+          className="role-card-select"
+          style={{
+            width: '180px',
+            border: '1.5px solid var(--eg-navy-600)',
+            borderRadius: '12px',
+            padding: '28px 20px',
+            textAlign: 'center',
+            cursor: 'pointer',
+            background: 'var(--eg-navy-800)',
+            color: 'inherit',
+            font: 'inherit',
+          }}
+        >
+          <GraduationCap size={48} style={{ color: 'var(--eg-indigo)', marginBottom: '16px' }} />
+          <div style={{ fontWeight: 600, fontSize: '15px', color: 'var(--eg-text)' }}>Student Portal</div>
+        </button>
       </div>
-      <div className="two-column">
-        <Card title="How it works" icon={Zap}>
-          <div className="step-list">
-            {['Upload syllabus material', 'Configure sections and Bloom levels', 'Generate grounded questions', 'Monitor consent-first sessions', 'Review reports and appeals'].map((step, index) => (
-              <div className="step" key={step}><span>{index + 1}</span>{step}</div>
-            ))}
-          </div>
-        </Card>
-        <Card title="Why institutes choose it" icon={Shield}>
-          <div className="plain-points">
-            <span><Check size={15} /> Questions come from the teacher's own material, not a generic bank.</span>
-            <span><Check size={15} /> Raw webcam and audio never leave the student browser.</span>
-            <span><Check size={15} /> Teachers see live risk signals without losing final decision control.</span>
-            <span><Check size={15} /> Flagged students get a transparent appeal instead of automatic punishment.</span>
-          </div>
-        </Card>
+
+      <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '4px 10px', borderRadius: '20px', background: 'var(--eg-navy-700)', fontSize: '11px', color: 'var(--eg-text-muted)', fontWeight: 500 }}>
+        ExamGuard v6.0
       </div>
     </section>
   )
 }
 
-function AuthPanel({ onLogin, notify }: { onLogin: (payload: LoginPayload) => Promise<void>; notify: (kind: ToastKind, text: string) => void }) {
-  const [role, setRole] = useState<AuthRole>('teacher')
+function AuthPanel({ initialRole, onLogin, notify }: { initialRole: AuthRole; onLogin: (payload: LoginPayload & { signup?: boolean }) => Promise<void>; notify: (kind: ToastKind, text: string) => void }) {
+  const [role, setRole] = useState<AuthRole>(initialRole)
   const [email, setEmail] = useState('teacher@demo.examguard.ai')
   const [password, setPassword] = useState('demo123')
   const [studentName, setStudentName] = useState('Arjun Sharma')
-  const [joinCode, setJoinCode] = useState('ABC123')
+  const [joinCode, setJoinCode] = useState('')
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  const [signupMode, setSignupMode] = useState(false)
 
-  const fillDemo = (nextRole: AuthRole) => {
-    setRole(nextRole)
+  useEffect(() => {
+    setRole(initialRole)
     setError('')
-    if (nextRole === 'teacher') {
+    if (initialRole === 'teacher') {
       setEmail('teacher@demo.examguard.ai')
       setPassword('demo123')
     } else {
       setEmail('arjun@student.ai')
       setPassword('demo123')
       setStudentName('Arjun Sharma')
-      setJoinCode('ABC123')
+      setJoinCode('')
     }
-  }
+  }, [initialRole])
 
   const submit = async () => {
     setError('')
@@ -546,7 +656,7 @@ function AuthPanel({ onLogin, notify }: { onLogin: (payload: LoginPayload) => Pr
     if (role === 'teacher') {
       if (!isValidEmail(email)) { setError('Enter a valid teacher email address.'); notify('error', 'Enter a valid teacher email address.'); setSubmitting(false); return }
       if (password.trim().length < 6) { setError('Password must be at least 6 characters.'); notify('error', 'Password must be at least 6 characters.'); setSubmitting(false); return }
-      try { await onLogin({ role: 'teacher', name: 'Rajan Kumar', email, password }) }
+      try { await onLogin({ role: 'teacher', name: email.split('@')[0], email, password, signup: signupMode }) }
       catch (event) { const message = event instanceof Error ? event.message : 'Teacher login failed.'; setError(message); notify('error', message) }
       finally { setSubmitting(false) }
       return
@@ -560,37 +670,67 @@ function AuthPanel({ onLogin, notify }: { onLogin: (payload: LoginPayload) => Pr
   }
 
   return (
-    <div className="login-card embedded-login" id="login-panel">
-      <span className="badge badge-purple"><Lock size={14} /> Role-based access enabled</span>
-      <h2>Login or join exam</h2>
-      <p className="muted">Teachers manage exams and reports. Students join with a code and complete consent before starting.</p>
-      <div className="role-toggle" role="tablist" aria-label="Choose login role">
-        <button className={role === 'teacher' ? 'active' : ''} onClick={() => fillDemo('teacher')} role="tab" aria-selected={role === 'teacher'}><Users size={16} /> Teacher</button>
-        <button className={role === 'student' ? 'active' : ''} onClick={() => fillDemo('student')} role="tab" aria-selected={role === 'student'}><GraduationCap size={16} /> Student</button>
-      </div>
+    <div className="login-card" style={{ padding: '40px', borderRadius: '16px', background: 'var(--eg-navy-800)', boxShadow: 'var(--shadow-elevated)' }}>
+      {role === 'student' && <StudentStepIndicator currentStep="join" />}
+      <span className="badge badge-purple" style={{ marginBottom: '12px' }}><Shield size={14} /> Secure Access Portal</span>
+      <h2 style={{ fontSize: '24px', fontWeight: 700, margin: '8px 0 16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+        <Shield size={24} style={{ color: 'var(--eg-indigo)' }} />
+        {role === 'teacher' ? 'Teacher Sign In' : 'Student Join Session'}
+      </h2>
+      <p className="muted" style={{ fontSize: '14px', marginBottom: '24px' }}>
+        {role === 'teacher' ? (signupMode ? 'Create a secure teacher account for your institute.' : 'Manage exam papers, configurations, and review flagged session anomalies.') : 'Join your active exam. Complete verification consent to begin.'}
+      </p>
+
       {role === 'teacher' ? (
-        <div className="login-form">
-          <label>Teacher email<input type="email" required value={email} onChange={(event) => setEmail(event.target.value)} /></label>
-          <label>Password<input type="password" required minLength={6} value={password} onChange={(event) => setPassword(event.target.value)} /></label>
-          <div className="demo-credentials"><strong>Sample teacher:</strong> teacher@demo.examguard.ai / demo123</div>
+        <div className="login-form" style={{ display: 'flex', flexDirection: 'column', gap: '16px', marginBottom: '20px' }}>
+          <div>
+            <label>Teacher Email</label>
+            <input type="email" required value={email} onChange={(event) => setEmail(event.target.value)} />
+          </div>
+          <div>
+            <label>Password</label>
+            <input type="password" required minLength={6} value={password} onChange={(event) => setPassword(event.target.value)} />
+          </div>
         </div>
       ) : (
-        <div className="login-form">
-          <label>Student name<input required minLength={3} value={studentName} onChange={(event) => setStudentName(event.target.value)} /></label>
-          <label>Join code<input required maxLength={6} value={joinCode} onChange={(event) => setJoinCode(event.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''))} /></label>
-          <label>Optional student email<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} /></label>
-          <div className="demo-credentials"><strong>Sample student:</strong> Arjun Sharma / ABC123</div>
+        <div className="login-form" style={{ display: 'flex', flexDirection: 'column', gap: '16px', marginBottom: '20px' }}>
+          <div>
+            <label>Student Name</label>
+            <input required minLength={3} value={studentName} onChange={(event) => setStudentName(event.target.value)} />
+          </div>
+          <div>
+            <label>Join Code</label>
+            <input required maxLength={6} placeholder="Enter 6-character exam code" autoComplete="off" value={joinCode} onChange={(event) => setJoinCode(event.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''))} />
+          </div>
+          <div>
+            <label>Optional Email</label>
+            <input type="email" value={email} onChange={(event) => setEmail(event.target.value)} />
+          </div>
         </div>
       )}
-      {error && <p className="form-error" role="alert">{error}</p>}
+
+      {error && <p className="form-error" role="alert" style={{ marginBottom: '16px' }}>{error}</p>}
+      
       <button className="primary-btn full" disabled={submitting} onClick={submit}>
-        <Lock size={16} /> {submitting ? 'Checking...' : `Login as ${role}`}
+        <Lock size={16} /> {submitting ? 'Authenticating...' : role === 'teacher' ? (signupMode ? 'Create Teacher Account' : 'Sign In') : 'Join Session'}
       </button>
+      {role === 'teacher' && <button type="button" className="ghost-btn full" style={{ marginTop: '10px' }} onClick={() => setSignupMode(value => !value)}>
+        {signupMode ? 'Already registered? Sign in' : 'New teacher? Create account'}
+      </button>}
+
+      <details style={{ marginTop: '16px', fontSize: '13px', color: 'var(--eg-text-muted)', cursor: 'pointer' }}>
+        <summary style={{ fontWeight: 600, color: 'var(--eg-indigo-hover)', outline: 'none' }}>Demo credentials</summary>
+        <div className="demo-credentials" style={{ marginTop: '10px' }}>
+          {role === 'teacher' ? (
+            <><strong>Teacher:</strong> teacher@demo.examguard.ai / demo123</>
+          ) : <span>Use code shown by teacher after exam activation.</span>}
+        </div>
+      </details>
     </div>
   )
 }
 
-function DashboardView({ go, notify, onSelectExam }: { go: (view: View) => void; notify: (kind: ToastKind, text: string) => void; onSelectExam: (examId: string) => void }) {
+function DashboardView({ go, notify, onSelectExam, students }: { go: (view: View) => void; notify: (kind: ToastKind, text: string) => void; onSelectExam: (examId: string) => void; students: any[] }) {
   const [exams, setExams] = useState<ApiExam[]>([])
   const [showCreateModal, setShowCreateModal] = useState(false)
 
@@ -605,7 +745,9 @@ function DashboardView({ go, notify, onSelectExam }: { go: (view: View) => void;
       const exam = await api.createExam({ teacher_id: teacherId, ...payload })
       setExams((prev) => [...prev, exam])
       setShowCreateModal(false)
-      notify('success', `Exam "${exam.title}" created. Join code: ${exam.join_code}`)
+      onSelectExam(exam.id)
+      notify('success', `Exam created. Now upload its syllabus and generate the paper.`)
+      go('config')
     } catch (e) { notify('error', e instanceof Error ? e.message : 'Failed to create exam.') }
   }
 
@@ -627,11 +769,38 @@ function DashboardView({ go, notify, onSelectExam }: { go: (view: View) => void;
 
   return (
     <section className="screen">
-      <div className="toolbar">
-        <div className="search-box"><Search size={16} /><input aria-label="Search exams" placeholder="Search exams, students, subjects" /></div>
-        <button className="ghost-btn"><Archive size={16} /> Archive</button>
-        <button className="primary-btn" onClick={() => setShowCreateModal(true)}><Plus size={16} /> New Exam</button>
+      {/* Dynamic Stats Row at top of Dashboard */}
+      <div className="summary-grid" style={{ marginBottom: '24px' }}>
+        <div className="metric-card compact" style={{ background: 'var(--eg-navy-800)', border: '1px solid var(--eg-navy-600)', borderRadius: '12px', padding: '20px', display: 'flex', flexDirection: 'column', position: 'relative' }}>
+          <BookOpen size={24} style={{ color: 'var(--eg-indigo)', position: 'absolute', top: '16px', right: '16px' }} />
+          <span style={{ fontSize: '11px', color: 'var(--eg-text-muted)', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 600 }}>Total Exams</span>
+          <strong style={{ fontSize: '32px', fontWeight: 700, margin: '8px 0 0 0', color: 'var(--eg-text)' }}>{exams.length}</strong>
+        </div>
+        <div className="metric-card compact" style={{ background: 'var(--eg-navy-800)', border: '1px solid var(--eg-navy-600)', borderRadius: '12px', padding: '20px', display: 'flex', flexDirection: 'column', position: 'relative' }}>
+          <Users size={24} style={{ color: 'var(--eg-teal)', position: 'absolute', top: '16px', right: '16px' }} />
+          <span style={{ fontSize: '11px', color: 'var(--eg-text-muted)', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 600 }}>Active Students</span>
+          <strong style={{ fontSize: '32px', fontWeight: 700, margin: '8px 0 0 0', color: 'var(--eg-text)' }}>{students.filter(student => student.rawSession?.status === 'active').length}</strong>
+        </div>
+        <div className="metric-card compact" style={{ background: 'var(--eg-navy-800)', border: '1px solid var(--eg-navy-600)', borderRadius: '12px', padding: '20px', display: 'flex', flexDirection: 'column', position: 'relative' }}>
+          <Flag size={24} style={{ color: 'var(--eg-red)', position: 'absolute', top: '16px', right: '16px' }} />
+          <span style={{ fontSize: '11px', color: 'var(--eg-text-muted)', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 600 }}>Flagged Cases</span>
+          <strong style={{ fontSize: '32px', fontWeight: 700, margin: '8px 0 0 0', color: 'var(--eg-text)' }}>{students.filter(student => student.status === 'FLAGGED').length}</strong>
+        </div>
+        <div className="metric-card compact" style={{ background: 'var(--eg-navy-800)', border: '1px solid var(--eg-navy-600)', borderRadius: '12px', padding: '20px', display: 'flex', flexDirection: 'column', position: 'relative' }}>
+          <Gauge size={24} style={{ color: 'var(--eg-emerald)', position: 'absolute', top: '16px', right: '16px' }} />
+          <span style={{ fontSize: '11px', color: 'var(--eg-text-muted)', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 600 }}>Class Avg Integrity</span>
+          <strong style={{ fontSize: '32px', fontWeight: 700, margin: '8px 0 0 0', color: 'var(--eg-text)' }}>{students.length ? `${Math.round(students.reduce((sum, student) => sum + student.score, 0) / students.length)}%` : '--'}</strong>
+        </div>
       </div>
+
+      <div className="toolbar" style={{ display: 'flex', justifyContent: 'space-between', gap: '16px', flexWrap: 'wrap', marginBottom: '24px' }}>
+        <div className="search-box" style={{ flexGrow: 1, maxWidth: '400px' }}><Search size={16} /><input aria-label="Search exams" placeholder="Search exams, subjects, codes" /></div>
+        <div style={{ display: 'flex', gap: '12px' }}>
+          <button className="ghost-btn"><Archive size={16} /> Archive</button>
+          <button className="primary-btn" onClick={() => setShowCreateModal(true)}><Plus size={16} /> Create New Exam</button>
+        </div>
+      </div>
+
       <div className="dashboard-grid">
         {exams.length === 0 ? (
           <Card title="First-run guide" icon={Rocket} className="empty-card">
@@ -641,35 +810,84 @@ function DashboardView({ go, notify, onSelectExam }: { go: (view: View) => void;
               <span><Check size={15} /> Upload syllabus PDF</span>
               <span><Clock size={15} /> Configure paper</span>
             </div>
-            <div className="inline-actions">
-              <button className="primary-btn" onClick={() => setShowCreateModal(true)}>Create your first exam</button>
-              <button className="ghost-btn" onClick={() => notify('info', 'Sample Physics class loaded. Join code ABC123.')}>Try sample class</button>
+            <div className="inline-actions" style={{ marginTop: '16px' }}>
+              <button className="primary-btn" onClick={() => setShowCreateModal(true)}>Create exam</button>
+              <button className="ghost-btn" onClick={() => notify('info', 'Sample Physics class loaded. Fixed seed code PHY001.')}>Try sample class</button>
             </div>
           </Card>
         ) : null}
+
         {exams.map((exam) => (
           <Card key={exam.id} title={exam.title} icon={BookOpen}>
             <div className="exam-card-body">
-              <span className={`badge ${exam.status === 'active' ? 'badge-green' : exam.status === 'ended' ? 'badge-amber' : 'badge-purple'}`}>{exam.status}</span>
-              <h3>{exam.total_marks} marks - {exam.subject} - {exam.duration_minutes} min</h3>
-              <div className="join-code">{exam.join_code} <button aria-label="Copy join code" onClick={() => { navigator.clipboard?.writeText(exam.join_code); notify('success', 'Join code copied.') }}><Copy size={16} /></button></div>
-              <div className="inline-actions">
-                <button className="primary-btn" onClick={() => { onSelectExam(exam.id); go('live') }}>Open live monitor</button>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span className={`badge ${exam.status === 'active' ? 'badge-green' : exam.status === 'ended' ? 'badge-amber' : 'badge-purple'}`}>{exam.status}</span>
+                <span style={{ fontSize: '13px', color: 'var(--eg-text-muted)' }}>{exam.subject}</span>
+              </div>
+              <h3 style={{ fontSize: '16px', fontWeight: 600, color: 'var(--eg-text)' }}>{exam.total_marks} Marks / {exam.duration_minutes} Mins</h3>
+              <div className="join-code">
+                <span>{exam.join_code}</span>
+                <button aria-label="Copy join code" onClick={() => { navigator.clipboard?.writeText(exam.join_code); notify('success', 'Join code copied.') }}><Copy size={16} /></button>
+              </div>
+              <div className="inline-actions" style={{ marginTop: '8px' }}>
+                <button className="primary-btn" onClick={() => { onSelectExam(exam.id); go('live') }}>Open Live Monitor</button>
                 <button className="ghost-btn" onClick={() => { onSelectExam(exam.id); go('config') }}>Configure</button>
-                <button className="ghost-btn" onClick={() => handleCloneExam(exam.id)}><Copy size={14} /> Clone</button>
-                <button className="ghost-btn" onClick={() => handleDeleteExam(exam.id)}><X size={14} /> Delete</button>
+                <button className="ghost-btn" onClick={() => handleCloneExam(exam.id)} title="Clone Exam"><Copy size={14} /></button>
+                <button className="ghost-btn" onClick={() => handleDeleteExam(exam.id)} title="Delete Exam" style={{ color: 'var(--eg-red)' }}><X size={14} /></button>
               </div>
             </div>
           </Card>
         ))}
       </div>
-      <div className="tab-strip">
+
+      {/* Recent Exams Table */}
+      {exams.length > 0 && (
+        <Card title="All Exams List" icon={Layers} className="wide-card" style={{ marginTop: '24px' }}>
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
+              <thead>
+                <tr style={{ borderBottom: '1px solid var(--eg-navy-600)' }}>
+                  <th style={{ padding: '12px 16px', color: 'var(--eg-text-muted)', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 600 }}>Exam Title</th>
+                  <th style={{ padding: '12px 16px', color: 'var(--eg-text-muted)', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 600 }}>Subject</th>
+                  <th style={{ padding: '12px 16px', color: 'var(--eg-text-muted)', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 600 }}>Join Code</th>
+                  <th style={{ padding: '12px 16px', color: 'var(--eg-text-muted)', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 600 }}>Status</th>
+                  <th style={{ padding: '12px 16px', color: 'var(--eg-text-muted)', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 600 }}>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {exams.map((exam) => (
+                  <tr key={exam.id} style={{ borderBottom: '1px solid var(--eg-navy-600)', background: 'var(--eg-navy-800)', transition: 'background 150ms' }} className="table-row-hover">
+                    <td style={{ padding: '12px 16px', fontWeight: 600 }}>{exam.title}</td>
+                    <td style={{ padding: '12px 16px', color: 'var(--eg-text-muted)' }}>{exam.subject}</td>
+                    <td style={{ padding: '12px 16px', fontFamily: 'JetBrains Mono', color: 'var(--eg-teal)' }}>{exam.join_code}</td>
+                    <td style={{ padding: '12px 16px' }}>
+                      <span className={`status-badge ${exam.status === 'active' ? 'clean' : exam.status === 'ended' ? 'warn' : 'watch'}`}>
+                        {exam.status}
+                      </span>
+                    </td>
+                    <td style={{ padding: '12px 16px', display: 'flex', gap: '8px' }}>
+                      <button className="primary-btn" style={{ minHeight: '32px', padding: '4px 12px', fontSize: '12px' }} onClick={() => { onSelectExam(exam.id); go('live') }}>
+                        Monitor
+                      </button>
+                      <button className="ghost-btn" style={{ minHeight: '32px', padding: '4px 12px', fontSize: '12px' }} onClick={() => { onSelectExam(exam.id); go('config') }}>
+                        Setup
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      )}
+
+      <div className="tab-strip" style={{ marginTop: '32px' }}>
         {['Overview', 'Configure Paper', 'Live Monitor', 'Reports', 'Review'].map((tab, index) => (
           <button key={tab} onClick={() => {
-            const views = ['dashboard', 'config', 'live', 'reports', 'review'] as View[];
             const selectedExam = exams[0]?.id || 'exam-physics';
             onSelectExam(selectedExam);
-            go(views[index]);
+            const targetView = index === 0 ? 'dashboard' : index === 1 ? 'config' : index === 2 ? 'live' : index === 3 ? 'reports' : 'review';
+            go(targetView);
           }}>{tab}</button>
         ))}
       </div>
@@ -685,15 +903,28 @@ function CreateExamModal({ onClose, onCreate }: { onClose: () => void; onCreate:
   const [marks, setMarks] = useState(80)
   return (
     <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="create-title">
-      <div className="modal">
-        <h2 id="create-title">Create New Exam</h2>
-        <div className="login-form">
-          <label>Exam title<input required minLength={3} value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. Physics XI - Electromagnetism" /></label>
-          <label>Subject<input required value={subject} onChange={(e) => setSubject(e.target.value)} placeholder="e.g. Physics" /></label>
-          <label>Duration (minutes)<input type="number" min={10} max={300} value={duration} onChange={(e) => setDuration(Number(e.target.value))} /></label>
-          <label>Total marks<input type="number" min={10} max={300} value={marks} onChange={(e) => setMarks(Number(e.target.value))} /></label>
+      <div className="modal" style={{ maxWidth: '440px' }}>
+        <h2 id="create-title" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}><Plus size={22} style={{ color: 'var(--eg-indigo)' }} /> Create New Exam</h2>
+        <p className="muted">Specify details below. This creates a grounded code room students can join.</p>
+        <div className="login-form" style={{ display: 'flex', flexDirection: 'column', gap: '14px', marginBottom: '24px' }}>
+          <div>
+            <label>Exam Title</label>
+            <input required minLength={3} value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. Physics XI - Electromagnetism" />
+          </div>
+          <div>
+            <label>Subject</label>
+            <input required value={subject} onChange={(e) => setSubject(e.target.value)} placeholder="e.g. Physics" />
+          </div>
+          <div>
+            <label>Duration (minutes)</label>
+            <input type="number" min={10} max={300} value={duration} onChange={(e) => setDuration(Number(e.target.value))} />
+          </div>
+          <div>
+            <label>Total Marks</label>
+            <input type="number" min={10} max={300} value={marks} onChange={(e) => setMarks(Number(e.target.value))} />
+          </div>
         </div>
-        <div className="inline-actions">
+        <div className="inline-actions" style={{ justifyContent: 'flex-end' }}>
           <button className="ghost-btn" onClick={onClose}>Cancel</button>
           <button className="primary-btn" disabled={title.length < 3 || subject.length < 2} onClick={() => onCreate({ title, subject, duration_minutes: duration, total_marks: marks })}>Create Exam</button>
         </div>
@@ -702,57 +933,94 @@ function CreateExamModal({ onClose, onCreate }: { onClose: () => void; onCreate:
   )
 }
 
-function ConfigView({ notify }: { notify: (kind: ToastKind, text: string) => void }) {
-  const [examId, setExamId] = useState('exam-physics')
+function ConfigView({ examId, notify }: { examId: string; notify: (kind: ToastKind, text: string) => void }) {
   const [materialId, setMaterialId] = useState('')
-  const [uploadedMaterial, setUploadedMaterial] = useState('NCERT Physics Ch 12-14.pdf')
+  const [uploadedMaterial, setUploadedMaterial] = useState('')
   const [materialError, setMaterialError] = useState('')
   const [totalMarksTarget, setTotalMarksTarget] = useState(80)
   const [overallLevel, setOverallLevel] = useState<ExamLevel>('Standard')
   const [paperMode, setPaperMode] = useState<PaperMode>('Mixed')
-  const [sections, setSections] = useState<PaperSection[]>(initialSections)
+  const [sections, setSections] = useState<PaperSection[]>(sectionsForMode('Mixed', 80))
   const [generated, setGenerated] = useState(false)
+  const [generatedQuestions, setGeneratedQuestions] = useState<ApiQuestion[]>([])
+  const [loading, setLoading] = useState(true)
+  const [generating, setGenerating] = useState(false)
+  const [generationError, setGenerationError] = useState('')
+  const [activated, setActivated] = useState(false)
+
+  const [availableChapters, setAvailableChapters] = useState<string[]>([])
+  const [chapterTopicsMap, setChapterTopicsMap] = useState<Record<string, string[]>>({})
+  const [chapterCountsMap, setChapterCountsMap] = useState<Record<string, number>>({})
 
   useEffect(() => {
-    const teacherId = window.localStorage.getItem('examguard-user-id') || 'teacher-demo'
-    api.exams(teacherId)
-      .then((items) => {
-        const first = items[0]
-        if (!first) return
-        setExamId(first.id)
-        setTotalMarksTarget(first.total_marks)
-        return api.materials(first.id)
+    setLoading(true)
+    setMaterialId('')
+    setUploadedMaterial('')
+    setAvailableChapters([])
+    setChapterTopicsMap({})
+    setChapterCountsMap({})
+    setGenerated(false)
+    setGeneratedQuestions([])
+    setActivated(false)
+    api.getExam(examId)
+      .then((exam) => {
+        setTotalMarksTarget(exam.total_marks)
+        setSections(sectionsForMode('Mixed', exam.total_marks))
+        return api.materials(examId)
       })
       .then((materials) => {
         const first = materials?.[0]
         if (!first) return
         setMaterialId(first.id)
         setUploadedMaterial(first.filename)
+        
+        if (first.chapter_counts) {
+          const chList: string[] = []
+          const topicsMap: Record<string, string[]> = {}
+          const countsMap: Record<string, number> = {}
+          Object.entries(first.chapter_counts).forEach(([chapterName, info]: [string, any]) => {
+            chList.push(chapterName)
+            if (info && typeof info === 'object') {
+              Reflect.set(topicsMap, chapterName, Array.isArray(info.topics) ? info.topics : [])
+              Reflect.set(countsMap, chapterName, typeof info.count === 'number' ? info.count : 0)
+            } else {
+              Reflect.set(topicsMap, chapterName, [])
+              Reflect.set(countsMap, chapterName, typeof info === 'number' ? info : 0)
+            }
+          })
+          if (chList.length > 0) {
+            setAvailableChapters(chList)
+            setChapterTopicsMap(topicsMap)
+            setChapterCountsMap(countsMap)
+          }
+        }
       })
-      .catch((event) => notify('warning', `Using local paper config data. Backend sync failed: ${event instanceof Error ? event.message : 'unknown error'}`))
-  }, [])
+      .catch((event) => notify('error', `Could not load this exam from the backend: ${event instanceof Error ? event.message : 'unknown error'}`))
+      .finally(() => setLoading(false))
+  }, [examId])
 
   const total = sections.reduce((sum, section) => sum + section.count * section.marks, 0)
   const validTotalMarks = Number.isInteger(totalMarksTarget) && totalMarksTarget >= 10 && totalMarksTarget <= 300
-  const materialChunks = uploadedMaterial ? 340 : 0
+  const materialChunks = uploadedMaterial ? Object.values(chapterCountsMap).reduce((a, b) => a + b, 0) : 0
   const invalidSections = sections.filter((section) => section.count < 1 || section.marks < 1 || !section.chapter)
-  const lowCoverageChapters = sections.filter((section) => (chapterChunks[section.chapter] ?? 0) < section.count * 8)
+  const hasMaterial = Boolean(uploadedMaterial && materialId)
+  const lowCoverageChapters = hasMaterial 
+    ? sections.filter((section) => {
+        if (section.chapter === 'All syllabus') return false
+        const count = Reflect.get(chapterCountsMap, section.chapter) ?? 0
+        return count < section.count
+      })
+    : []
   const typeSet = new Set(sections.map((section) => section.type))
   const modeMismatch =
     (paperMode === 'MCQ only' && [...typeSet].some((type) => type !== 'MCQ')) ||
     (paperMode === 'MCQ + QA' && [...typeSet].some((type) => !['MCQ', 'Short Answer', 'Long Answer', 'Essay'].includes(type))) ||
     (paperMode === 'Mixed' && ![...typeSet].some((type) => ['MCQ', 'Short Answer', 'Long Answer', 'Fill Blank'].includes(type)))
-  const canGenerate = Boolean(uploadedMaterial && materialId) && validTotalMarks && total === totalMarksTarget && materialChunks >= 200 && invalidSections.length === 0 && lowCoverageChapters.length === 0 && !modeMismatch
+  const canGenerate = hasMaterial && validTotalMarks && total === totalMarksTarget && invalidSections.length === 0 && lowCoverageChapters.length === 0 && !modeMismatch && !generating
 
   const applyMode = (mode: PaperMode) => {
     setPaperMode(mode)
-    if (mode === 'MCQ only') setSections([{ id: 'A', type: 'MCQ', count: totalMarksTarget, marks: 1, bloom: 'Understand', chapter: 'Ch 12', level: 'Use overall', negative: 'quarter' }])
-    else if (mode === 'MCQ + QA') setSections([
-      { id: 'A', type: 'MCQ', count: 30, marks: 1, bloom: 'Remember', chapter: 'Ch 12', level: 'Use overall', negative: 'quarter' },
-      { id: 'B', type: 'Short Answer', count: 10, marks: 3, bloom: 'Understand', chapter: 'Ch 13', level: 'Use overall', negative: 'none' },
-      { id: 'C', type: 'Long Answer', count: 4, marks: 5, bloom: 'Analyze', chapter: 'Ch 14', level: 'Use overall', negative: 'none' },
-    ])
-    else setSections(initialSections)
+    setSections(sectionsForMode(mode, totalMarksTarget, availableChapters[0] || 'All syllabus'))
     setGenerated(false)
   }
 
@@ -769,46 +1037,132 @@ function ConfigView({ notify }: { notify: (kind: ToastKind, text: string) => voi
     try {
       const material = await api.uploadMaterial(examId, file)
       setMaterialId(material.id); setUploadedMaterial(material.filename)
+      
+      if (material.chapter_counts) {
+        const chList: string[] = []
+        const topicsMap: Record<string, string[]> = {}
+        const countsMap: Record<string, number> = {}
+        Object.entries(material.chapter_counts).forEach(([chapterName, info]: [string, any]) => {
+          chList.push(chapterName)
+          if (info && typeof info === 'object') {
+            Reflect.set(topicsMap, chapterName, Array.isArray(info.topics) ? info.topics : [])
+            Reflect.set(countsMap, chapterName, typeof info.count === 'number' ? info.count : 0)
+          } else {
+            Reflect.set(topicsMap, chapterName, [])
+            Reflect.set(countsMap, chapterName, typeof info === 'number' ? info : 0)
+          }
+        })
+        if (chList.length > 0) {
+          setAvailableChapters(chList)
+          setChapterTopicsMap(topicsMap)
+          setChapterCountsMap(countsMap)
+        }
+      }
+      
       notify('success', `${file.name} uploaded. Generation will be restricted to this material only.`)
     } catch (event) { const msg = event instanceof Error ? event.message : 'Upload failed.'; setMaterialError(msg); notify('error', msg) }
   }
 
   const validateAndGenerate = async () => {
     setGenerated(false)
-    if (!uploadedMaterial || !materialId) { notify('error', 'Upload syllabus or material before generating a paper.'); return }
+    if (!hasMaterial) { notify('error', 'Upload syllabus or study material before generating the paper.'); return }
     if (!validTotalMarks) { notify('error', 'Total exam marks must be between 10 and 300.'); return }
     if (total !== totalMarksTarget) { notify('error', `Paper total must be exactly ${totalMarksTarget} marks. Current total is ${total}.`); return }
-    if (materialChunks < 200) { notify('error', 'Upload more material before generation. At least 200 chunks are required.'); return }
     if (invalidSections.length) { notify('error', 'Every section needs question count, marks, and chapter.'); return }
     if (lowCoverageChapters.length) { notify('error', 'One or more sections ask for more questions than the selected chapter material can support.'); return }
     if (modeMismatch) { notify('error', `Selected sections do not match the ${paperMode} paper type.`); return }
     try {
-      const payload = { material_id: materialId, total_marks: totalMarksTarget, overall_level: overallLevel, paper_mode: paperMode, sections: sections.map((s) => ({ id: s.id, type: s.type, count: s.count, marks_each: s.marks, bloom: s.bloom, chapter_tag: s.chapter, level: s.level })) }
+      setGenerating(true)
+      setGenerationError('')
+      const payload = { 
+        material_id: materialId || null, 
+        total_marks: totalMarksTarget, 
+        overall_level: overallLevel, 
+        paper_mode: paperMode, 
+        sections: sections.map((s) => ({ 
+          id: s.id, 
+          type: s.type, 
+          count: s.count, 
+          marks_each: s.marks, 
+          bloom: s.bloom, 
+          chapter_tag: s.chapter, 
+          topic_tag: s.topic || 'All topics',
+          level: s.level 
+        })) 
+      }
       await api.savePaperConfig(examId, payload)
       const result = await api.generatePaper(examId)
+      setGeneratedQuestions(result.questions)
       setGenerated(true)
-      notify('success', `Paper generated only from uploaded syllabus/material. ${result.count}/${result.count} questions grounded with citations.`)
-    } catch (event) { notify('error', event instanceof Error ? event.message : 'Paper generation failed.') }
+      notify('success', `Paper generated successfully. ${result.count}/${result.count} questions created.`)
+    } catch (event) {
+      const message = event instanceof Error ? event.message : 'Paper generation failed.'
+      setGenerationError(message)
+      notify('error', message)
+    }
+    finally { setGenerating(false) }
+  }
+
+  const activateGeneratedExam = async () => {
+    try {
+      await api.activateExam(examId)
+      setActivated(true)
+      notify('success', 'Exam activated. Students can now join with its code.')
+    } catch (event) {
+      notify('error', event instanceof Error ? event.message : 'Could not activate exam.')
+    }
   }
 
   return (
     <section className="screen config-layout">
       <div className="config-main">
-        <Card title="Upload syllabus or material" icon={Upload}>
+        <Card title="Step 1: Upload syllabus or material" icon={Upload}>
           <label htmlFor="material-file-upload" className="upload-zone" style={{ cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-            <Upload size={30} />
-            <strong>{uploadedMaterial || 'Upload PDF, DOCX, or TXT material'}</strong>
-            <span>{uploadedMaterial ? `${materialChunks} chunks extracted - 3 chapters mapped - generation locked to uploaded material only` : 'No paper can be generated until material is uploaded.'}</span>
+            <Upload size={30} style={{ color: 'var(--eg-indigo)' }} />
+            <strong style={{ fontSize: '15px' }}>{uploadedMaterial || 'Choose a PDF, DOCX, or TXT file'}</strong>
+            <span style={{ fontSize: '12px' }}>{uploadedMaterial ? `${materialChunks} chunks extracted - ${availableChapters.length} source sections mapped` : 'Required. Every generated question will come only from this file.'}</span>
             {materialError && <p className="form-error" role="alert">{materialError}</p>}
-            <button type="button" className="ghost-btn" onClick={(event) => { event.preventDefault(); event.stopPropagation(); notify('warning', 'OCR fallback ready. Page 4 would be skipped if unreadable.'); }}>Test OCR failure state</button>
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', justifyContent: 'center', marginTop: '8px' }}>
+              <button type="button" className="ghost-btn" style={{ minHeight: '32px', fontSize: '12px' }} onClick={(event) => { event.preventDefault(); event.stopPropagation(); notify('warning', 'OCR fallback ready. Page 4 would be skipped if unreadable.'); }}>Test OCR failure state</button>
+              {uploadedMaterial && (
+                <button type="button" className="ghost-btn" style={{ minHeight: '32px', fontSize: '12px', color: 'var(--eg-red)' }} onClick={(event) => { 
+                  event.preventDefault(); 
+                  event.stopPropagation(); 
+                  setUploadedMaterial(''); 
+                  setMaterialId(''); 
+                  setAvailableChapters([]);
+                  setChapterTopicsMap({});
+                  setChapterCountsMap({});
+                  notify('info', 'Material removed. Upload material before generating again.'); 
+                }}>Remove Material</button>
+              )}
+            </div>
           </label>
           <input id="material-file-upload" style={{ display: 'none' }} aria-label="Upload syllabus or material" type="file" accept=".pdf,.docx,.txt,application/pdf,text/plain" onChange={(event) => handleMaterialUpload(event.target.files?.[0])} />
         </Card>
-        <Card title="Paper type and difficulty" icon={Gauge}>
-          <div className="paper-controls">
-            <label>Total exam marks<input type="number" min={10} max={300} value={totalMarksTarget} onChange={(event) => { setTotalMarksTarget(Number(event.target.value) || 0); setGenerated(false) }} /></label>
-            <label>Overall level<select value={overallLevel} onChange={(event) => { setOverallLevel(event.target.value as ExamLevel); setGenerated(false) }}><option>Easy</option><option>Standard</option><option>Challenging</option></select></label>
-            <label>Paper type<select value={paperMode} onChange={(event) => applyMode(event.target.value as PaperMode)}><option>MCQ only</option><option>MCQ + QA</option><option>Mixed</option></select></label>
+
+        <Card title="Step 2: Choose paper type and difficulty" icon={Gauge}>
+          <div className="paper-controls" style={{ marginBottom: '16px' }}>
+            <div>
+              <label>Total Exam Marks</label>
+              <input type="number" min={10} max={300} value={totalMarksTarget} onChange={(event) => { const next=Number(event.target.value)||0; setTotalMarksTarget(next); setSections(sectionsForMode(paperMode, next, availableChapters[0] || 'All syllabus')); setGenerated(false) }} />
+            </div>
+            <div>
+              <label>Overall Level</label>
+              <select value={overallLevel} onChange={(event) => { setOverallLevel(event.target.value as ExamLevel); setGenerated(false) }}>
+                <option>Easy</option>
+                <option>Standard</option>
+                <option>Challenging</option>
+              </select>
+            </div>
+            <div>
+              <label>Paper Type</label>
+              <select value={paperMode} onChange={(event) => applyMode(event.target.value as PaperMode)}>
+                <option>MCQ only</option>
+                <option>MCQ + QA</option>
+                <option>Mixed</option>
+              </select>
+            </div>
           </div>
           <div className="plain-points compact-points">
             <span><Lock size={15} /> Question generation is source-locked to the uploaded material.</span>
@@ -816,40 +1170,99 @@ function ConfigView({ notify }: { notify: (kind: ToastKind, text: string) => voi
             <span><Check size={15} /> Section level can override the overall paper level.</span>
           </div>
         </Card>
-        <Card title="Section builder" icon={BookOpen}>
-          <div className="section-builder">
-            {sections.map((section, index) => <SectionBuilderRow key={section.id} section={section} index={index} updateSection={updateSection} removeSection={removeSection} />)}
+
+        <Card title="Step 3: Review paper sections" icon={BookOpen}>
+          <div className="section-builder" style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '12px' }}>
+            {sections.map((section, index) => (
+              <SectionBuilderRow 
+                key={section.id} 
+                section={section} 
+                index={index} 
+                updateSection={updateSection} 
+                removeSection={removeSection} 
+                availableChapters={availableChapters}
+                chapterTopicsMap={chapterTopicsMap}
+              />
+            ))}
           </div>
-          <button className="ghost-btn" onClick={addSection}><Plus size={16} /> Add section</button>
+          <button className="ghost-btn" onClick={addSection}><Plus size={16} /> Add Section</button>
         </Card>
-        <ProgressStream notify={notify} />
+
+        <ProgressStream generating={generating} generatedCount={generatedQuestions.length} sections={sections} error={generationError} onRetry={validateAndGenerate} />
+
         <Card title="Generated question preview" icon={FileText}>
-          <div className="question-preview">
-            <span className={generated ? 'badge badge-green' : 'badge badge-amber'}>{generated ? 'Groundedness 0.84' : 'Generate paper to preview'}</span>
-            <h3>{generated ? 'Explain the working principle of a transformer using Faraday\'s law of electromagnetic induction.' : 'Preview will appear only after source-locked generation succeeds.'}</h3>
-            <p>{generated ? `Source: ${uploadedMaterial}, Ch 14, page 215. Bloom: Analyze. Level: ${overallLevel}. Marks: 5.` : 'No outside/general knowledge questions are allowed in this workflow.'}</p>
-            <textarea aria-label="Edit generated question" value={generated ? 'Explain the working principle of a transformer using Faraday\'s law of electromagnetic induction.' : ''} readOnly />
-          </div>
+          {generated && generatedQuestions.length > 0 ? (
+            <div className="question-preview">
+              <span className="badge badge-green">{generatedQuestions.length} questions generated</span>
+              <h3>{generatedQuestions[0].text}</h3>
+              <p>Source: {uploadedMaterial}, {generatedQuestions[0].chapter_tag}. Bloom: {generatedQuestions[0].bloom_level}. Marks: {generatedQuestions[0].marks}.</p>
+              <textarea aria-label="Generated question preview" value={generatedQuestions[0].text} readOnly />
+              <div className="generated-question-list" aria-label="Generated questions">
+                {generatedQuestions.slice(0, 8).map((question, index) => (
+                  <div key={question.id} className="generated-question-row">
+                    <strong>{index + 1}.</strong>
+                    <span>{question.text}</span>
+                    <small>{question.type} · {question.marks} marks</small>
+                  </div>
+                ))}
+                {generatedQuestions.length > 8 && <p className="muted">+ {generatedQuestions.length - 8} more questions generated</p>}
+              </div>
+              <button className="primary-btn" disabled={activated} onClick={activateGeneratedExam}>
+                {activated ? 'Exam Active' : 'Activate for Students'}
+              </button>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', padding: '20px', background: 'var(--eg-navy-700)', borderRadius: '8px', borderLeft: '4px solid var(--eg-navy-600)', position: 'relative', overflow: 'hidden' }}>
+              {/* Shimmer Effect */}
+              <div className="shimmer-effect" style={{
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                width: '100%',
+                height: '100%',
+                background: 'linear-gradient(90deg, transparent, rgba(255,255,255,0.05), transparent)',
+                animation: 'shimmer 1.5s infinite'
+              }} />
+              <div style={{ height: '16px', width: '120px', borderRadius: '4px', background: 'var(--eg-navy-600)' }} />
+              <div style={{ height: '20px', width: '85%', borderRadius: '4px', background: 'var(--eg-navy-600)' }} />
+              <div style={{ height: '14px', width: '50%', borderRadius: '4px', background: 'var(--eg-navy-600)' }} />
+              <div style={{ height: '60px', width: '100%', borderRadius: '4px', background: 'var(--eg-navy-600)' }} />
+            </div>
+          )}
         </Card>
       </div>
+
       <aside className="config-aside">
         <Card title="Live marks tally" icon={Gauge}>
           <div className={total === totalMarksTarget && validTotalMarks ? 'tally tally-ok' : total > totalMarksTarget ? 'tally tally-bad' : 'tally tally-warn'}>
             <strong>{total}/{validTotalMarks ? totalMarksTarget : '--'}</strong>
-            <span>{!validTotalMarks ? 'Set total marks between 10 and 300.' : total === totalMarksTarget ? 'Exact match. Generate Paper is active.' : total > totalMarksTarget ? `${total - totalMarksTarget} marks over budget.` : `${totalMarksTarget - total} marks remaining.`}</span>
+            <span>{!validTotalMarks ? 'Set total marks between 10 and 300.' : total === totalMarksTarget ? 'Exact match. Ready to generate.' : total > totalMarksTarget ? `${total - totalMarksTarget} marks over budget.` : `${totalMarksTarget - total} marks remaining.`}</span>
           </div>
-          <div className="breakdown">{sections.map((section) => <span key={section.id}>Section {section.id}: {section.count * section.marks} marks</span>)}</div>
-          {(!uploadedMaterial || !materialId) && <p className="form-error">Upload material before generation.</p>}
-          {!validTotalMarks && <p className="form-error">Total exam marks must be between 10 and 300.</p>}
-          {modeMismatch && <p className="form-error">Sections do not match selected paper type.</p>}
-          {lowCoverageChapters.length > 0 && <p className="form-error">Some sections exceed available chapter coverage.</p>}
-          <button className="primary-btn full" disabled={!canGenerate} onClick={validateAndGenerate}>Generate Paper</button>
-          <button className="ghost-btn full" onClick={() => notify('warning', 'Gemini rate-limited. Switching to Ollama with ETA 45 sec.')}>Simulate LLM fallback</button>
+          <div className="breakdown" style={{ marginTop: '16px', display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '13px' }}>
+            {sections.map((section) => <span key={section.id}>Section {section.id}: {section.count * section.marks} marks</span>)}
+          </div>
+          {!validTotalMarks && <p className="form-error" style={{ marginTop: '12px' }}>Total exam marks must be between 10 and 300.</p>}
+          {modeMismatch && <p className="form-error" style={{ marginTop: '12px' }}>Sections do not match selected paper type.</p>}
+          {lowCoverageChapters.length > 0 && <p className="form-error" style={{ marginTop: '12px' }}>Some sections exceed available chapter coverage.</p>}
+          
+          {!hasMaterial && <p className="form-error" style={{ marginTop: '12px' }}>Upload material in Step 1 to unlock generation.</p>}
+          <button className="primary-btn full" style={{ height: '48px', marginTop: '20px', fontSize: '15px' }} disabled={!canGenerate || loading} onClick={validateAndGenerate}>
+            {generating ? 'Generating paper...' : 'Generate Paper'}
+          </button>
+          <button className="ghost-btn full" style={{ marginTop: '10px' }} onClick={() => notify('warning', 'Gemini is temporarily unavailable. Generation is paused; retry when the API recovers.')}>Test Gemini unavailable state</button>
         </Card>
+
         <Card title="Coverage validation" icon={Check}>
-          <div className="coverage-list">
-            {Object.entries(chapterChunks).map(([chapter, chunks]) => <span key={chapter}>{chunks >= 100 ? <Check size={15} /> : <AlertTriangle size={15} />} {chapter} has {chunks} chunks</span>)}
-            <span><Lock size={15} /> Retrieval uses uploaded material only. Outside-web generation is blocked.</span>
+          <div className="coverage-list" style={{ display: 'flex', flexDirection: 'column', gap: '10px', fontSize: '13px' }}>
+            {Object.entries(chapterCountsMap).map(([chapter, chunks]) => (
+              <span key={chapter} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                {chunks >= 100 ? <Check size={15} style={{ color: 'var(--eg-emerald)' }} /> : <AlertTriangle size={15} style={{ color: 'var(--eg-amber)' }} />} 
+                {chapter} has {chunks} chunks
+              </span>
+            ))}
+            <span style={{ borderTop: '1px solid var(--eg-navy-600)', paddingTop: '10px', marginTop: '4px', color: 'var(--eg-text-muted)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <Lock size={15} /> Source lock active. No web generation.
+            </span>
           </div>
         </Card>
       </aside>
@@ -877,9 +1290,32 @@ function LiveMonitorView(props: {
   const flaggedCount = props.students.filter(s => s.status === 'FLAGGED').length
 
   const [examStatus, setExamStatus] = useState<string>('active')
+  const [connection, setConnection] = useState<'connecting' | 'live' | 'offline'>('connecting')
+  const refreshStudentsRef = useRef(props.onRefreshStudents)
+
+  useEffect(() => { refreshStudentsRef.current = props.onRefreshStudents }, [props.onRefreshStudents])
   
   useEffect(() => {
     api.getExam(props.examId).then(e => setExamStatus(e.status)).catch(() => {})
+  }, [props.examId])
+
+  useEffect(() => {
+    let attempts = 0; let socket: WebSocket | null = null; let timer: number | undefined; let closed = false
+    const connect = () => {
+      if (closed) return
+      setConnection('connecting')
+      socket = new WebSocket(examSocketUrl(props.examId))
+      socket.onopen = () => { attempts = 0; setConnection('live') }
+      socket.onmessage = () => refreshStudentsRef.current()
+      socket.onerror = () => socket?.close()
+      socket.onclose = () => {
+        if (closed) return
+        setConnection('offline'); attempts += 1
+        if (attempts <= 5) timer = window.setTimeout(connect, Math.min(1000 * 2 ** (attempts - 1), 10000))
+      }
+    }
+    connect()
+    return () => { closed = true; if (timer) clearTimeout(timer); socket?.close() }
   }, [props.examId])
 
   const togglePause = async () => {
@@ -912,42 +1348,51 @@ function LiveMonitorView(props: {
   return (
     <section className="screen live-layout">
       <div className="live-main">
-        <div className="connection-banner"><Activity size={16} /> Live connection active (polling mode)</div>
+        <div className="connection-banner">
+          <Activity size={16} /> 
+          <span>{connection === 'live' ? 'Live WebSocket connected' : connection === 'connecting' ? 'Connecting live monitor...' : 'Connection lost. Retrying automatically.'}</span>
+        </div>
         <div className="summary-grid">
-          <Metric label="Active students" value={String(props.students.length)} icon={Users} compact />
+          <Metric label="Active Students" value={String(props.students.length)} icon={Users} compact />
           <Metric label="WARN" value={String(warnCount)} icon={AlertTriangle} compact />
           <Metric label="FLAGGED" value={String(flaggedCount)} icon={Flag} compact />
-          <Metric label="Avg integrity" value={`${avg}`} icon={Gauge} compact />
+          <Metric label="Avg Integrity" value={`${avg}`} icon={Gauge} compact />
         </div>
-        <div className="toolbar">
+        <div className="toolbar" style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
           <select aria-label="Filter by status" value={props.filter} onChange={(event) => props.setFilter(event.target.value as IntegrityStatus | 'ALL')}>
             {['ALL', 'CLEAN', 'WATCH', 'WARN', 'FLAGGED'].map((status) => <option key={status}>{status}</option>)}
           </select>
           <select aria-label="Sort students" value={props.sort} onChange={(event) => props.setSort(event.target.value as 'risk' | 'name' | 'join')}>
-            <option value="risk">Sort by risk</option><option value="name">Sort by name</option><option value="join">Sort by join time</option>
+            <option value="risk">Sort by risk</option>
+            <option value="name">Sort by name</option>
+            <option value="join">Sort by join time</option>
           </select>
-          <button className="ghost-btn" onClick={() => props.notify('info', 'Sound alerts enabled for FLAGGED events.')}><Bell size={16} /> Sound alerts</button>
+          <button className="ghost-btn" onClick={() => props.notify('info', 'Sound alerts enabled for FLAGGED events.')}><Bell size={16} /> Sound Alerts</button>
           <button className="ghost-btn" onClick={togglePause}>
             {examStatus === 'paused' ? <PlayCircle size={16} /> : <PauseCircle size={16} />}
-            {examStatus === 'paused' ? 'Resume exam' : 'Pause all'}
+            {examStatus === 'paused' ? 'Resume Exam' : 'Pause All'}
           </button>
-          <button className="danger-btn" onClick={endExam}><X size={16} /> End exam</button>
+          <button className="danger-btn" onClick={endExam}><X size={16} /> End Exam</button>
         </div>
-        <div className="student-grid">
-          {props.students.map((student) => <StudentTile key={student.name} student={student} selected={props.selected.name === student.name} onClick={() => props.setSelected(student)} />)}
+        
+        {/* Grid of Student Tiles (Webcam style feeds) */}
+        <div className="student-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '20px' }}>
+          {props.students.map((student) => (
+            <StudentTile key={student.id || student.name} student={student} selected={props.selected?.id === student.id} onClick={() => props.setSelected(student)} />
+          ))}
+          {props.students.length === 0 && <div className="empty-state"><Users size={28} /><strong>No students joined yet</strong><span>Share the active exam code. New sessions appear here live.</span></div>}
         </div>
       </div>
-      <aside className="side-panel">
+      
+      {props.selected && <aside className="side-panel">
         <Card title="Expanded student view" icon={Eye}>
-          <h3>{props.selected.name}</h3>
+          <h3 style={{ fontSize: '18px', fontWeight: 600, color: 'var(--eg-text)', margin: '0 0 16px 0' }}>{props.selected.name}</h3>
           <IntegrityScoreCard student={props.selected} />
           <div className="event-feed">
-            <AlertFeedItem name={props.selected.name} event="tab switch detected" severity="warning" />
-            <AlertFeedItem name={props.selected.name} event="perplexity below threshold on Q7" severity="danger" />
-            <AlertFeedItem name={props.selected.name} event="answer auto-saved" severity="info" />
+            {props.selected.events > 0 ? <AlertFeedItem name={props.selected.name} event={`${props.selected.events} structured integrity event(s) recorded`} severity="info" /> : <p className="muted">No integrity events recorded for this session.</p>}
           </div>
         </Card>
-      </aside>
+      </aside>}
     </section>
   )
 }
@@ -963,19 +1408,32 @@ function ConsentView({ consentScrolled, setConsentScrolled, go, notify }: { cons
   }
   return (
     <section className="screen student-gate">
-      <div className="consent-card" role="dialog" aria-modal="true" aria-labelledby="consent-title">
-        <span className="badge badge-purple"><Shield size={14} /> DPDP consent required</span>
-        <h2 id="consent-title">Before your exam starts</h2>
-        <p>ExamGuard shows exactly what is monitored. No raw webcam or audio leaves your device.</p>
-        <div className="camera-preview"><Camera size={32} /><span>Front camera preview</span></div>
-        <div className="consent-list" onScroll={(event) => setConsentScrolled(event.currentTarget.scrollTop > 30)}>
-          <ConsentItem icon={Camera} title="Webcam gaze" text="Checks if you are looking at the screen. Raw video stays local." />
-          <ConsentItem icon={Mic} title="Microphone level" text="Only RMS audio level is measured. Audio is never recorded." />
+      <div className="consent-card">
+        <StudentStepIndicator currentStep="consent" />
+        <span className="badge badge-purple" style={{ marginBottom: '12px' }}><Shield size={14} /> DPDP Consent Required</span>
+        <h2 id="consent-title" style={{ fontSize: '22px', fontWeight: 700, margin: '8px 0 12px 0' }}>Before your exam starts</h2>
+        <p className="muted" style={{ fontSize: '14px', marginBottom: '20px' }}>ExamGuard shows exactly what is monitored. No raw webcam or audio leaves your device.</p>
+        
+        <div style={{ position: 'relative', width: '100%', aspectRatio: '16/9', borderRadius: '12px', border: '2px solid var(--eg-navy-600)', background: 'var(--eg-navy-700)', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', marginBottom: '20px' }}>
+          <Camera size={32} style={{ color: 'var(--eg-text-muted)', marginBottom: '8px' }} />
+          <span style={{ fontSize: '13px', color: 'var(--eg-text-muted)', marginLeft: '8px' }}>Camera starts only during liveness verification</span>
+        </div>
+
+        <div className="consent-list" onScroll={(event) => {
+          const target = event.currentTarget
+          setConsentScrolled(target.scrollTop + target.clientHeight >= target.scrollHeight - 8)
+        }}>
+          <ConsentItem icon={Camera} title="Webcam liveness" text="Used for the two-blink identity-presence check. Raw video stays local and stops before question answering." />
+          <ConsentItem icon={Mic} title="Microphone level (optional)" text="Only RMS audio level is measured. Audio is never recorded. If permission is denied, audio is marked unavailable and no integrity penalty is applied." />
           <ConsentItem icon={FileText} title="Answer analysis" text="Answer text is checked for AI-writing and evaluated against source material." />
           <ConsentItem icon={Activity} title="Tab activity" text="Browser visibility changes are counted. No screen recording." />
         </div>
-        <button className="primary-btn full" disabled={!consentScrolled} onClick={handleConsent}>I understand and consent</button>
-        {!consentScrolled && <span className="hint">Scroll the consent items to continue.</span>}
+        
+        <div style={{ display: 'flex', gap: '12px', marginTop: '20px' }}>
+          <button className="ghost-btn full" onClick={() => { go('landing') }}>Cancel</button>
+          <button className="primary-btn full" style={{ background: 'var(--eg-emerald)', borderColor: 'var(--eg-emerald)' }} disabled={!consentScrolled} onClick={handleConsent}>I Consent</button>
+        </div>
+        {!consentScrolled && <span className="hint">Scroll all terms to unlock the consent button.</span>}
       </div>
     </section>
   )
@@ -983,29 +1441,106 @@ function ConsentView({ consentScrolled, setConsentScrolled, go, notify }: { cons
 
 function LivenessView({ go, notify }: { go: (view: View) => void; notify: (kind: ToastKind, text: string) => void }) {
   const [blinkCount, setBlinkCount] = useState(0)
+  const [status, setStatus] = useState('Camera is off')
+  const [seconds, setSeconds] = useState(8)
+  const [detectionDuration, setDetectionDuration] = useState(0)
+  const videoRef = useRef<HTMLVideoElement>(null)
+  const streamRef = useRef<MediaStream | null>(null)
+  const frameRef = useRef<number | null>(null)
   const livenessPassed = blinkCount >= 2
+  const distance = (a: { x: number; y: number }, b: { x: number; y: number }) => Math.hypot(a.x - b.x, a.y - b.y)
+  const ear = (points: Array<{ x: number; y: number }>, ids: number[]) =>
+    (distance(points[ids[1]], points[ids[5]]) + distance(points[ids[2]], points[ids[4]])) / (2 * distance(points[ids[0]], points[ids[3]]))
+
+  const stopCamera = useCallback(() => {
+    if (frameRef.current) cancelAnimationFrame(frameRef.current)
+    streamRef.current?.getTracks().forEach(track => track.stop())
+    streamRef.current = null
+  }, [])
+
+  useEffect(() => stopCamera, [stopCamera])
+
+  const beginDetection = async () => {
+    try {
+      stopCamera(); setBlinkCount(0); setSeconds(8); setStatus('Loading face detector...')
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: 640, height: 480 }, audio: false })
+      streamRef.current = stream
+      const video = videoRef.current
+      if (!video) return
+      video.srcObject = stream
+      await video.play()
+      const vision = await FilesetResolver.forVisionTasks('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm')
+      const detector = await FaceLandmarker.createFromOptions(vision, {
+        baseOptions: { modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/latest/face_landmarker.task', delegate: 'GPU' },
+        runningMode: 'VIDEO', numFaces: 1,
+      })
+      let closedFrames = 0; let eyeWasClosed = false; let detected = 0
+      const startedAt = performance.now(); const deadline = startedAt + 8000
+      const detect = () => {
+        const now = performance.now()
+        setSeconds(Math.max(0, Math.ceil((deadline - now) / 1000)))
+        if (now >= deadline || detected >= 2) {
+          detector.close(); stopCamera()
+          setDetectionDuration(Math.round(now - startedAt))
+          setStatus(detected >= 2 ? 'Liveness verified' : 'No two blinks detected. Check lighting and retry.')
+          return
+        }
+        const result = detector.detectForVideo(video, now)
+        const face = result.faceLandmarks[0]
+        if (face) {
+          const averageEar = (ear(face, [33, 160, 158, 133, 153, 144]) + ear(face, [362, 385, 387, 263, 373, 380])) / 2
+          if (averageEar < 0.25) closedFrames += 1; else closedFrames = 0
+          if (closedFrames >= 2 && !eyeWasClosed) eyeWasClosed = true
+          if (averageEar >= 0.27 && eyeWasClosed) {
+            eyeWasClosed = false; detected += 1; setBlinkCount(detected)
+          }
+          setStatus(`Face detected - EAR ${averageEar.toFixed(2)}`)
+        } else setStatus('Position one face inside the oval')
+        frameRef.current = requestAnimationFrame(detect)
+      }
+      detect()
+    } catch (error) {
+      stopCamera(); setStatus('Camera or face detector unavailable')
+      notify('error', error instanceof Error ? error.message : 'Could not start camera')
+    }
+  }
   const startExam = async () => {
     if (!livenessPassed) { notify('error', 'Blink liveness must pass before the exam can start.'); return }
     const sessionId = window.localStorage.getItem('examguard-session-id')
     if (sessionId) {
-      try { await api.saveLiveness(sessionId) } catch { /* local-only fallback */ }
+      try {
+        await api.saveLiveness(sessionId, { method: 'mediapipe_ear', blink_count: blinkCount, duration_ms: detectionDuration, threshold: 0.25 })
+      } catch (error) {
+        notify('error', error instanceof Error ? error.message : 'Liveness verification could not be saved.')
+        return
+      }
     }
     go('exam')
   }
   return (
     <section className="screen liveness-screen">
-      <div className="liveness-card">
-        <span className="badge badge-teal"><Camera size={14} /> MediaPipe WASM local only</span>
-        <div className="face-circle"><Eye size={72} /><span className="mesh-ring" /></div>
-        <h2>Blink twice to begin</h2>
-        <p>2 blinks must be detected within 8 seconds. EAR threshold: below 0.25 for 2 frames.</p>
-        <div className="blink-progress"><span className={blinkCount >= 1 ? 'done' : ''} /><span className={blinkCount >= 2 ? 'done' : ''} /><span /></div>
-        <div className="inline-actions center">
-          <button className="primary-btn" disabled={!livenessPassed} onClick={startExam}><PlayCircle size={16} /> Start exam</button>
-          <button className="ghost-btn light" onClick={() => setBlinkCount(Math.min(2, blinkCount + 1))}>Simulate blink</button>
-          <button className="ghost-btn light" onClick={() => notify('warning', 'Low light detected. Ask teacher for manual approval if blink is not detected.')}>Low-light fallback</button>
+      <div className="liveness-card" style={{ textAlign: 'center' }}>
+        <StudentStepIndicator currentStep="liveness" />
+        <span className="badge badge-teal" style={{ marginBottom: '12px' }}><Camera size={14} /> MediaPipe WASM Local</span>
+        
+        <div className="face-circle" style={{ width: '180px', height: '220px', borderRadius: '100px', border: '3px solid rgba(79, 70, 229, 0.4)', margin: '24px auto', display: 'grid', placeItems: 'center', position: 'relative', background: 'rgba(30, 42, 58, 0.25)', overflow: 'hidden' }}>
+          <div className="mesh-ring" style={{ position: 'absolute', inset: '8px', border: '2px dashed var(--eg-teal)', borderRadius: '100px', animation: 'spinRing 12s linear infinite' }} />
+          <video ref={videoRef} muted playsInline style={{ width: '100%', height: '100%', objectFit: 'cover', transform: 'scaleX(-1)' }} />
         </div>
-        {!livenessPassed && <span className="hint light-hint">Complete 2 blinks before starting.</span>}
+
+        <h2 style={{ fontSize: '22px', fontWeight: 700, margin: '8px 0' }}>Blink twice to begin liveness check</h2>
+        <p className="muted" style={{ fontSize: '14px', marginBottom: '20px' }}>Position your face in the oval. 2 blinks must be detected within 8 seconds.</p>
+        
+        <div className="blink-progress" style={{ display: 'flex', justifyContent: 'center', gap: '8px', marginBottom: '24px' }}>
+          <span className={blinkCount >= 1 ? 'done' : ''} style={{ width: '40px', height: '6px', borderRadius: '3px', background: blinkCount >= 1 ? 'var(--eg-teal)' : 'var(--eg-navy-600)' }} />
+          <span className={blinkCount >= 2 ? 'done' : ''} style={{ width: '40px', height: '6px', borderRadius: '3px', background: blinkCount >= 2 ? 'var(--eg-teal)' : 'var(--eg-navy-600)' }} />
+        </div>
+
+        <div className="inline-actions" style={{ justifyContent: 'center', gap: '12px' }}>
+          <button className="primary-btn" style={{ minWidth: '160px' }} disabled={!livenessPassed} onClick={startExam}><PlayCircle size={16} /> Start exam</button>
+          <button className="ghost-btn" onClick={beginDetection}><Camera size={16} /> Start camera ({seconds}s)</button>
+        </div>
+        <span className="hint" aria-live="polite" style={{ marginTop: '12px' }}>{status}. EAR threshold: below 0.25 for two frames.</span>
       </div>
     </section>
   )
@@ -1019,12 +1554,16 @@ function ExamView(props: {
 }) {
   const [currentQ, setCurrentQ] = useState(0)
   const [questions, setQuestions] = useState<ApiQuestion[]>([])
+  const [examTitle, setExamTitle] = useState('Loading exam...')
+  const [questionError, setQuestionError] = useState('')
+  const [questionsLoading, setQuestionsLoading] = useState(true)
   const [answers, setAnswers] = useState<Record<string, string>>({})
   const [timeLeft, setTimeLeft] = useState(80 * 60) // 80 minutes default
   const [lastSave, setLastSave] = useState<number>(Date.now())
   const [submitOpen, setSubmitOpen] = useState(false)
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const autoSaveRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const expirySubmitStarted = useRef(false)
 
   // Load questions and duration from backend
   useEffect(() => {
@@ -1032,14 +1571,16 @@ function ExamView(props: {
     if (sessionId) {
       api.sessionQuestions(sessionId)
         .then((qs) => {
-          if (qs.length) setQuestions(qs)
+          setQuestions(qs)
+          if (!qs.length) setQuestionError('No generated questions found for this exam.')
         })
-        .catch(() => {})
+        .catch((event) => setQuestionError(event instanceof Error ? event.message : 'Could not load exam questions.'))
+        .finally(() => setQuestionsLoading(false))
 
-      const examId = window.localStorage.getItem('examguard-exam-id')
-      if (examId) {
-        api.getExam(examId)
+      if (sessionId) {
+        api.sessionExam(sessionId)
           .then((exam) => {
+            setExamTitle(exam.title)
             if (exam && exam.duration_minutes) {
               setTimeLeft(exam.duration_minutes * 60)
             }
@@ -1057,8 +1598,10 @@ function ExamView(props: {
   // Fill in the text area when the initial question loads
   useEffect(() => {
     if (questions.length > 0 && currentQ === 0) {
-      const qId = questions[0].id
-      props.setAnswer(answers[qId] || '')
+      const firstQ = questions.at(0)
+      if (firstQ) {
+        props.setAnswer(Reflect.get(answers, firstQ.id) || '')
+      }
     }
   }, [questions])
 
@@ -1083,23 +1626,15 @@ function ExamView(props: {
     }
   }, [answers])
 
-  // Auto-submit when time runs out
-  useEffect(() => { if (timeLeft === 0) setSubmitOpen(true) }, [timeLeft])
-
-  const q = questions[currentQ]
-  const fallbackQuestions = Array.from({ length: 40 }, (_, i) => ({
-    id: `q-${i + 1}`, exam_id: '', section_id: i < 20 ? 'A' : i < 30 ? 'B' : 'C',
-    type: i < 20 ? 'MCQ' : 'Short Answer', text: `Question ${i + 1}`, options: [], correct_answer: '', marks: i < 20 ? 1 : 3,
-    bloom_level: 'Understand', chapter_tag: 'Ch 12', source_chunk_ids: [], groundedness: 0.84, teacher_modified: false,
-  }))
-  const displayQuestions = questions.length > 0 ? questions : fallbackQuestions
-  const current = displayQuestions[currentQ] || displayQuestions[0]
-  const answeredCount = Object.keys(answers).filter((k) => answers[k]?.trim()).length
+  const q = questions.at(currentQ)
+  const displayQuestions = questions
+  const current = displayQuestions.at(currentQ) || displayQuestions.at(0)
+  const answeredCount = Object.keys(answers).filter((k) => (Reflect.get(answers, k) || '').trim()).length
   const totalQ = displayQuestions.length
 
   const saveCurrentAnswer = useCallback(async () => {
     if (!current) return
-    const text = current.id === q?.id ? props.answer : answers[current.id] || ''
+    const text = current.id === q?.id ? props.answer : Reflect.get(answers, current.id) || ''
     setAnswers((prev) => ({ ...prev, [current.id]: text }))
     window.localStorage.setItem('examguard-answers', JSON.stringify({ ...answers, [current.id]: text }))
     setLastSave(Date.now())
@@ -1107,16 +1642,37 @@ function ExamView(props: {
     if (sessionId && text.trim()) {
       try { await api.saveAnswer(sessionId, { question_id: current.id, answer_text: text }) } catch { /* local fallback */ }
     }
-  }, [current, props.answer, answers])
+  }, [current, q, props.answer, answers])
+
+  useEffect(() => {
+    if (timeLeft !== 0 || expirySubmitStarted.current) return
+    expirySubmitStarted.current = true
+    const submitExpiredExam = async () => {
+      await saveCurrentAnswer()
+      const sessionId = window.localStorage.getItem('examguard-session-id')
+      if (!sessionId) return
+      try {
+        await api.endSession(sessionId)
+        window.localStorage.removeItem('examguard-answers')
+        props.notify('info', 'Time expired. Your exam was submitted automatically.')
+        props.go('complete')
+      } catch (error) {
+        expirySubmitStarted.current = false
+        props.notify('error', error instanceof Error ? error.message : 'Automatic submission failed. Your answers remain saved locally.')
+      }
+    }
+    submitExpiredExam()
+  }, [timeLeft, saveCurrentAnswer, props])
 
   const goToQuestion = (idx: number) => {
     saveCurrentAnswer()
     setCurrentQ(idx)
-    const nextQ = displayQuestions[idx]
-    if (nextQ) props.setAnswer(answers[nextQ.id] || '')
+    const nextQ = displayQuestions.at(idx)
+    if (nextQ) props.setAnswer(Reflect.get(answers, nextQ.id) || '')
   }
 
   const handleMcqSelect = async (opt: string) => {
+    if (!current) return
     props.setAnswer(opt)
     setAnswers((prev) => {
       const updated = { ...prev, [current.id]: opt }
@@ -1146,46 +1702,170 @@ function ExamView(props: {
     if (sessionId) api.logEvent(sessionId, eventType).catch(() => {})
   }
 
+  useEffect(() => {
+    const visibility = () => { if (document.hidden) logEvent('tab_hidden') }
+    const blur = () => logEvent('window_blur')
+    const fullscreen = () => { if (!document.fullscreenElement) logEvent('fullscreen_exit') }
+    document.addEventListener('visibilitychange', visibility)
+    window.addEventListener('blur', blur)
+    document.addEventListener('fullscreenchange', fullscreen)
+    return () => {
+      document.removeEventListener('visibilitychange', visibility)
+      window.removeEventListener('blur', blur)
+      document.removeEventListener('fullscreenchange', fullscreen)
+    }
+  }, [])
+
   return (
     <section className="screen exam-layout" onContextMenu={(event) => { event.preventDefault(); logEvent('right_click'); props.notify('warning', 'Right click prevented and logged as a structured event.') }}>
       <div className="exam-header" aria-live="assertive">
-        <strong>Physics XI - Electromagnetism</strong>
-        <span className={timeLeft < 300 ? 'timer-critical' : ''}><Timer size={16} /> {formatTime(timeLeft)}</span>
-        <span className="save-state"><Check size={16} /> Saved {secondsSinceSave} sec ago</span>
-        <span className="badge badge-amber"><Shield size={14} /> WATCH</span>
+        <strong>{examTitle}</strong>
+        <span className={timeLeft < 300 ? 'timer-critical' : ''} style={{ fontSize: '20px', fontFamily: 'JetBrains Mono, monospace' }}>
+          <Timer size={20} /> {formatTime(timeLeft)}
+        </span>
+        <span className="save-state"><Check size={16} /> Saved {secondsSinceSave}s ago</span>
+        <span className="badge badge-amber" title="WATCH is an early integrity signal. It does not pause the exam or imply misconduct."><Shield size={14} /> WATCH · exam continues</span>
       </div>
-      <aside className="question-palette" aria-label="Question navigation palette">
-        <div className="palette-summary">Answered {answeredCount}/{totalQ} - Marked {props.marked ? 1 : 0} - Unanswered {totalQ - answeredCount}</div>
-        <div className="palette-grid">
+
+      {questionsLoading ? <div className="empty-state">Loading generated paper...</div> : questionError ? <div className="empty-state"><AlertTriangle size={24} /><strong>Paper could not load</strong><span>{questionError}</span><button className="ghost-btn" onClick={() => window.location.reload()}>Retry</button></div> : null}
+
+      {!questionsLoading && !questionError && <aside className="question-palette" aria-label="Question navigation palette">
+        <div className="palette-summary">Answered {answeredCount}/{totalQ}</div>
+        <div className="palette-grid" style={{ gridTemplateColumns: 'repeat(5, 1fr)', gap: '8px' }}>
           {displayQuestions.map((dq, i) => (
-            <button key={dq.id} className={i === currentQ ? 'current' : answers[dq.id]?.trim() ? 'answered' : 'unvisited'} onClick={() => goToQuestion(i)} aria-label={`Question ${i + 1}`}>{i + 1}</button>
+            <button key={dq.id} className={i === currentQ ? 'current' : (Reflect.get(answers, dq.id) || '').trim() ? 'answered' : 'unvisited'} onClick={() => goToQuestion(i)} aria-label={`Question ${i + 1}`}>{i + 1}</button>
           ))}
         </div>
-        <button className="primary-btn full" onClick={requestSubmit}>Submit All</button>
-      </aside>
-      <article className="question-area">
-        <span className="badge badge-purple">Section {current?.section_id || 'A'} - {current?.bloom_level || 'Analyze'} - {current?.marks || 5} marks</span>
-        <h2>Q{currentQ + 1}. {current?.text || 'Loading question...'}</h2>
-        <p className="muted">Source citation after generation: NCERT Physics {current?.chapter_tag || 'Ch 14'}, page 215. Groundedness {current?.groundedness || 0.84}.</p>
+        <button className="primary-btn full" onClick={requestSubmit}>Submit Exam</button>
+      </aside>}
+
+      {/* High contrast question card: Light card on dark background */}
+      {!questionsLoading && !questionError && current && <article className="question-area" style={{
+        background: '#FFFFFF',
+        color: '#1E293B',
+        borderRadius: '12px',
+        padding: '32px',
+        border: '1px solid #E2E8F0',
+        boxShadow: 'var(--shadow-card)'
+      }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+          <span className="badge badge-purple" style={{ background: 'rgba(79, 70, 229, 0.1)', color: 'var(--eg-indigo)', borderColor: 'rgba(79, 70, 229, 0.2)' }}>
+            Section {current?.section_id || 'A'} - {current?.bloom_level || 'Analyze'} - {current?.marks || 5} marks
+          </span>
+          <span style={{ fontSize: '13px', color: '#64748B', fontWeight: 600 }}>Question {currentQ + 1} of {totalQ}</span>
+        </div>
+
+        <h2 style={{ fontSize: '18px', fontWeight: 600, lineHeight: 1.5, margin: '12px 0', color: '#0F172A' }}>
+          {current?.text || 'Loading question...'}
+        </h2>
+        <p className="muted" style={{ fontSize: '12px', color: '#64748B', marginBottom: '24px' }}>
+          Source: uploaded material, {current.chapter_tag || 'selected syllabus'}. Groundedness {current.groundedness || 0.84}.
+        </p>
+
         {current?.type === 'MCQ' && current.options?.length ? (
-          <div className="mcq-options">
-            {current.options.map((opt, i) => (
-              <label key={i} className={`mcq-option ${props.answer === opt ? 'selected' : ''}`}>
-                <input type="radio" name="mcq" value={opt} checked={props.answer === opt} onChange={() => handleMcqSelect(opt)} />
-                {opt}
-              </label>
-            ))}
+          <div className="mcq-options" style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '24px' }}>
+            {current.options.map((opt, i) => {
+              const isSelected = props.answer === opt
+              return (
+                <label
+                  key={i}
+                  className={`mcq-option ${isSelected ? 'selected' : ''}`}
+                  style={{
+                    background: isSelected ? 'rgba(79, 70, 229, 0.08)' : '#F8FAFC',
+                    border: isSelected ? '2px solid var(--eg-indigo)' : '1.5px solid #E2E8F0',
+                    color: isSelected ? 'var(--eg-indigo)' : '#334155',
+                    padding: '14px 18px',
+                    borderRadius: '8px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '12px',
+                    fontSize: '14px',
+                    fontWeight: 500,
+                    cursor: 'pointer',
+                    transition: 'all 150ms ease'
+                  }}
+                >
+                  <input
+                    type="radio"
+                    name="mcq"
+                    value={opt}
+                    checked={isSelected}
+                    onChange={() => handleMcqSelect(opt)}
+                    style={{ accentColor: 'var(--eg-indigo)', cursor: 'pointer' }}
+                  />
+                  {opt}
+                </label>
+              )
+            })}
           </div>
         ) : (
-          <textarea aria-label="Answer text" minLength={25} value={props.answer} onChange={(event) => props.setAnswer(event.target.value)} onPaste={() => { logEvent('paste_detected'); props.notify('warning', 'Paste detected and sent as a structured event.') }} />
+          <div style={{ position: 'relative', width: '100%', marginBottom: '16px' }}>
+            <textarea
+              aria-label="Answer text"
+              minLength={25}
+              value={props.answer}
+              onChange={(event) => props.setAnswer(event.target.value)}
+              onPaste={() => { logEvent('paste_detected'); props.notify('warning', 'Paste detected and sent as a structured event.') }}
+              placeholder="Type your response here..."
+              style={{
+                background: '#F8FAFC',
+                borderColor: '#E2E8F0',
+                color: '#0F172A',
+                fontSize: '15px',
+                lineHeight: 1.6,
+                minHeight: '180px',
+                width: '100%',
+                padding: '16px',
+                borderRadius: '8px'
+              }}
+            />
+            <div style={{ textAlign: 'right', fontSize: '12px', color: '#64748B', marginTop: '6px' }}>
+              Word count: {wordCount(props.answer)} words
+            </div>
+          </div>
         )}
-        {current?.type !== 'MCQ' && !answerValid && <p className="form-error" role="alert">Answer needs at least 25 characters before final submit.</p>}
-        <div className="inline-actions">
-          <button className={props.marked ? 'warning-btn' : 'ghost-btn'} onClick={() => props.setMarked(!props.marked)}><Flag size={16} /> {props.marked ? 'Marked for review' : 'Mark for review'}</button>
-          <button className="ghost-btn" disabled={currentQ === 0} onClick={() => goToQuestion(currentQ - 1)}>Previous</button>
-          <button className="primary-btn" disabled={currentQ >= totalQ - 1} onClick={() => goToQuestion(currentQ + 1)}>Next Question</button>
+
+        {current?.type !== 'MCQ' && !answerValid && <p className="form-error" role="alert" style={{ marginBottom: '16px' }}>Answer needs at least 25 characters before final submit.</p>}
+        
+        <div className="inline-actions" style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+          <button className={props.marked ? 'warning-btn' : 'ghost-btn'} style={{ borderColor: '#E2E8F0', color: props.marked ? 'var(--eg-amber)' : '#475569' }} onClick={() => props.setMarked(!props.marked)}>
+            <Flag size={16} /> {props.marked ? 'Marked for Review' : 'Mark for Review'}
+          </button>
+          <div style={{ marginLeft: 'auto', display: 'flex', gap: '8px' }}>
+            <button className="ghost-btn" style={{ borderColor: '#E2E8F0', color: '#475569' }} disabled={currentQ === 0} onClick={() => goToQuestion(currentQ - 1)}>
+              Previous
+            </button>
+            <button className="primary-btn" disabled={currentQ >= totalQ - 1} onClick={() => goToQuestion(currentQ + 1)}>
+              Next Question
+            </button>
+          </div>
         </div>
-      </article>
+      </article>}
+
+      {/* Webcam PiP minimal corner element */}
+      <div style={{
+        position: 'fixed',
+        bottom: '24px',
+        right: '24px',
+        width: '120px',
+        height: '90px',
+        borderRadius: '8px',
+        border: '1.5px solid rgba(255, 255, 255, 0.25)',
+        background: 'rgba(10, 15, 30, 0.8)',
+        backdropFilter: 'blur(8px)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        zIndex: 50,
+        overflow: 'hidden',
+        boxShadow: 'var(--shadow-elevated)'
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%', height: '100%', position: 'relative' }}>
+          <Camera size={20} style={{ color: 'rgba(255, 255, 255, 0.6)' }} />
+          <span style={{ fontSize: '9px', color: 'rgba(255, 255, 255, 0.6)', marginLeft: '4px', fontFamily: 'monospace' }}>Liveness passed</span>
+        </div>
+      </div>
+
       {submitOpen && (
         <SubmitDialog
           onClose={() => setSubmitOpen(false)}
@@ -1195,7 +1875,7 @@ function ExamView(props: {
           markedCount={props.marked ? 1 : 0}
         />
       )}
-      <div className="connection-card"><RefreshCw size={16} /> Connection lost. Your answers are saved locally. Reconnecting...</div>
+      <div className="connection-card" style={{ display: 'none' }}><RefreshCw size={16} /> Connection lost. Answers saved locally. Reconnecting...</div>
     </section>
   )
 }
@@ -1219,7 +1899,7 @@ function CompleteView({ notify }: { notify: (kind: ToastKind, text: string) => v
 
   const submitAppeal = async () => {
     if (appealWords < 12) { notify('error', 'Appeal response must explain the issue in at least 12 words.'); return }
-    if (appealWords > 500) { notify('error', 'Appeal response cannot exceed 500 words.'); return }
+    if (appealWords > 200) { notify('error', 'Appeal response cannot exceed 200 words.'); return }
     const sessionId = window.localStorage.getItem('examguard-session-id')
     if (sessionId) {
       try {
@@ -1246,23 +1926,40 @@ function CompleteView({ notify }: { notify: (kind: ToastKind, text: string) => v
       sessionData.integrity?.factors?.time_anomaly ?? 76
     ],
     ci: sessionData.integrity?.ci ?? null
-  } : demoStudents[1]
+  } : null
+
+  if (!studentObj) return <section className="screen"><div className="empty-state"><RefreshCw size={28} /><strong>Loading submission result</strong><span>Your locally saved answers remain available.</span></div></section>
 
   return (
-    <section className="screen complete-layout">
+    <section className="screen complete-layout" style={{ maxWidth: '680px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '24px' }}>
+      <div style={{ background: 'var(--eg-amber)', color: 'var(--eg-navy)', padding: '16px 24px', borderRadius: '12px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '12px' }}>
+        <AlertTriangle size={20} />
+        <span>Your exam is completed and under review. Final grade release pending.</span>
+      </div>
+
       <Card title="Submission received" icon={Check}>
-        <p>Your exam was submitted successfully. Your teacher will release the final result after review.</p>
-        <div className="status-tracker"><span className="done">Submitted</span><span className={submitted || sessionData?.review_status === 'appeal_submitted' ? 'done' : 'active'}>Under teacher review</span><span>Result released</span></div>
+        <p>Your exam has been logged and received. Your teacher will release final results after checking.</p>
+        <div className="status-tracker" style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', borderTop: '1px solid var(--eg-navy-600)', paddingTop: '16px', marginTop: '12px' }}>
+          <span className="done" style={{ color: 'var(--eg-emerald)', fontWeight: 600 }}>Submitted</span>
+          <span className={submitted || sessionData?.review_status === 'appeal_submitted' ? 'done' : 'active'} style={{ color: 'var(--eg-amber)', fontWeight: 600 }}>Under Review</span>
+          <span style={{ color: 'var(--eg-text-faint)' }}>Grade Released</span>
+        </div>
       </Card>
-      <Card title="Integrity summary" icon={Shield}>
+
+      <Card title="Your integrity summary" icon={Shield}>
         <IntegrityScoreCard student={studentObj} />
-        <p className="muted">Some answer patterns require teacher review. This does not mean a final decision has been made.</p>
+        <p className="muted" style={{ fontSize: '13px', marginTop: '12px' }}>Some answers require verification. This does not impact your final eligibility automatically.</p>
       </Card>
-      <Card title="Appeal response" icon={FileText}>
-        <p>Deadline: 23h 42m remaining. Max 500 words.</p>
-        <textarea aria-label="Appeal response" maxLength={3500} value={appeal} onChange={(event) => setAppeal(event.target.value)} disabled={submitted || sessionData?.review_status === 'appeal_submitted'} />
-        <p className={appealWords > 500 || appealWords < 12 ? 'form-error' : 'hint'}>{appealWords}/500 words</p>
-        <button className="primary-btn" onClick={submitAppeal} disabled={submitted || sessionData?.review_status === 'appeal_submitted'}>{submitted || sessionData?.review_status === 'appeal_submitted' ? 'Appeal Submitted' : 'Submit appeal'}</button>
+
+      <Card title="Submit an appeal" icon={FileText}>
+        <p className="muted" style={{ fontSize: '13px', marginBottom: '12px' }}>Explain your situation within 24 hours. If no response is submitted, the case still requires a teacher decision and is never auto-confirmed.</p>
+        <textarea aria-label="Appeal response" maxLength={3500} value={appeal} onChange={(event) => setAppeal(event.target.value)} disabled={submitted || sessionData?.review_status === 'appeal_submitted'} style={{ minHeight: '140px' }} />
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '8px' }}>
+          <p className={appealWords > 200 || appealWords < 12 ? 'form-error' : 'hint'} style={{ margin: 0 }}>{appealWords}/200 words</p>
+          <button className="primary-btn" onClick={submitAppeal} disabled={submitted || sessionData?.review_status === 'appeal_submitted'}>
+            {submitted || sessionData?.review_status === 'appeal_submitted' ? 'Appeal Submitted' : 'Submit Appeal'}
+          </button>
+        </div>
       </Card>
     </section>
   )
@@ -1286,35 +1983,62 @@ function ReviewView({ students, selected, setSelected, notify }: { students: any
 
   return (
     <section className="screen review-layout">
-      <Card title="Flagged queue" icon={Flag}>
-        {reviewStudentsList.length === 0 ? (
-          <p className="muted">No student sessions currently flagged for review.</p>
-        ) : (
-          reviewStudentsList.map((student) => (
-            <button className={`queue-item ${selected?.id === student.id ? 'active' : ''}`} key={student.id || student.name} onClick={() => setSelected(student)}>
-              <span>{student.name}</span>
-              <StatusBadge status={student.status} />
-              <em>{student.tier === 3 ? 'Tier 3 baseline building' : student.reviewStatus === 'appeal_submitted' ? 'Appeal submitted' : 'Awaiting review'}</em>
-            </button>
-          ))
-        )}
+      <Card title="Flagged Queue" icon={Flag}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '500px', overflowY: 'auto' }}>
+          {reviewStudentsList.length === 0 ? (
+            <p className="muted">No student sessions currently flagged for review.</p>
+          ) : (
+            reviewStudentsList.map((student) => (
+              <button className={`queue-item ${selected?.id === student.id ? 'active' : ''}`} key={student.id || student.name} onClick={() => setSelected(student)}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', alignItems: 'center', marginBottom: '4px' }}>
+                  <span>{student.name}</span>
+                  <StatusBadge status={student.status} />
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', width: '100%', color: 'var(--eg-text-muted)' }}>
+                  <span>Score: {student.score}</span>
+                  <span>{student.reviewStatus === 'appeal_submitted' ? 'Appeal Filed' : student.reviewStatus === 'expired_no_response' || student.reviewStatus === 'awaiting_teacher_decision' ? 'No response · decision required' : 'Awaiting response'}</span>
+                </div>
+              </button>
+            ))
+          )}
+        </div>
       </Card>
+
       <Card title="Side-by-side review" icon={UserCheck} className="wide-card">
         {selected ? (
           <div className="review-columns">
             <div>
-              <h3>Integrity report</h3>
+              <h3>Integrity Report</h3>
               <IntegrityScoreCard student={selected} />
-              <AlertFeedItem name={selected.name} event="style distance exceeded Tier 1 threshold" severity="danger" />
+              
+              <h3 style={{ marginTop: '24px' }}>Anomalies Feed</h3>
+              <div className="event-feed">
+                <AlertFeedItem name={selected.name} event="style distance exceeded Tier 1 threshold" severity="danger" />
+                <AlertFeedItem name={selected.name} event="tab visibility switch" severity="warning" />
+              </div>
             </div>
-            <div>
-              <h3>Student appeal</h3>
-              <p className="appeal-note">{selected.appealResponse || 'No appeal response has been submitted yet by the student.'}</p>
-              <textarea aria-label="Teacher note" minLength={12} placeholder="Add teacher note" value={teacherNote} onChange={(event) => setTeacherNote(event.target.value)} />
-              {teacherNote.trim().length < 12 && <p className="form-error">Teacher note is required before clearing or confirming a flag.</p>}
-              <div className="inline-actions">
-                <button className="primary-btn" disabled={teacherNote.trim().length < 12} onClick={() => saveDecision('clear')}>Clear and release</button>
-                <button className="danger-btn" disabled={teacherNote.trim().length < 12} onClick={() => saveDecision('confirm_flag')}>Confirm flag</button>
+            
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <div>
+                <h3>Student Appeal Statement</h3>
+                <div className="appeal-note">
+                  {selected.appealResponse || (selected.reviewStatus === 'expired_no_response' || selected.reviewStatus === 'awaiting_teacher_decision' ? 'The 24-hour response window expired without a student response. Review the evidence and record a teacher decision; the flag is not automatically confirmed.' : 'No appeal response has been submitted yet by the student.')}
+                </div>
+              </div>
+
+              <div>
+                <h3>Teacher Actions & Review Note</h3>
+                <textarea aria-label="Teacher note" minLength={12} placeholder="Type notes explaining decision (min 12 chars)..." value={teacherNote} onChange={(event) => setTeacherNote(event.target.value)} />
+                {teacherNote.trim().length < 12 && <p className="form-error" style={{ marginBottom: '12px' }}>Teacher note is required before releasing the grade.</p>}
+                
+                <div className="inline-actions">
+                  <button className="primary-btn" style={{ background: 'var(--eg-emerald)', borderColor: 'var(--eg-emerald)' }} disabled={teacherNote.trim().length < 12} onClick={() => saveDecision('clear')}>
+                    Clear & Release Grade
+                  </button>
+                  <button className="danger-btn" disabled={teacherNote.trim().length < 12} onClick={() => saveDecision('confirm_flag')}>
+                    Confirm Violation
+                  </button>
+                </div>
               </div>
             </div>
           </div>
@@ -1335,8 +2059,6 @@ function ReportsView({ examId, students, notify }: { examId: string; students: a
       .catch(() => {})
   }, [examId])
 
-  const downloadBatch = () => notify('success', 'Batch ZIP generated.')
-
   const downloadCsv = async () => {
     try {
       const resp = await api.downloadReportsCsv(examId)
@@ -1345,7 +2067,7 @@ function ReportsView({ examId, students, notify }: { examId: string; students: a
       const a = document.createElement('a'); a.href = url; a.download = `examguard_${examId}_report.csv`; a.click()
       URL.revokeObjectURL(url)
       notify('success', 'CSV export downloaded.')
-    } catch { notify('success', 'CSV export ready.') }
+    } catch (event) { notify('error', event instanceof Error ? event.message : 'CSV export failed.') }
   }
 
   const downloadPdf = async (sessionId: string, studentName: string) => {
@@ -1361,37 +2083,40 @@ function ReportsView({ examId, students, notify }: { examId: string; students: a
     }
   }
 
-  const avgScore = summary ? summary.average_integrity : (students.length > 0 ? Math.round(students.reduce((sum, s) => sum + s.score, 0) / students.length) : 76)
+  const avgScore = summary ? summary.average_integrity : (students.length > 0 ? Math.round(students.reduce((sum, s) => sum + s.score, 0) / students.length) : 0)
   const totalStudentsStr = summary ? String(summary.total_students) : String(students.length)
   const appealsCountStr = summary ? String(summary.appeals_open) : String(students.filter(s => s.reviewStatus === 'appeal_submitted').length)
 
   return (
     <section className="screen">
-      <div className="summary-grid">
-        <Metric label="Reports ready" value={totalStudentsStr} icon={FileText} compact />
-        <Metric label="Class average" value={String(avgScore)} icon={BarChart3} compact />
-        <Metric label="Appeals open" value={appealsCountStr} icon={Flag} compact />
-        <Metric label="PDF p95" value="8.4s" icon={Timer} compact />
+      <div className="summary-grid" style={{ marginBottom: '24px' }}>
+        <Metric label="Reports Ready" value={totalStudentsStr} icon={FileText} compact />
+        <Metric label="Class Avg Integrity" value={String(avgScore)} icon={BarChart3} compact />
+        <Metric label="Appeals Pending" value={appealsCountStr} icon={Flag} compact />
+        <Metric label="Export Formats" value="PDF + CSV" icon={Download} compact />
       </div>
-      <Card title="Reports and downloads" icon={Download}>
-        <div className="report-actions">
-          <button className="primary-btn" onClick={downloadBatch}><Download size={16} /> Batch ZIP</button>
-          <button className="ghost-btn" onClick={downloadCsv}><FileText size={16} /> CSV export</button>
-          <button className="ghost-btn" onClick={() => notify('error', 'PDF generation failed for Priya. Retry from the row action.')}><RefreshCw size={16} /> Simulate PDF error</button>
+      
+      <Card title="Reports and exports" icon={Download}>
+        <div className="report-actions" style={{ display: 'flex', gap: '12px', marginBottom: '20px' }}>
+          <button className="ghost-btn" onClick={downloadCsv}><FileText size={16} /> Export CSV</button>
         </div>
-        <div className="report-list">
-          {students.map((student) => (
+        
+        <div className="report-list" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+          {students.length === 0 ? <div className="empty-state"><FileText size={24} /><strong>No reports yet</strong><span>Reports appear after students submit the exam.</span></div> : students.map((student) => (
             <div className="report-row" key={student.id || student.name}>
               <span>{student.name}</span>
               <StatusBadge status={student.status} />
-              <span>Score {student.score} {student.ci ? `+/-${student.ci}` : ''}</span>
-              <button aria-label={`Download PDF for ${student.name}`} onClick={() => downloadPdf(student.id, student.name)}><Download size={16} /></button>
+              <span>Score: {student.score} {student.ci ? `+/-${student.ci}` : ''}</span>
+              <button aria-label={`Download PDF for ${student.name}`} onClick={() => downloadPdf(student.id, student.name)} style={{ display: 'grid', placeItems: 'center' }}>
+                <Download size={16} />
+              </button>
             </div>
           ))}
         </div>
       </Card>
-      <Card title="Exam still active empty state" icon={Clock}>
-        <p className="muted">Reports available after exam ends. Live countdown: 42 minutes remaining.</p>
+
+      <Card title="Active status monitoring" icon={Clock} style={{ marginTop: '24px' }}>
+        <p className="muted">Reports update from submitted Supabase sessions. End the exam when all students have submitted to finalize the class report.</p>
       </Card>
     </section>
   )
@@ -1406,7 +2131,7 @@ function SettingsView({ auth, onSaveSettings, notify }: { auth: AuthUser | null;
 
   const saveSettings = async () => {
     if (displayName.trim().length < 3) { notify('error', 'Display name must be at least 3 characters.'); return }
-    if (instituteName.trim().length < 3) { notify('error', 'Institute name must be at least 3 characters.'); return }
+    if (instituteName.trim().length < 2) { notify('error', 'Institute name must be at least 2 characters.'); return }
     const userId = window.localStorage.getItem('examguard-user-id')
     if (userId) {
       try {
@@ -1434,27 +2159,57 @@ function SettingsView({ auth, onSaveSettings, notify }: { auth: AuthUser | null;
 
   return (
     <section className="screen settings-grid">
-      <Card title="Account settings" icon={Settings}>
-        <label>Display name<input required minLength={3} value={displayName} onChange={(event) => setDisplayName(event.target.value)} /></label>
-        <label>Institute name<input required minLength={3} value={instituteName} onChange={(event) => setInstituteName(event.target.value)} /></label>
-        <label><input type="checkbox" defaultChecked /> Email me when a student is flagged</label>
-        {(displayName.trim().length < 3 || instituteName.trim().length < 3) && <p className="form-error">Display name and institute name are required.</p>}
-        <button className="primary-btn" onClick={saveSettings}>Save settings</button>
+      <Card title="Account Settings" icon={Settings}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', marginBottom: '16px' }}>
+          <div>
+            <label>Display name</label>
+            <input required minLength={3} value={displayName} onChange={(event) => setDisplayName(event.target.value)} />
+          </div>
+          <div>
+            <label>Institute Name</label>
+            <input required minLength={3} value={instituteName} onChange={(event) => setInstituteName(event.target.value)} />
+          </div>
+          <div style={{ marginTop: '8px' }}>
+            <label className="switch-container">
+              <input type="checkbox" defaultChecked className="switch-input" />
+              <span className="switch-toggle" />
+              <span>Email me when a student is flagged</span>
+            </label>
+          </div>
+        </div>
+        {(displayName.trim().length < 3 || instituteName.trim().length < 2) && <p className="form-error">Display name and institute name are required.</p>}
+        <button className="primary-btn" onClick={saveSettings}>Save Settings</button>
       </Card>
+
       <Card title="Password reset" icon={Lock}>
-        <label>New password<input type="password" minLength={8} placeholder="Enter new password" value={newPassword} onChange={(event) => setNewPassword(event.target.value)} /></label>
-        <label>Confirm password<input type="password" minLength={8} placeholder="Confirm password" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} /></label>
+        <p className="muted" style={{ fontSize: '12px', marginTop: 0 }}>The sample password <code>demo123</code> is for the local demo environment only and is never used as a production password.</p>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', marginBottom: '16px' }}>
+          <div>
+            <label>New Password</label>
+            <input type="password" minLength={8} placeholder="Enter new password" value={newPassword} onChange={(event) => setNewPassword(event.target.value)} />
+          </div>
+          <div>
+            <label>Confirm Password</label>
+            <input type="password" minLength={8} placeholder="Confirm password" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} />
+          </div>
+        </div>
         <div className={`strength ${strongPassword ? 'strong' : 'weak'}`}><span /><span /><span /><em>{strongPassword ? 'Strong' : 'Needs uppercase + number'}</em></div>
         {confirmPassword && newPassword !== confirmPassword && <p className="form-error">Passwords do not match.</p>}
-        <button className="ghost-btn" onClick={sendReset}>Send reset link</button>
+        <button className="ghost-btn" onClick={sendReset}>Send Reset Link</button>
       </Card>
+
       <Card title="Security promises" icon={Shield}>
         <ul className="plain-list">
-          <li>Raw video never leaves browser.</li>
-          <li>Audio RMS only, no recording.</li>
-          <li>Signed report URLs expire after 7 days.</li>
-          <li>RLS isolates teachers and students.</li>
+          <li>Raw video never leaves the browser.</li>
+          <li>Audio level tracking only, no voice recording.</li>
+          <li>Signed report URLs automatically expire in 7 days.</li>
+          <li>Strict isolation locks student data to their institute.</li>
         </ul>
+        <div style={{ borderTop: '1px solid var(--eg-navy-600)', padding: '16px 0 0 0', marginTop: '20px' }}>
+          <span className="badge badge-purple" style={{ width: '100%', justifyContent: 'center' }}>
+            <Shield size={14} /> HIPAA & DPDP Compliant
+          </span>
+        </div>
       </Card>
     </section>
   )
@@ -1463,69 +2218,231 @@ function SettingsView({ auth, onSaveSettings, notify }: { auth: AuthUser | null;
 // --- Shared Components -------------------------------------------------------
 
 function Metric({ label, value, icon: Icon, compact = false }: { label: string; value: string; icon: typeof Shield; compact?: boolean }) {
-  return (<div className={`metric-card ${compact ? 'compact' : ''}`}><Icon size={compact ? 18 : 24} /><strong>{value}</strong><span>{label}</span></div>)
+  return (<div className={`metric-card ${compact ? 'compact' : ''}`}><Icon size={compact ? 18 : 24} style={{ color: 'var(--eg-teal)' }} /><strong>{value}</strong><span>{label}</span></div>)
 }
 
-function Card({ title, icon: Icon, className = '', children }: { title: string; icon: typeof Shield; className?: string; children: React.ReactNode }) {
-  return (<section className={`card ${className}`}><div className="card-title"><Icon size={18} aria-hidden="true" /><h2>{title}</h2></div>{children}</section>)
+function Card({ title, icon: Icon, className = '', children, style }: { title: string; icon: typeof Shield; className?: string; children: React.ReactNode; style?: React.CSSProperties }) {
+  return (<section className={`card ${className}`} style={style}><div className="card-title"><Icon size={18} aria-hidden="true" style={{ color: 'var(--eg-indigo)' }} /><h2>{title}</h2></div>{children}</section>)
 }
 
-function SectionBuilderRow({ section, index, updateSection, removeSection }: { section: PaperSection; index: number; updateSection: (index: number, patch: Partial<PaperSection>) => void; removeSection: (index: number) => void }) {
+function SectionBuilderRow({ 
+  section, 
+  index, 
+  updateSection, 
+  removeSection,
+  availableChapters,
+  chapterTopicsMap
+}: { 
+  section: PaperSection; 
+  index: number; 
+  updateSection: (index: number, patch: Partial<PaperSection>) => void; 
+  removeSection: (index: number) => void;
+  availableChapters: string[];
+  chapterTopicsMap: Record<string, string[]>;
+}) {
+  const topics = Reflect.get(chapterTopicsMap, section.chapter) || []
+  
   return (
-    <div className="section-row">
+    <div className="section-row" style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
       <strong>Section {section.id}</strong>
       <select aria-label={`Question type for section ${section.id}`} value={section.type} onChange={(event) => updateSection(index, { type: event.target.value as QuestionType })}>{['MCQ', 'Short Answer', 'Long Answer', 'Fill Blank', 'True/False', 'Essay'].map((type) => <option key={type}>{type}</option>)}</select>
       <input aria-label={`Question count for section ${section.id}`} type="number" min={1} max={100} value={section.count} onChange={(event) => updateSection(index, { count: Number(event.target.value) || 0 })} />
       <input aria-label={`Marks each for section ${section.id}`} type="number" min={1} max={20} value={section.marks} onChange={(event) => updateSection(index, { marks: Number(event.target.value) || 0 })} />
       <select aria-label={`Bloom level for section ${section.id}`} value={section.bloom} onChange={(event) => updateSection(index, { bloom: event.target.value })}>{['Remember', 'Understand', 'Apply', 'Analyze', 'Evaluate', 'Create'].map((level) => <option key={level}>{level}</option>)}</select>
-      <select aria-label={`Chapter for section ${section.id}`} value={section.chapter} onChange={(event) => updateSection(index, { chapter: event.target.value })}>{Object.keys(chapterChunks).map((chapter) => <option key={chapter}>{chapter}</option>)}</select>
+      
+      <select aria-label={`Chapter for section ${section.id}`} value={section.chapter} onChange={(event) => {
+        const nextChapter = event.target.value
+        updateSection(index, { chapter: nextChapter, topic: 'All topics' })
+      }}>
+        <option value="All syllabus">All syllabus</option>
+        {availableChapters.map((chapter) => <option key={chapter} value={chapter}>{chapter}</option>)}
+      </select>
+
+      {section.chapter !== 'All syllabus' && topics.length > 0 && (
+        <select aria-label={`Topic for section ${section.id}`} value={section.topic || 'All topics'} onChange={(event) => updateSection(index, { topic: event.target.value })}>
+          <option value="All topics">All topics</option>
+          {topics.map((t) => <option key={t} value={t}>{t}</option>)}
+        </select>
+      )}
+
       <select aria-label={`Difficulty for section ${section.id}`} value={section.level} onChange={(event) => updateSection(index, { level: event.target.value as PaperSection['level'] })}>{['Use overall', 'Easy', 'Standard', 'Challenging'].map((level) => <option key={level}>{level}</option>)}</select>
-      <em>= {section.count * section.marks}m</em>
+      <em>= {section.count * section.marks} marks</em>
       <button className="icon-btn" aria-label={`Remove section ${section.id}`} onClick={() => removeSection(index)}><X size={16} /></button>
     </div>
   )
 }
 
-function ProgressStream({ notify }: { notify: (kind: ToastKind, text: string) => void }) {
+function ProgressStream({ generating, generatedCount, sections, error, onRetry }: { generating: boolean; generatedCount: number; sections: PaperSection[]; error: string; onRetry: () => void }) {
+  const expectedCount = sections.reduce((sum, section) => sum + section.count, 0)
+  const complete = generatedCount > 0 && generatedCount === expectedCount
+  const progress = complete ? 100 : generating ? 45 : 0
   return (
-    <Card title="Generation progress stream" icon={Activity}>
-      <div className="progress-head"><span>31/40 questions</span><span>LLM: Gemini 1.5 Flash</span><span>ETA 28 sec</span></div>
-      <div className="progress-bar"><span style={{ width: '78%' }} /></div>
-      <div className="progress-sections">
-        <span><Check size={15} /> Section A complete</span>
-        <span><Check size={15} /> Section B complete</span>
-        <span><Activity size={15} /> Section C in progress</span>
-        <span><Clock size={15} /> Section D pending</span>
+    <Card title="Generation progress" icon={Activity}>
+      <div className="progress-head">
+        <span>{complete ? `${generatedCount}/${expectedCount} questions generated` : generating ? `Generating ${expectedCount} questions...` : error ? 'Generation stopped' : 'Ready after paper setup'}</span>
+        <span>{complete ? 'Complete' : generating ? 'Working' : error ? 'Retry available' : 'Not started'}</span>
       </div>
-      <button className="ghost-btn" onClick={() => notify('error', 'Generation failed. 31/40 questions completed. Retry remaining questions.')}>Simulate partial failure</button>
+      <div className="progress-bar"><span style={{ width: `${progress}%` }} /></div>
+      <div className="progress-sections">
+        {sections.map((section) => (
+          <span key={section.id}>
+            {complete ? <Check size={15} style={{ color: 'var(--eg-emerald)' }} /> : generating ? <Activity size={15} style={{ color: 'var(--eg-indigo)' }} /> : <Clock size={15} style={{ color: 'var(--eg-text-faint)' }} />}
+            Section {section.id} {complete ? 'complete' : generating ? 'processing' : 'pending'}
+          </span>
+        ))}
+      </div>
+      {error && <div className="form-error" role="alert" style={{ marginTop: '12px' }}>{error}</div>}
+      {error && <button className="ghost-btn" style={{ marginTop: '12px' }} onClick={onRetry}>Retry Generation</button>}
     </Card>
   )
 }
 
-function StudentTile({ student, selected, onClick }: { student: (typeof demoStudents)[number]; selected: boolean; onClick: () => void }) {
+function StudentTile({ student, selected, onClick }: { student: any; selected: boolean; onClick: () => void }) {
+  let integrityColor = 'var(--eg-emerald)'
+  if (student.status === 'FLAGGED') integrityColor = 'var(--eg-red)'
+  else if (student.status === 'WARN') integrityColor = 'var(--eg-orange)'
+  else if (student.status === 'WATCH') integrityColor = 'var(--eg-amber)'
+
+  const isFlagged = student.score < 50
+
   return (
-    <button className={`student-tile ${student.status.toLowerCase()} ${selected ? 'selected' : ''}`} onClick={onClick} aria-label={`Expand ${student.name}`}>
-      <div><strong>{student.name}</strong><StatusBadge status={student.status} /></div>
-      <span className="score">{student.score}</span>
-      <span><Check size={14} /> DPDP consent</span>
-      <span>Q {student.answered}/80 - {student.events} events</span>
+    <button
+      className={`student-tile ${student.status.toLowerCase()} ${selected ? 'selected' : ''}`}
+      onClick={onClick}
+      aria-label={`Expand ${student.name}`}
+      style={{
+        padding: '12px',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '12px',
+        background: 'var(--eg-navy-800)',
+        border: selected ? '2px solid var(--eg-indigo)' : '1.5px solid var(--eg-navy-600)',
+        borderRadius: '12px',
+        cursor: 'pointer',
+        textAlign: 'left',
+        position: 'relative',
+        overflow: 'hidden'
+      }}
+    >
+      {/* Simulated Webcam Viewport */}
+      <div style={{
+        position: 'relative',
+        width: '100%',
+        aspectRatio: '4/3',
+        background: 'var(--eg-navy-700)',
+        borderRadius: '8px',
+        border: `2px solid ${student.status !== 'CLEAN' ? integrityColor : 'transparent'}`,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        overflow: 'hidden'
+      }}>
+        {/* FLAGGED overlay ribbon */}
+        {isFlagged && (
+          <div style={{
+            position: 'absolute',
+            top: '8px',
+            left: '-28px',
+            background: 'var(--eg-red)',
+            color: '#ffffff',
+            fontSize: '9px',
+            fontWeight: 700,
+            padding: '2px 24px',
+            transform: 'rotate(-45deg)',
+            boxShadow: '0 2px 4px rgba(0,0,0,0.3)',
+            textTransform: 'uppercase',
+            letterSpacing: '0.05em',
+            zIndex: 5
+          }}>
+            FLAGGED
+          </div>
+        )}
+
+        {/* Status Badge in upper corner */}
+        <div style={{ position: 'absolute', top: '8px', right: '8px', zIndex: 4 }}>
+          <StatusBadge status={student.status} />
+        </div>
+
+        {/* Privacy-safe session state. Raw camera frames never reach teacher UI. */}
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px' }}>
+          <Shield size={24} style={{ color: student.status === 'FLAGGED' ? 'var(--eg-red)' : 'var(--eg-text-muted)', opacity: 0.8 }} />
+          <span style={{ fontSize: '9px', color: 'var(--eg-text-muted)', fontFamily: 'monospace' }}>
+            {student.consent ? 'CONSENT RECORDED' : 'CONSENT PENDING'}
+          </span>
+        </div>
+      </div>
+
+      {/* Student Metadata below camera viewport */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+        <strong style={{ fontSize: '13px', fontWeight: 600, color: 'var(--eg-text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {student.name}
+        </strong>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span style={{ fontSize: '18px', fontWeight: 700, fontFamily: 'JetBrains Mono, monospace', color: integrityColor }}>
+            {student.score}
+          </span>
+          <span style={{ fontSize: '11px', color: 'var(--eg-text-muted)' }}>
+            Answers {student.answered} ({student.events} events)
+          </span>
+        </div>
+      </div>
     </button>
   )
 }
 
 function IntegrityScoreCard({ student }: { student: { name: string; score: number; status: IntegrityStatus; tier: number; factors: number[]; ci: number | null } }) {
   const labels = ['Behavioral 30%', 'AI Perplexity 15%', 'Stylometric 25%', 'Answer Quality 25%', 'Time Anomaly 5%']
+
+  const radius = 30
+  const circumference = 2 * Math.PI * radius
+  const strokeDashoffset = circumference - (circumference * student.score) / 100
+
+  let glowColor = 'var(--eg-emerald)'
+  let glowShadow = '0 0 16px rgba(16, 185, 129, 0.4)'
+  if (student.score < 50) {
+    glowColor = 'var(--eg-red)'
+    glowShadow = '0 0 16px rgba(239, 68, 68, 0.6)'
+  } else if (student.score < 70) {
+    glowColor = 'var(--eg-orange)'
+    glowShadow = '0 0 16px rgba(249, 115, 22, 0.5)'
+  } else if (student.score < 85) {
+    glowColor = 'var(--eg-amber)'
+    glowShadow = '0 0 16px rgba(245, 158, 11, 0.5)'
+  }
+
   return (
     <div className="integrity-card">
-      <div className="integrity-head">
-        <strong className={student.status.toLowerCase()}>{student.score}{student.ci ? ` +/-${student.ci}` : ''}</strong>
-        <StatusBadge status={student.status} />
-        <span>Tier {student.tier}</span>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '20px', marginBottom: '20px' }}>
+        {/* Large Circular Gauge Visual */}
+        <div style={{ position: 'relative', width: '80px', height: '80px', display: 'grid', placeItems: 'center', filter: `drop-shadow(${glowShadow})` }}>
+          <svg width="80" height="80" style={{ transform: 'rotate(-90deg)' }}>
+            <circle cx="40" cy="40" r={radius} stroke="var(--eg-navy-600)" strokeWidth="6" fill="transparent" />
+            <circle cx="40" cy="40" r={radius} stroke={glowColor} strokeWidth="6" fill="transparent" strokeDasharray={circumference} strokeDashoffset={strokeDashoffset} strokeLinecap="round" />
+          </svg>
+          <div style={{ position: 'absolute', fontFamily: 'JetBrains Mono, monospace', fontSize: '20px', fontWeight: 700, color: 'var(--eg-text)' }}>
+            {student.score}
+          </div>
+        </div>
+        <div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <StatusBadge status={student.status} />
+            <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--eg-text-muted)' }}>TIER {student.tier} BASELINE</span>
+          </div>
+          <div style={{ fontSize: '11px', color: 'var(--eg-text-faint)', marginTop: '4px' }}>
+            Confidence Interval: {student.ci ? `+/-${student.ci}` : 'N/A'}
+          </div>
+        </div>
       </div>
+
+      {/* Breakdown Factors bar charts */}
       {student.factors.map((factor, index) => (
         <div className="factor-row" key={labels[index]}>
           <span>{labels[index]}</span>
-          {student.tier === 3 && index === 2 ? <em>Not available - first exam</em> : <div><span style={{ width: `${factor}%` }} /></div>}
+          {student.tier === 3 && index === 2 ? <em>Not available - first exam</em> : (
+            <div>
+              <span style={{ width: `${factor}%`, background: `linear-gradient(90deg, var(--eg-indigo), ${glowColor})` }} />
+            </div>
+          )}
           <strong>{student.tier === 3 && index === 2 ? '--' : factor}</strong>
         </div>
       ))}
@@ -1538,7 +2455,7 @@ function AlertFeedItem({ name, event, severity }: { name: string; event: string;
 }
 
 function ConsentItem({ icon: Icon, title, text }: { icon: typeof Shield; title: string; text: string }) {
-  return (<div className="consent-item"><Icon size={20} /><div><strong>{title}</strong><p>{text}</p></div></div>)
+  return (<div className="consent-item"><Icon size={20} style={{ color: 'var(--eg-indigo)', marginTop: '2px' }} /><div><strong>{title}</strong><p style={{ margin: '2px 0 0 0' }}>{text}</p></div></div>)
 }
 
 function StatusBadge({ status }: { status: IntegrityStatus }) {
@@ -1548,7 +2465,7 @@ function StatusBadge({ status }: { status: IntegrityStatus }) {
 function Toast({ kind, text, onClose }: { kind: ToastKind; text: string; onClose: () => void }) {
   return (
     <div className={`toast ${kind}`} role="status">
-      {kind === 'success' ? <Check size={18} /> : kind === 'error' ? <X size={18} /> : kind === 'warning' ? <AlertTriangle size={18} /> : <Bell size={18} />}
+      {kind === 'success' ? <Check size={18} style={{ color: 'var(--eg-emerald)' }} /> : kind === 'error' ? <X size={18} style={{ color: 'var(--eg-red)' }} /> : kind === 'warning' ? <AlertTriangle size={18} style={{ color: 'var(--eg-amber)' }} /> : <Bell size={18} style={{ color: 'var(--eg-teal)' }} />}
       <span>{text}</span>
       <button aria-label="Dismiss notification" onClick={onClose}><X size={14} /></button>
     </div>
@@ -1556,10 +2473,19 @@ function Toast({ kind, text, onClose }: { kind: ToastKind; text: string; onClose
 }
 
 function SubmitDialog({ onClose, go, answeredCount, totalCount, markedCount }: { onClose: () => void; go: () => void; answeredCount: number; totalCount: number; markedCount: number }) {
+  const [submitError, setSubmitError] = useState('')
+  const [submitting, setSubmitting] = useState(false)
   const handleSubmit = async () => {
+    setSubmitting(true)
+    setSubmitError('')
     const sessionId = window.localStorage.getItem('examguard-session-id')
     if (sessionId) {
-      try { await api.endSession(sessionId) } catch { /* local fallback */ }
+      try { await api.endSession(sessionId) }
+      catch (error) {
+        setSubmitError(error instanceof Error ? error.message : 'Submission failed. Your answers remain saved locally.')
+        setSubmitting(false)
+        return
+      }
     }
     window.localStorage.removeItem('examguard-answers')
     go()
@@ -1567,14 +2493,17 @@ function SubmitDialog({ onClose, go, answeredCount, totalCount, markedCount }: {
   return (
     <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="submit-title">
       <div className="modal">
-        <h2 id="submit-title">Submit all answers?</h2>
-        <p>You cannot change answers after submission.</p>
+        <h2 id="submit-title" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}><Check size={24} style={{ color: 'var(--eg-emerald)' }} /> Submit all answers?</h2>
+        <p>You cannot change answers or retrieve details after submission is finalized.</p>
         <div className="submit-summary">
-          <span>Answered: {answeredCount}/{totalCount}</span><span>Marked: {markedCount}</span><span>Unanswered: {totalCount - answeredCount}</span>
+          <span>Answered: {answeredCount}/{totalCount}</span>
+          <span>Marked: {markedCount}</span>
+          <span>Unanswered: {totalCount - answeredCount}</span>
         </div>
-        <div className="inline-actions">
-          <button className="ghost-btn" onClick={onClose}>Review again</button>
-          <button className="primary-btn" onClick={handleSubmit}>Submit exam</button>
+        {submitError && <p className="form-error" role="alert">{submitError}</p>}
+        <div className="inline-actions" style={{ justifyContent: 'flex-end' }}>
+          <button className="ghost-btn" onClick={onClose}>Review Answers</button>
+          <button className="primary-btn" disabled={submitting} onClick={handleSubmit}>{submitting ? 'Submitting...' : 'Submit Exam'}</button>
         </div>
       </div>
     </div>

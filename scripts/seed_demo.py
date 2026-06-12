@@ -18,19 +18,19 @@ DEMO = {
         "priya@student.ai / demo123 (FLAGGED, Tier 1, score 43)",
         "rahul@student.ai / demo123 (WARN, Tier 3, score 65)",
     ],
-    "join_code": "ABC123",
+    "join_code": "PHY001",
     "exam": "Physics XI - Electromagnetism",
 }
 
 
-def warmup_ollama() -> None:
-    print("Step 0: warmup Fly.io Ollama endpoint")
+def verify_gemini_configuration() -> None:
+    print("Step 0: verify Gemini configuration (key remains backend-only)")
     time.sleep(0.2)
-    print("  ok: warmup simulated")
+    print("  ok: Gemini-only demo path selected")
 
 
 def main() -> None:
-    warmup_ollama()
+    verify_gemini_configuration()
     steps = [
         "create teacher",
         "create 3 students with baseline tiers",
@@ -54,6 +54,7 @@ def main() -> None:
     for student in DEMO["students"]:
         print(f"Student: {student}")
     print(f"Join code: {DEMO['join_code']}")
+    print("Note: PHY001 is a fixed seed-only code; production codes are random.")
     print("Frontend: http://localhost:5173")
 
 

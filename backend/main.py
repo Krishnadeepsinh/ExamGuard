@@ -7,10 +7,12 @@ for local demos and frontend integration while Supabase/Redis/Gemini are wired.
 from __future__ import annotations
 
 import csv
+import asyncio
 import io
-from typing import Literal
+import json
+from typing import Literal, Optional
 
-from fastapi import FastAPI, File, HTTPException, Request, UploadFile
+from fastapi import Depends, FastAPI, File, Header, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, Field, field_validator
@@ -19,7 +21,7 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
 from backend.agents.constants import FACTOR_WEIGHTS
-from backend.agents.graph import AGENT_NODES
+from backend.agents.graph import AGENT_NODES, EDGES, run_workflow
 from backend.config import settings
 from backend.redis_client import redis_hot_state
 from backend.store import store as local_store
@@ -41,12 +43,7 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "https://examguard.vercel.app",
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-        "http://localhost:3000",
-    ],
+    allow_origins=list(settings.cors_origins),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -85,11 +82,12 @@ class SectionConfig(BaseModel):
     marks_each: int = Field(ge=1, le=20)
     bloom: Literal["Remember", "Understand", "Apply", "Analyze", "Evaluate", "Create"]
     chapter_tag: str = Field(min_length=2)
+    topic_tag: Optional[str] = "All topics"
     level: Literal["Use overall", "Easy", "Standard", "Challenging"] = "Use overall"
 
 
 class PaperConfigRequest(BaseModel):
-    material_id: str
+    material_id: Optional[str] = None
     total_marks: int = Field(ge=10, le=300)
     overall_level: Literal["Easy", "Standard", "Challenging"]
     paper_mode: Literal["MCQ only", "MCQ + QA", "Mixed"]
@@ -130,9 +128,16 @@ class ProctoringEventRequest(BaseModel):
     metadata: dict[str, object] = Field(default_factory=dict)
 
 
+class LivenessRequest(BaseModel):
+    method: Literal["mediapipe_ear"]
+    blink_count: int = Field(ge=2, le=10)
+    duration_ms: int = Field(ge=250, le=15000)
+    threshold: float = Field(ge=0.15, le=0.35)
+
+
 class SettingsRequest(BaseModel):
     display_name: str = Field(min_length=3, max_length=80)
-    institute_name: str = Field(min_length=3, max_length=120)
+    institute_name: str = Field(min_length=2, max_length=120)
     email_on_flag: bool = True
 
 
@@ -148,6 +153,25 @@ def _get_session_field(session: dict, field: str) -> object:
     return session.get(field)
 
 
+def current_teacher(authorization: str | None = Header(default=None)) -> dict[str, object]:
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Teacher authentication is required")
+    try:
+        user = store.verify_token(authorization.removeprefix("Bearer ").strip())
+    except PermissionError as exc:
+        raise HTTPException(status_code=401, detail=str(exc)) from exc
+    if user.get("role") != "teacher":
+        raise HTTPException(status_code=403, detail="Teacher role is required")
+    return user
+
+
+def require_owned_exam(exam_id: str, teacher: dict[str, object]) -> dict[str, object]:
+    exam = lookup_exam(exam_id)
+    if exam.get("teacher_id") != teacher.get("id"):
+        raise HTTPException(status_code=403, detail="You do not own this exam")
+    return exam
+
+
 # --- Health ------------------------------------------------------------------
 
 
@@ -160,7 +184,14 @@ def health() -> dict[str, object]:
         "factor_weights": FACTOR_WEIGHTS,
         "store": "supabase" if settings.supabase_enabled else "local",
         "redis": "upstash" if settings.redis_enabled else "disabled",
+        "langgraph": "active",
     }
+
+
+@app.get("/api/v1/agents/graph")
+def agent_graph() -> dict[str, object]:
+    trace = run_workflow("answer", {"proof": True})
+    return {"nodes": AGENT_NODES, "edges": EDGES, "sample_trace": trace.get("completed_agents", [])}
 
 
 # --- Auth --------------------------------------------------------------------
@@ -169,15 +200,27 @@ def health() -> dict[str, object]:
 @app.post("/api/v1/auth/login")
 @limiter.limit("10/minute")
 def login(request: Request, payload: LoginRequest) -> dict[str, object]:
-    user = store.login(payload.email, payload.role, payload.display_name)
-    return {"user": user, "token": f"local-{user['id']}"}
+    try:
+        user = store.login(payload.email, payload.password, payload.role, payload.display_name, signup=False)
+    except PermissionError as exc:
+        raise HTTPException(status_code=401, detail=str(exc)) from exc
+    token = user.pop("access_token", f"local-{user['id']}")
+    user.pop("refresh_token", None)
+    user.pop("password", None)
+    return {"user": user, "token": token}
 
 
 @app.post("/api/v1/auth/signup")
 @limiter.limit("5/minute")
 def signup(request: Request, payload: LoginRequest) -> dict[str, object]:
-    user = store.login(payload.email, payload.role, payload.display_name)
-    return {"user": user, "token": f"local-{user['id']}"}
+    try:
+        user = store.login(payload.email, payload.password, payload.role, payload.display_name, signup=True)
+    except PermissionError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    token = user.pop("access_token", f"local-{user['id']}")
+    user.pop("refresh_token", None)
+    user.pop("password", None)
+    return {"user": user, "token": token}
 
 
 @app.post("/api/v1/auth/reset-request")
@@ -201,14 +244,17 @@ def reset_confirm(request: Request, payload: dict[str, str]) -> dict[str, str]:
 
 @app.post("/api/v1/exams")
 @limiter.limit("20/minute")
-def create_exam(request: Request, payload: ExamCreateRequest) -> dict[str, object]:
+def create_exam(request: Request, payload: ExamCreateRequest, teacher: dict[str, object] = Depends(current_teacher)) -> dict[str, object]:
+    if payload.teacher_id != teacher["id"]:
+        raise HTTPException(status_code=403, detail="teacher_id must match authenticated user")
     if hasattr(store, "users") and payload.teacher_id not in store.users:
         raise HTTPException(status_code=404, detail="teacher not found")
     return store.create_exam(payload.teacher_id, payload.model_dump())
 
 
 @app.get("/api/v1/exams")
-def list_exams(teacher_id: str | None = None) -> list[dict[str, object]]:
+def list_exams(teacher_id: str | None = None, teacher: dict[str, object] = Depends(current_teacher)) -> list[dict[str, object]]:
+    teacher_id = str(teacher["id"])
     if hasattr(store, "list_exams"):
         return store.list_exams(teacher_id)
     exams = list(store.exams.values())
@@ -218,7 +264,11 @@ def list_exams(teacher_id: str | None = None) -> list[dict[str, object]]:
 
 
 @app.get("/api/v1/exams/{exam_id}")
-def get_exam(exam_id: str) -> dict[str, object]:
+def get_exam_route(exam_id: str, teacher: dict[str, object] = Depends(current_teacher)) -> dict[str, object]:
+    return require_owned_exam(exam_id, teacher)
+
+
+def lookup_exam(exam_id: str) -> dict[str, object]:
     if hasattr(store, "get_exam"):
         try:
             return store.get_exam(exam_id)
@@ -230,8 +280,9 @@ def get_exam(exam_id: str) -> dict[str, object]:
 
 
 @app.delete("/api/v1/exams/{exam_id}")
-def delete_exam(exam_id: str) -> dict[str, str]:
+def delete_exam(exam_id: str, teacher: dict[str, object] = Depends(current_teacher)) -> dict[str, str]:
     """Delete an exam and all associated data."""
+    require_owned_exam(exam_id, teacher)
     try:
         store.delete_exam(exam_id)
     except KeyError as exc:
@@ -240,8 +291,9 @@ def delete_exam(exam_id: str) -> dict[str, str]:
 
 
 @app.post("/api/v1/exams/{exam_id}/clone")
-def clone_exam(exam_id: str) -> dict[str, object]:
+def clone_exam(exam_id: str, teacher: dict[str, object] = Depends(current_teacher)) -> dict[str, object]:
     """Clone an exam with a new join code."""
+    require_owned_exam(exam_id, teacher)
     try:
         return store.clone_exam(exam_id)
     except KeyError as exc:
@@ -249,9 +301,10 @@ def clone_exam(exam_id: str) -> dict[str, object]:
 
 
 @app.put("/api/v1/exams/{exam_id}/paper-config")
-def save_paper_config(exam_id: str, payload: PaperConfigRequest) -> dict[str, object]:
-    get_exam(exam_id)
-    material_status(payload.material_id)
+def save_paper_config(exam_id: str, payload: PaperConfigRequest, teacher: dict[str, object] = Depends(current_teacher)) -> dict[str, object]:
+    require_owned_exam(exam_id, teacher)
+    if payload.material_id:
+        material_status(payload.material_id)
     result = store.configure_exam(exam_id, payload.model_dump())
     if result["status"] == "invalid":
         raise HTTPException(status_code=422, detail=result["errors"])
@@ -260,24 +313,31 @@ def save_paper_config(exam_id: str, payload: PaperConfigRequest) -> dict[str, ob
 
 @app.post("/api/v1/exams/{exam_id}/generate")
 @limiter.limit("5/minute")
-def generate_paper(request: Request, exam_id: str) -> dict[str, object]:
-    exam = get_exam(exam_id)
+def generate_paper(request: Request, exam_id: str, teacher: dict[str, object] = Depends(current_teacher)) -> dict[str, object]:
+    exam = require_owned_exam(exam_id, teacher)
     if not exam.get("paper_config"):
         raise HTTPException(status_code=422, detail="paper config must be saved before generation")
-    return store.generate_questions(exam_id)
+    try:
+        return store.generate_questions(exam_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @app.post("/api/v1/exams/{exam_id}/activate")
-def activate_exam(exam_id: str) -> dict[str, object]:
+def activate_exam(exam_id: str, teacher: dict[str, object] = Depends(current_teacher)) -> dict[str, object]:
+    require_owned_exam(exam_id, teacher)
     try:
         return store.activate_exam(exam_id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="exam not found") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @app.post("/api/v1/exams/{exam_id}/pause")
-def pause_exam(exam_id: str) -> dict[str, object]:
+def pause_exam(exam_id: str, teacher: dict[str, object] = Depends(current_teacher)) -> dict[str, object]:
     """Pause an active exam — freezes all student timers."""
+    require_owned_exam(exam_id, teacher)
     try:
         return store.pause_exam(exam_id)
     except KeyError as exc:
@@ -287,8 +347,9 @@ def pause_exam(exam_id: str) -> dict[str, object]:
 
 
 @app.post("/api/v1/exams/{exam_id}/resume")
-def resume_exam(exam_id: str) -> dict[str, object]:
+def resume_exam(exam_id: str, teacher: dict[str, object] = Depends(current_teacher)) -> dict[str, object]:
     """Resume a paused exam."""
+    require_owned_exam(exam_id, teacher)
     try:
         return store.resume_exam(exam_id)
     except KeyError as exc:
@@ -298,7 +359,8 @@ def resume_exam(exam_id: str) -> dict[str, object]:
 
 
 @app.post("/api/v1/exams/{exam_id}/end")
-def end_exam(exam_id: str) -> dict[str, object]:
+def end_exam(exam_id: str, teacher: dict[str, object] = Depends(current_teacher)) -> dict[str, object]:
+    require_owned_exam(exam_id, teacher)
     try:
         return store.end_exam(exam_id)
     except KeyError as exc:
@@ -306,7 +368,8 @@ def end_exam(exam_id: str) -> dict[str, object]:
 
 
 @app.get("/api/v1/exams/{exam_id}/students")
-def exam_students(exam_id: str) -> list[dict[str, object]]:
+def exam_students(exam_id: str, teacher: dict[str, object] = Depends(current_teacher)) -> list[dict[str, object]]:
+    require_owned_exam(exam_id, teacher)
     if hasattr(store, "exam_students"):
         return store.exam_students(exam_id)
     return [session for session in store.sessions.values() if session["exam_id"] == exam_id]
@@ -391,7 +454,8 @@ def exam_summary(exam_id: str) -> dict[str, object]:
 
 
 @app.get("/api/v1/exams/{exam_id}/live-events")
-def live_events(exam_id: str) -> dict[str, object]:
+def live_events(exam_id: str, teacher: dict[str, object] = Depends(current_teacher)) -> dict[str, object]:
+    require_owned_exam(exam_id, teacher)
     return {
         "exam_id": exam_id,
         "redis": "upstash" if settings.redis_enabled else "disabled",
@@ -399,13 +463,38 @@ def live_events(exam_id: str) -> dict[str, object]:
     }
 
 
+@app.websocket("/api/v1/ws/exams/{exam_id}")
+async def exam_live_socket(websocket: WebSocket, exam_id: str, token: str = "") -> None:
+    """Push authoritative monitor snapshots; Redis keeps events across workers."""
+    try:
+        teacher = store.verify_token(token)
+        require_owned_exam(exam_id, teacher)
+    except (PermissionError, HTTPException):
+        await websocket.close(code=1008)
+        return
+    await websocket.accept()
+    last_payload = ""
+    try:
+        while True:
+            students = store.exam_students(exam_id)
+            events = redis_hot_state.list_events(f"exam:{exam_id}:events") if settings.redis_enabled else []
+            payload = {"type": "monitor_snapshot", "exam_id": exam_id, "students": students, "events": events[:50]}
+            encoded = json.dumps(payload, sort_keys=True, default=str)
+            if encoded != last_payload:
+                await websocket.send_json(payload)
+                last_payload = encoded
+            await asyncio.sleep(1)
+    except WebSocketDisconnect:
+        return
+
+
 # --- Materials ---------------------------------------------------------------
 
 
 @app.post("/api/v1/materials/upload")
 @limiter.limit("10/minute")
-async def upload_material(request: Request, exam_id: str, file: UploadFile = File(...)) -> dict[str, object]:
-    get_exam(exam_id)
+async def upload_material(request: Request, exam_id: str, file: UploadFile = File(...), teacher: dict[str, object] = Depends(current_teacher)) -> dict[str, object]:
+    require_owned_exam(exam_id, teacher)
     if not file.filename:
         raise HTTPException(status_code=422, detail="filename is required")
     if not file.filename.lower().endswith((".pdf", ".docx", ".txt")):
@@ -413,7 +502,12 @@ async def upload_material(request: Request, exam_id: str, file: UploadFile = Fil
     content = await file.read()
     if len(content) > 50 * 1024 * 1024:
         raise HTTPException(status_code=413, detail="material file must be 50MB or smaller")
-    return store.add_material(exam_id, file.filename, content)
+    try:
+        material = store.add_material(exam_id, file.filename, content)
+        run_workflow("ingest", {"exam_id": exam_id, "material_id": material["id"]})
+        return material
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @app.get("/api/v1/materials/{material_id}/status")
@@ -448,6 +542,8 @@ def join_session(request: Request, payload: JoinRequest) -> dict[str, object]:
         return session
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @app.post("/api/v1/sessions/{session_id}/consent")
@@ -461,7 +557,7 @@ def save_consent(session_id: str) -> dict[str, object]:
 
 
 @app.post("/api/v1/sessions/{session_id}/liveness")
-def save_liveness(session_id: str) -> dict[str, object]:
+def save_liveness(session_id: str, payload: LivenessRequest) -> dict[str, object]:
     session = require_session(session_id)
     if not _get_session_field(session, "consent"):
         raise HTTPException(status_code=422, detail="consent is required before liveness")
@@ -469,6 +565,8 @@ def save_liveness(session_id: str) -> dict[str, object]:
     normalized = store.normalize_session(updated)
     redis_hot_state.set_json(f"session:{session_id}:state", normalized, ttl_seconds=10800)
     redis_hot_state.push_event(f"exam:{normalized['exam_id']}:events", {"type": "liveness_verified", "session_id": session_id}, ttl_seconds=10800)
+    if hasattr(store, "log_integrity_event"):
+        store.log_integrity_event(session_id, "liveness_verified", payload.model_dump())
     return normalized
 
 
@@ -480,10 +578,21 @@ def session_questions(session_id: str) -> list[dict[str, object]]:
     return store.session_questions(session_id)
 
 
+@app.get("/api/v1/sessions/{session_id}/exam")
+def session_exam(session_id: str) -> dict[str, object]:
+    session = require_session(session_id)
+    exam = lookup_exam(str(session["exam_id"]))
+    return {key: exam.get(key) for key in ("id", "title", "subject", "duration_minutes", "total_marks", "status")}
+
+
 @app.post("/api/v1/sessions/{session_id}/answers")
 @limiter.limit("60/minute")
 def save_answer(request: Request, session_id: str, payload: AnswerRequest) -> dict[str, object]:
     session = require_session(session_id)
+    if not _get_session_field(session, "consent") or not _get_session_field(session, "liveness"):
+        raise HTTPException(status_code=403, detail="consent and liveness are required before answering")
+    if session.get("status") != "active":
+        raise HTTPException(status_code=409, detail="session is not active")
     if not payload.answer_text and not payload.selected_option:
         raise HTTPException(status_code=422, detail="answer text or selected option is required")
     answer = store.save_answer(session_id, payload.model_dump())
@@ -521,7 +630,9 @@ def submit_appeal(session_id: str, payload: AppealRequest) -> dict[str, object]:
 
 
 @app.put("/api/v1/sessions/{session_id}/decision")
-def teacher_decision(session_id: str, payload: DecisionRequest) -> dict[str, object]:
+def teacher_decision(session_id: str, payload: DecisionRequest, teacher: dict[str, object] = Depends(current_teacher)) -> dict[str, object]:
+    session = require_session(session_id)
+    require_owned_exam(str(session["exam_id"]), teacher)
     try:
         return store.teacher_decision(session_id, payload.decision, payload.teacher_note)
     except KeyError as exc:
@@ -532,20 +643,31 @@ def teacher_decision(session_id: str, payload: DecisionRequest) -> dict[str, obj
 
 
 @app.post("/api/v1/sessions/{session_id}/events")
-def log_proctoring_event(session_id: str, payload: ProctoringEventRequest) -> dict[str, str]:
+def log_proctoring_event(session_id: str, payload: ProctoringEventRequest) -> dict[str, object]:
     """Log a browser-side proctoring event (tab switch, paste, gaze, etc.)."""
     session = require_session(session_id)
+    if session.get("status") != "active":
+        raise HTTPException(status_code=409, detail="proctoring events are accepted only during an active session")
     event = {"type": payload.event_type, **payload.metadata, "session_id": session_id}
+    updated_integrity = None
+    if hasattr(store, "log_integrity_event"):
+        stored_event = store.log_integrity_event(session_id, payload.event_type, payload.metadata)
+        updated_integrity = stored_event.get("integrity")
+        if updated_integrity:
+            event["integrity"] = updated_integrity
     redis_hot_state.push_event(f"exam:{session['exam_id']}:events", event, ttl_seconds=10800)
-    return {"status": "logged"}
+    run_workflow("proctor", event, str(session.get("integrity", {}).get("status", "CLEAN")))
+    return {"status": "logged", "integrity": updated_integrity}
 
 
 # --- Settings ----------------------------------------------------------------
 
 
 @app.put("/api/v1/users/{user_id}/settings")
-def save_settings(user_id: str, payload: SettingsRequest) -> dict[str, object]:
+def save_settings(user_id: str, payload: SettingsRequest, teacher: dict[str, object] = Depends(current_teacher)) -> dict[str, object]:
     """Save user settings (display name, institute, notifications)."""
+    if user_id != teacher["id"]:
+        raise HTTPException(status_code=403, detail="You can update only your own settings")
     try:
         return store.save_settings(user_id, payload.display_name, payload.institute_name)
     except KeyError as exc:

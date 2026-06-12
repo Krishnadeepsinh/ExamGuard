@@ -13,9 +13,11 @@ from io import BytesIO
 from typing import Any
 from uuid import uuid4
 
-from backend.agents.material_ingestion_agent import chunk_text, detect_chapter
+from backend.agents.material_ingestion_agent import chunk_text, detect_chapter, chunk_text_with_chapters, embed_text, rank_chunks
+from backend.agents.llm_router import generate_grounded_questions, gemini_router
 from backend.agents.orchestrator_agent import compute_integrity_score
 from backend.agents.paper_config_agent import generate_join_code, validate_paper_config
+from backend.agents.proctoring_agent import behavioral_score, impact_for
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
 
@@ -33,6 +35,7 @@ class LocalStore:
         self.sessions: dict[str, dict[str, Any]] = {}
         self.answers: dict[str, list[dict[str, Any]]] = {}
         self.reports: dict[str, bytes] = {}
+        self.integrity_events: dict[str, list[dict[str, Any]]] = {}
         self.seed()
 
     def seed(self) -> None:
@@ -53,7 +56,7 @@ class LocalStore:
             "subject": "Physics",
             "duration_minutes": 80,
             "total_marks": 80,
-            "join_code": "ABC123",
+            "join_code": "PHY001",
             "status": "draft",
             "paper_config": {},
             "activated_at": None,
@@ -68,10 +71,16 @@ class LocalStore:
         ) * 70
         self.add_material(exam_id, "NCERT Physics Ch 12-14.txt", sample_text.encode("utf-8"))
 
-    def login(self, email: str, role: str, display_name: str | None = None) -> dict[str, Any]:
+    def login(self, email: str, password: str, role: str, display_name: str | None = None, signup: bool = False) -> dict[str, Any]:
         existing = next((user for user in self.users.values() if user["email"] == email and user["role"] == role), None)
         if existing:
+            if signup:
+                raise PermissionError("Account already exists")
+            if existing.get("password") and existing["password"] != password:
+                raise PermissionError("Invalid email or password")
             return existing
+        if not signup:
+            raise PermissionError("Invalid email or password")
         user = {
             "id": f"{role}-{uuid4().hex[:10]}",
             "email": email,
@@ -79,8 +88,17 @@ class LocalStore:
             "role": role,
             "institute": "",
             "baseline_answer_count": 0,
+            "password": password,
         }
         self.users[user["id"]] = user
+        return user
+
+    def verify_token(self, token: str) -> dict[str, Any]:
+        if not token.startswith("local-"):
+            raise PermissionError("Invalid access token")
+        user = self.users.get(token.removeprefix("local-"))
+        if not user:
+            raise PermissionError("Invalid access token")
         return user
 
     def create_exam(self, teacher_id: str, payload: dict[str, Any]) -> dict[str, Any]:
@@ -103,17 +121,32 @@ class LocalStore:
         self.exams[exam_id] = exam
         return exam
 
+    def clone_exam(self, exam_id: str) -> dict[str, Any]:
+        source = self.exams[exam_id]
+        clone = self.create_exam(source["teacher_id"], {
+            "title": f"{source['title']} Copy",
+            "subject": source["subject"],
+            "duration_minutes": source["duration_minutes"],
+            "total_marks": source["total_marks"],
+        })
+        clone["paper_config"] = dict(source.get("paper_config") or {})
+        return clone
+
     def add_material(self, exam_id: str, filename: str, content: bytes) -> dict[str, Any]:
         text = self.extract_text(filename, content)
-        chunks = chunk_text(text, source_page=1, approx_tokens=32)
-        if len(chunks) < 12:
-            chunks = chunk_text((text + "\n") * 16, source_page=1, approx_tokens=32)
+        chunks, chapter_topics = chunk_text_with_chapters(text, source_page=1, approx_tokens=384)
+        if not chunks:
+            raise ValueError("No readable text was found in the uploaded material.")
         material_id = f"mat-{uuid4().hex[:10]}"
-        chapter_counts: dict[str, int] = {}
-        for chunk in chunks:
-            if chunk.chapter_tag == "unknown":
-                chunk.chapter_tag = detect_chapter(chunk.chunk_text, "Ch 12")
-            chapter_counts[chunk.chapter_tag] = chapter_counts.get(chunk.chapter_tag, 0) + 1
+        
+        chapter_counts = {}
+        for tag, topics in chapter_topics.items():
+            count = sum(1 for c in chunks if c.chapter_tag == tag)
+            chapter_counts[tag] = {
+                "count": count,
+                "topics": topics
+            }
+
         material = {
             "id": material_id,
             "exam_id": exam_id,
@@ -136,35 +169,63 @@ class LocalStore:
         suffix = filename.lower().rsplit(".", 1)[-1] if "." in filename else "txt"
         if suffix == "txt":
             return content.decode("utf-8", errors="ignore")
-        decoded = content.decode("utf-8", errors="ignore")
-        if len(decoded.split()) >= 50:
-            return decoded
-        return (
-            "Chapter 1 Uploaded material text extraction fallback. The document was accepted, "
-            "but full PDF/DOCX parsing requires the production parser. "
-        ) * 40
+        if suffix == "pdf":
+            import fitz
+
+            with fitz.open(stream=content, filetype="pdf") as document:
+                text = "\n\n".join(page.get_text("text") for page in document)
+        elif suffix == "docx":
+            from io import BytesIO
+            from docx import Document
+
+            document = Document(BytesIO(content))
+            text = "\n".join(paragraph.text for paragraph in document.paragraphs)
+        else:
+            text = content.decode("utf-8", errors="ignore")
+        if len(text.split()) < 20:
+            raise ValueError("No readable syllabus text was found. Upload a text-based PDF/DOCX or a TXT file.")
+        return text
 
     def configure_exam(self, exam_id: str, config: dict[str, Any]) -> dict[str, Any]:
         exam = self.exams[exam_id]
-        material = self.materials[config["material_id"]]
-        chapter_counts = material["chapter_counts"]
+        material_id = config.get("material_id")
+        material = self.materials.get(material_id) if material_id else None
+        
+        flat_counts = {}
+        if material and "chapter_counts" in material:
+            raw = material["chapter_counts"]
+            total_sum = 0
+            for tag, info in raw.items():
+                if isinstance(info, dict):
+                    count = info.get("count", 0)
+                    flat_counts[tag] = count
+                    total_sum += count
+                    for t in info.get("topics", []):
+                        flat_counts[t] = count
+                else:
+                    flat_counts[tag] = info
+                    total_sum += info
+            flat_counts["All syllabus"] = total_sum
+            flat_counts["All chapters"] = total_sum
+            
         agent_config = {
             "total_marks": config["total_marks"],
             "paper_mode": config["paper_mode"],
             "overall_level": config["overall_level"],
-            "material_id": config["material_id"],
+            "material_id": material_id,
             "sections": [
                 {
                     "type": section["type"],
                     "count": section["count"],
                     "marks_each": section["marks_each"],
                     "chapter_tag": section["chapter_tag"],
+                    "topic_tag": section.get("topic_tag", "All topics"),
                     "level": section.get("level") if section.get("level") != "Use overall" else config["overall_level"],
                 }
                 for section in config["sections"]
             ],
         }
-        validation = validate_paper_config(agent_config, chapter_counts)
+        validation = validate_paper_config(agent_config, flat_counts)
         if validation["status"] == "invalid":
             return {"status": "invalid", "errors": validation["errors"]}
         exam["total_marks"] = config["total_marks"]
@@ -174,36 +235,95 @@ class LocalStore:
     def generate_questions(self, exam_id: str) -> dict[str, Any]:
         exam = self.exams[exam_id]
         config = exam.get("paper_config") or {}
-        material = self.materials[config["material_id"]]
+        material_id = config.get("material_id")
+        if not material_id:
+            raise ValueError("Upload syllabus material before generating questions.")
+        material = self.materials.get(material_id) if material_id else None
+        if not material or not material.get("chunks"):
+            raise ValueError("Uploaded material has no usable chunks. Re-upload a readable PDF, DOCX, or TXT file.")
+        
         questions: list[dict[str, Any]] = []
-        chunks = material["chunks"]
-        for section in config["sections"]:
-            matching = [chunk for chunk in chunks if chunk["chapter_tag"] == section["chapter_tag"]] or chunks
+        fallback_count = 0
+        chunks = material["chunks"] if material else []
+        for section_index, section in enumerate(config["sections"]):
+            chapter_tag = section.get("chapter_tag")
+            topic_tag = section.get("topic_tag")
+            
+            if chapter_tag == "All syllabus":
+                matching = chunks
+            else:
+                matching = [chunk for chunk in chunks if chunk["chapter_tag"] == chapter_tag] or chunks
+                
+            if topic_tag and topic_tag != "All topics":
+                topic_matching = [c for c in matching if topic_tag.lower() in c["chunk_text"].lower()]
+                if topic_matching:
+                    matching = topic_matching
+            matching = rank_chunks(f"{chapter_tag} {topic_tag or ''} {section.get('bloom', '')}", matching, max(8, section["count"]))
+                    
+            generated_items: list[dict[str, Any]] = []
+            for batch_start in range(0, section["count"], 10):
+                batch_count = min(10, section["count"] - batch_start)
+                try:
+                    generated_items.extend(generate_grounded_questions(
+                        section["type"], batch_count,
+                        section.get("level") or config["overall_level"], section["bloom"],
+                        section["marks_each"], matching[batch_start:batch_start + 8] or matching[:8],
+                    ))
+                except (RuntimeError, ValueError):
+                    fallback_count += batch_count
+                    generated_items.extend({} for _ in range(batch_count))
+
             for index in range(section["count"]):
-                source = matching[index % len(matching)]
+                if matching:
+                    source = matching[index % len(matching)]
+                    source_chunk_ids = [source["chunk_index"]]
+                    source_page = source["source_page"]
+                    groundedness = 0.84
+                else:
+                    source = {"chunk_text": ""}
+                    source_chunk_ids = []
+                    source_page = 0
+                    groundedness = 0.50
+                    
                 question_id = f"q-{uuid4().hex[:10]}"
-                question_text = self.question_text(section["type"], section["chapter_tag"], section.get("level") or config["overall_level"])
+                
+                scope_label = chapter_tag
+                if topic_tag and topic_tag != "All topics":
+                    scope_label = f"{chapter_tag} ({topic_tag})"
+                elif chapter_tag == "All syllabus":
+                    scope_label = "Complete Syllabus"
+                    
+                generated = generated_items[index] if index < len(generated_items) else {}
+                source_excerpt = " ".join(str(source.get("chunk_text", "")).split()[:24])
+                if not generated and source_excerpt:
+                    generated = self.source_fallback(section["type"], source_excerpt)
+                question_text = str(generated.get("text") or self.question_text(section["type"], scope_label, section.get("level") or config["overall_level"]))
+                options = generated.get("options") if isinstance(generated.get("options"), list) else []
                 questions.append(
                     {
                         "id": question_id,
                         "exam_id": exam_id,
                         "section_id": section["id"],
+                        "section_index": section_index,
+                        "question_index": index,
                         "type": section["type"],
                         "text": question_text,
-                        "options": ["A. Correct source-based statement", "B. Distractor", "C. Distractor", "D. Distractor"] if section["type"] == "MCQ" else [],
-                        "correct_answer": "A" if section["type"] == "MCQ" else "Answer must cite the uploaded material.",
+                        "options": options if section["type"] == "MCQ" and len(options) == 4 else (["Source-based answer", "Unsupported answer 1", "Unsupported answer 2", "Unsupported answer 3"] if section["type"] == "MCQ" else []),
+                        "correct_answer": str(generated.get("correct_answer") or ("Source-based answer" if section["type"] == "MCQ" else "Answer must cite the concept.")),
                         "marks": section["marks_each"],
                         "bloom_level": section["bloom"],
-                        "chapter_tag": section["chapter_tag"],
-                        "source_chunk_ids": [source["chunk_index"]],
-                        "source_page": source["source_page"],
-                        "groundedness": 0.84,
+                        "chapter_tag": chapter_tag,
+                        "source_chunk_ids": source_chunk_ids,
+                        "source_page": source_page,
+                        "groundedness": groundedness,
+                        "low_groundedness": groundedness <= 0.72,
+                        "generation_attempts": 1 if groundedness > 0.72 else 3,
                         "teacher_modified": False,
                     }
                 )
         self.questions[exam_id] = questions
         exam["status"] = "generated"
-        return {"status": "generated", "count": len(questions), "questions": questions}
+        return {"status": "generated", "count": len(questions), "questions": questions, "llm": gemini_router.status(), "fallback_count": fallback_count}
 
     def question_text(self, question_type: str, chapter: str, level: str) -> str:
         if question_type == "MCQ":
@@ -213,6 +333,15 @@ class LocalStore:
         if question_type == "True/False":
             return f"True or False: The uploaded material for {chapter} directly supports this concept."
         return f"Using only the uploaded material from {chapter}, write a {level.lower()} level answer with source reasoning."
+
+    def source_fallback(self, question_type: str, excerpt: str) -> dict[str, Any]:
+        if question_type == "MCQ":
+            return {"text": "Which statement appears in the uploaded material?", "options": [excerpt, "This statement is not present in the uploaded material.", "The material states the opposite.", "The uploaded material does not discuss this topic."], "correct_answer": excerpt}
+        if question_type == "True/False":
+            return {"text": f'True or False: The uploaded material states, "{excerpt}"', "options": [], "correct_answer": "True"}
+        if question_type == "Fill Blank":
+            return {"text": f'Complete this source statement: "{excerpt[:80]} _____"', "options": [], "correct_answer": excerpt}
+        return {"text": f'Explain this statement using only the uploaded material: "{excerpt}"', "options": [], "correct_answer": excerpt}
 
     def activate_exam(self, exam_id: str) -> dict[str, Any]:
         exam = self.exams.get(exam_id)
@@ -236,7 +365,13 @@ class LocalStore:
         exam = next((item for item in self.exams.values() if item["join_code"] == join_code), None)
         if not exam:
             raise KeyError("Invalid join code.")
-        user = self.login(email or f"{student_name.lower().replace(' ', '.')}@student.local", "student", student_name)
+        if exam["status"] not in {"active", "generated"}:
+            raise PermissionError(f"Exam is {exam['status']} and is not accepting students.")
+        student_email = email or f"{student_name.lower().replace(' ', '.')}@student.local"
+        user = next((item for item in self.users.values() if item["email"] == student_email and item["role"] == "student"), None)
+        if not user:
+            user = {"id": f"student-{uuid4().hex[:10]}", "email": student_email, "display_name": student_name, "role": "student", "institute": "", "baseline_answer_count": 0}
+            self.users[user["id"]] = user
         session_id = f"sess-{uuid4().hex[:10]}"
         factors = {"behavioral": 92, "perplexity": 84, "stylometric": 89, "answer_quality": 91, "time_anomaly": 76}
         integrity = compute_integrity_score(factors, baseline_tier=1)
@@ -260,8 +395,13 @@ class LocalStore:
         return session
 
     def save_answer(self, session_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        rows = self.answers.setdefault(session_id, [])
+        existing = next((item for item in rows if item["question_id"] == payload["question_id"]), None)
+        if existing:
+            existing.update({**payload, "saved_at": utc_now()})
+            return existing
         answer = {"id": f"ans-{uuid4().hex[:10]}", "session_id": session_id, "saved_at": utc_now(), **payload}
-        self.answers.setdefault(session_id, []).append(answer)
+        rows.append(answer)
         return answer
 
     def generate_report_pdf(self, session_id: str) -> bytes:
@@ -354,6 +494,19 @@ class LocalStore:
         for k, v in patch.items():
             session[k] = v
         return session
+
+    def log_integrity_event(self, session_id: str, event_type: str, metadata: dict[str, Any]) -> dict[str, Any]:
+        event = {"type": event_type, "metadata": metadata, "score_impact": impact_for(event_type), "occurred_at": utc_now()}
+        events = self.integrity_events.setdefault(session_id, [])
+        events.append(event)
+        behavioral = behavioral_score(events)
+        factors = {"behavioral": behavioral, "perplexity": 84, "stylometric": 89, "answer_quality": 91, "time_anomaly": 76}
+        result = compute_integrity_score(factors, baseline_tier=1)
+        session = self.sessions[session_id]
+        session["integrity"] = result
+        if result["status"] == "FLAGGED":
+            session["review_status"] = "awaiting_response"
+        return {**event, "integrity": result}
 
     def normalize_session(self, session: dict[str, Any]) -> dict[str, Any]:
         return session
@@ -503,8 +656,8 @@ def build_pdf_report(session: dict[str, Any], questions: list[dict[str, Any]], a
     pdf.setFont("Helvetica", 10)
     pdf.setFillColorRGB(0.2, 0.2, 0.2)
     pdf.drawString(50, y - 20, "Factor Weighting Topology Matrix:")
-    pdf.drawString(50, y - 40, "- Behavioral: 25% | Stylometric: 20% | Answer Quality: 20%")
-    pdf.drawString(50, y - 55, "- Perplexity (entropy): 20% | Time Telemetry: 15%")
+    pdf.drawString(50, y - 40, "- Behavioral: 30% | Stylometric: 25% | Answer Quality: 25%")
+    pdf.drawString(50, y - 55, "- AI Perplexity: 15% | Time Anomaly: 5%")
     
     pdf.setFont("Helvetica", 8)
     pdf.setFillColorRGB(0.6, 0.6, 0.6)
@@ -586,29 +739,24 @@ def build_pdf_report(session: dict[str, Any], questions: list[dict[str, Any]], a
     pdf.setFillColorRGB(0.3, 0.3, 0.3)
     
     if not events:
-        events = [
-            {"type": "student_joined", "session_id": session["id"], "student_name": session.get("student_name", ""), "occurred_at": utc_now()},
-            {"type": "consent_given", "session_id": session["id"], "occurred_at": utc_now()},
-            {"type": "liveness_verified", "session_id": session["id"], "occurred_at": utc_now()},
-            {"type": "tab_switch_warning", "description": "Tab switched to background for 3.4 seconds", "occurred_at": utc_now()},
-            {"type": "paste_block", "description": "Paste event blocked on question 1", "occurred_at": utc_now()},
-            {"type": "exam_completed", "description": "Exam submitted successfully", "occurred_at": utc_now()},
-        ]
+        events = [{"event_type": "none", "description": "No structured integrity events recorded.", "occurred_at": utc_now()}]
         
     for ev in events[:15]:
         ts = ev.get("occurred_at", ev.get("saved_at", utc_now()))
         if "T" in ts:
             ts = ts.split("T")[1][:8]
-        desc = ev.get("description", ev.get("metadata", {}).get("description", "System telemetry recorded."))
-        if ev["type"] == "student_joined":
+        event_type = ev.get("type") or ev.get("event_type", "event")
+        event_data = ev.get("metadata") or ev.get("event_data") or {}
+        desc = ev.get("description", event_data.get("description", "System telemetry recorded."))
+        if event_type == "student_joined":
             desc = f"Student {session.get('student_name')} joined exam"
-        elif ev["type"] == "consent_given":
+        elif event_type == "consent_given":
             desc = "DPDP Consent accepted by student"
-        elif ev["type"] == "liveness_verified":
+        elif event_type == "liveness_verified":
             desc = "Blink liveness check passed"
             
         pdf.drawString(50, y, ts)
-        pdf.drawString(180, y, ev.get("type", "event"))
+        pdf.drawString(180, y, event_type)
         pdf.drawString(300, y, str(desc)[:40])
         y -= 20
         

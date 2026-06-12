@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import random
 import string
+import math
 from typing import Any
 
 ALLOWED_QUESTION_TYPES = {"MCQ", "Short Answer", "Long Answer", "Fill Blank", "True/False", "Essay"}
@@ -38,7 +39,7 @@ def validate_paper_config(config: dict[str, Any], chapter_chunk_counts: dict[str
     errors: list[str] = []
 
     if not material_id:
-        errors.append("Syllabus/material upload is required before paper generation.")
+        errors.append("Upload syllabus material before configuring or generating the paper.")
 
     if paper_mode not in ALLOWED_MODES:
         errors.append(f"Unsupported paper mode: {paper_mode}.")
@@ -63,12 +64,16 @@ def validate_paper_config(config: dict[str, Any], chapter_chunk_counts: dict[str
 
         chapter = section.get("chapter_tag")
         if not chapter:
-            errors.append("Every section must choose a chapter/source area from the uploaded material.")
+            errors.append("Every section must choose a chapter/source area.")
             continue
-        needed = int(section["count"]) * 8
-        available = chapter_chunk_counts.get(chapter, 0)
-        if available < needed:
-            errors.append(f"Not enough material in {chapter}: need {needed} chunks, have {available}.")
+            
+        if material_id:
+            # A substantial 384-token chunk can safely support several distinct
+            # questions while remaining source-locked.
+            needed = max(1, math.ceil(int(section["count"]) / 3))
+            available = chapter_chunk_counts.get(chapter, 0)
+            if available < needed:
+                errors.append(f"Not enough material in {chapter}: need {needed} chunks, have {available}.")
 
     return {
         "status": "config_validated" if not errors else "invalid",
