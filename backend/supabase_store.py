@@ -144,6 +144,20 @@ class SupabaseStore:
     def request_password_reset(self, email: str) -> None:
         self.auth_request("recover", {"email": email})
 
+    def confirm_password_reset(self, token: str, password: str) -> None:
+        req = request.Request(
+            f"{self.url}/auth/v1/user",
+            data=json.dumps({"password": password}).encode("utf-8"),
+            method="PUT",
+            headers={"apikey": self.key, "Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+        )
+        try:
+            with request.urlopen(req, timeout=20):
+                return
+        except error.HTTPError as exc:
+            detail = json.loads(exc.read().decode("utf-8", errors="ignore") or "{}")
+            raise PermissionError(detail.get("msg") or detail.get("error_description") or "Invalid or expired reset token") from exc
+
     def create_exam(self, teacher_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         existing_codes = {exam["join_code"] for exam in self.rest("GET", "exams", query="?select=join_code")}
         created = self.rest("POST", "exams", {
@@ -465,7 +479,10 @@ class SupabaseStore:
         return self.normalize_exam(self.rest("PATCH", "exams", {"status": "active", "activated_at": utc_now()}, query=f"?id=eq.{exam_id}")[0])
 
     def end_exam(self, exam_id: str) -> dict[str, Any]:
-        return self.normalize_exam(self.rest("PATCH", "exams", {"status": "ended", "ended_at": utc_now()}, query=f"?id=eq.{exam_id}")[0])
+        ended_at = utc_now()
+        exam = self.rest("PATCH", "exams", {"status": "ended", "ended_at": ended_at}, query=f"?id=eq.{exam_id}")[0]
+        self.rest("PATCH", "exam_sessions", {"status": "ended", "ended_at": ended_at}, query=f"?exam_id=eq.{exam_id}&status=neq.ended")
+        return self.normalize_exam(exam)
 
     def join_session(self, join_code: str, student_name: str, email: str | None) -> dict[str, Any]:
         exams = self.rest("GET", "exams", query=f"?join_code=eq.{join_code}")
@@ -556,6 +573,13 @@ class SupabaseStore:
             session["answers_count"] = len(answers)
             session["events_count"] = len(events)
             session["joined_at"] = row.get("started_at") or row.get("created_at")
+            appeals = self.rest("GET", "integrity_appeals", query=f"?session_id=eq.{row['id']}&order=submitted_at.desc&limit=1") or []
+            if appeals:
+                session["appeal"] = {
+                    "response": appeals[0].get("student_response", ""),
+                    "submitted_at": appeals[0].get("submitted_at"),
+                    "deadline_at": appeals[0].get("deadline_at"),
+                }
             result.append(session)
         return result
 

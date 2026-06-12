@@ -104,7 +104,7 @@ type PaperSection = {
 function sectionsForMode(mode: PaperMode, totalMarks: number, chapter = 'All syllabus'): PaperSection[] {
   const marks = Math.max(10, Math.min(300, Math.floor(totalMarks || 10)))
   const budgetSection = (id: string, type: QuestionType, budget: number, bloom: string): PaperSection => {
-    const preferred = type === 'Short Answer' ? 5 : type === 'Long Answer' || type === 'Essay' ? 10 : 1
+    const preferred = type === 'Short Answer' ? 5 : type === 'Long Answer' || type === 'Essay' ? 10 : 2
     let marksEach = Math.min(20, preferred, budget)
     while (marksEach > 1 && budget % marksEach !== 0) marksEach -= 1
     return { id, type, count: budget / marksEach, marks: marksEach, bloom, chapter, level: 'Use overall', negative: 'none' }
@@ -418,6 +418,7 @@ function App() {
         go={navigate}
         notify={notify}
         students={studentsList}
+        selectedExamId={selectedExamId}
         onSelectExam={(examId) => {
           setSelectedExamId(examId)
           window.localStorage.setItem('examguard-exam-id', examId)
@@ -441,6 +442,7 @@ function App() {
             setStudentsList(sessions.map(mapSessionToStudent))
           }).catch(() => {})
         }}
+        onStudentsSnapshot={(sessions) => setStudentsList(sessions.map(mapSessionToStudent))}
       />
     ),
     consent: <ConsentView consentScrolled={consentScrolled} setConsentScrolled={setConsentScrolled} go={navigate} notify={notify} />,
@@ -730,9 +732,11 @@ function AuthPanel({ initialRole, onLogin, notify }: { initialRole: AuthRole; on
   )
 }
 
-function DashboardView({ go, notify, onSelectExam, students }: { go: (view: View) => void; notify: (kind: ToastKind, text: string) => void; onSelectExam: (examId: string) => void; students: any[] }) {
+function DashboardView({ go, notify, onSelectExam, students, selectedExamId }: { go: (view: View) => void; notify: (kind: ToastKind, text: string) => void; onSelectExam: (examId: string) => void; students: any[]; selectedExamId: string }) {
   const [exams, setExams] = useState<ApiExam[]>([])
   const [showCreateModal, setShowCreateModal] = useState(false)
+  const [search, setSearch] = useState('')
+  const [showArchived, setShowArchived] = useState(false)
 
   useEffect(() => {
     const teacherId = window.localStorage.getItem('examguard-user-id') || 'teacher-demo'
@@ -767,6 +771,12 @@ function DashboardView({ go, notify, onSelectExam, students }: { go: (view: View
     } catch (e) { notify('error', e instanceof Error ? e.message : 'Failed to clone exam.') }
   }
 
+  const visibleExams = exams.filter((exam) => {
+    const matchesSearch = `${exam.title} ${exam.subject} ${exam.join_code}`.toLowerCase().includes(search.toLowerCase())
+    const matchesArchive = showArchived ? exam.status === 'archived' : exam.status !== 'archived'
+    return matchesSearch && matchesArchive
+  })
+
   return (
     <section className="screen">
       {/* Dynamic Stats Row at top of Dashboard */}
@@ -794,9 +804,9 @@ function DashboardView({ go, notify, onSelectExam, students }: { go: (view: View
       </div>
 
       <div className="toolbar" style={{ display: 'flex', justifyContent: 'space-between', gap: '16px', flexWrap: 'wrap', marginBottom: '24px' }}>
-        <div className="search-box" style={{ flexGrow: 1, maxWidth: '400px' }}><Search size={16} /><input aria-label="Search exams" placeholder="Search exams, subjects, codes" /></div>
+        <div className="search-box" style={{ flexGrow: 1, maxWidth: '400px' }}><Search size={16} /><input aria-label="Search exams" placeholder="Search exams, subjects, codes" value={search} onChange={(event) => setSearch(event.target.value)} /></div>
         <div style={{ display: 'flex', gap: '12px' }}>
-          <button className="ghost-btn"><Archive size={16} /> Archive</button>
+          <button className="ghost-btn" onClick={() => setShowArchived((value) => !value)}><Archive size={16} /> {showArchived ? 'Show Current' : 'Show Archived'}</button>
           <button className="primary-btn" onClick={() => setShowCreateModal(true)}><Plus size={16} /> Create New Exam</button>
         </div>
       </div>
@@ -817,7 +827,7 @@ function DashboardView({ go, notify, onSelectExam, students }: { go: (view: View
           </Card>
         ) : null}
 
-        {exams.map((exam) => (
+        {visibleExams.map((exam) => (
           <Card key={exam.id} title={exam.title} icon={BookOpen}>
             <div className="exam-card-body">
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -855,7 +865,7 @@ function DashboardView({ go, notify, onSelectExam, students }: { go: (view: View
                 </tr>
               </thead>
               <tbody>
-                {exams.map((exam) => (
+                {visibleExams.map((exam) => (
                   <tr key={exam.id} style={{ borderBottom: '1px solid var(--eg-navy-600)', background: 'var(--eg-navy-800)', transition: 'background 150ms' }} className="table-row-hover">
                     <td style={{ padding: '12px 16px', fontWeight: 600 }}>{exam.title}</td>
                     <td style={{ padding: '12px 16px', color: 'var(--eg-text-muted)' }}>{exam.subject}</td>
@@ -884,7 +894,7 @@ function DashboardView({ go, notify, onSelectExam, students }: { go: (view: View
       <div className="tab-strip" style={{ marginTop: '32px' }}>
         {['Overview', 'Configure Paper', 'Live Monitor', 'Reports', 'Review'].map((tab, index) => (
           <button key={tab} onClick={() => {
-            const selectedExam = exams[0]?.id || 'exam-physics';
+            const selectedExam = exams.find((exam) => exam.id === selectedExamId)?.id || exams[0]?.id || 'exam-physics';
             onSelectExam(selectedExam);
             const targetView = index === 0 ? 'dashboard' : index === 1 ? 'config' : index === 2 ? 'live' : index === 3 ? 'reports' : 'review';
             go(targetView);
@@ -1000,6 +1010,7 @@ function ConfigView({ examId, notify }: { examId: string; notify: (kind: ToastKi
   }, [examId])
 
   const total = sections.reduce((sum, section) => sum + section.count * section.marks, 0)
+  const totalQuestions = sections.reduce((sum, section) => sum + section.count, 0)
   const validTotalMarks = Number.isInteger(totalMarksTarget) && totalMarksTarget >= 10 && totalMarksTarget <= 300
   const materialChunks = uploadedMaterial ? Object.values(chapterCountsMap).reduce((a, b) => a + b, 0) : 0
   const invalidSections = sections.filter((section) => section.count < 1 || section.marks < 1 || !section.chapter)
@@ -1008,7 +1019,7 @@ function ConfigView({ examId, notify }: { examId: string; notify: (kind: ToastKi
     ? sections.filter((section) => {
         if (section.chapter === 'All syllabus') return false
         const count = Reflect.get(chapterCountsMap, section.chapter) ?? 0
-        return count < section.count
+        return count < 1
       })
     : []
   const typeSet = new Set(sections.map((section) => section.type))
@@ -1016,7 +1027,7 @@ function ConfigView({ examId, notify }: { examId: string; notify: (kind: ToastKi
     (paperMode === 'MCQ only' && [...typeSet].some((type) => type !== 'MCQ')) ||
     (paperMode === 'MCQ + QA' && [...typeSet].some((type) => !['MCQ', 'Short Answer', 'Long Answer', 'Essay'].includes(type))) ||
     (paperMode === 'Mixed' && ![...typeSet].some((type) => ['MCQ', 'Short Answer', 'Long Answer', 'Fill Blank'].includes(type)))
-  const canGenerate = hasMaterial && validTotalMarks && total === totalMarksTarget && invalidSections.length === 0 && lowCoverageChapters.length === 0 && !modeMismatch && !generating
+  const canGenerate = hasMaterial && validTotalMarks && total === totalMarksTarget && totalQuestions <= 50 && invalidSections.length === 0 && lowCoverageChapters.length === 0 && !modeMismatch && !generating
 
   const applyMode = (mode: PaperMode) => {
     setPaperMode(mode)
@@ -1025,7 +1036,7 @@ function ConfigView({ examId, notify }: { examId: string; notify: (kind: ToastKi
   }
 
   const updateSection = (index: number, patch: Partial<PaperSection>) => { setGenerated(false); setSections((c) => c.map((s, i) => i === index ? { ...s, ...patch } : s)) }
-  const addSection = () => { setGenerated(false); setSections((c) => [...c, { id: String.fromCharCode(65 + c.length), type: 'Fill Blank', count: 5, marks: 1, bloom: 'Apply', chapter: 'Ch 12', level: 'Use overall', negative: 'none' }]) }
+  const addSection = () => { setGenerated(false); setSections((c) => [...c, { id: String.fromCharCode(65 + c.length), type: 'Fill Blank', count: 5, marks: 2, bloom: 'Apply', chapter: availableChapters[0] || 'All syllabus', level: 'Use overall', negative: 'none' }]) }
   const removeSection = (index: number) => { if (sections.length === 1) { notify('error', 'At least one paper section is required.'); return }; setGenerated(false); setSections((c) => c.filter((_, i) => i !== index).map((s, i) => ({ ...s, id: String.fromCharCode(65 + i) }))) }
 
   const handleMaterialUpload = async (file: File | undefined) => {
@@ -1068,8 +1079,9 @@ function ConfigView({ examId, notify }: { examId: string; notify: (kind: ToastKi
     if (!hasMaterial) { notify('error', 'Upload syllabus or study material before generating the paper.'); return }
     if (!validTotalMarks) { notify('error', 'Total exam marks must be between 10 and 300.'); return }
     if (total !== totalMarksTarget) { notify('error', `Paper total must be exactly ${totalMarksTarget} marks. Current total is ${total}.`); return }
+    if (totalQuestions > 50) { notify('error', 'Use 50 questions or fewer. Increase marks per question to keep generation reliable.'); return }
     if (invalidSections.length) { notify('error', 'Every section needs question count, marks, and chapter.'); return }
-    if (lowCoverageChapters.length) { notify('error', 'One or more sections ask for more questions than the selected chapter material can support.'); return }
+    if (lowCoverageChapters.length) { notify('error', 'One or more selected chapters have no usable source chunks.'); return }
     if (modeMismatch) { notify('error', `Selected sections do not match the ${paperMode} paper type.`); return }
     try {
       setGenerating(true)
@@ -1243,9 +1255,10 @@ function ConfigView({ examId, notify }: { examId: string; notify: (kind: ToastKi
           </div>
           {!validTotalMarks && <p className="form-error" style={{ marginTop: '12px' }}>Total exam marks must be between 10 and 300.</p>}
           {modeMismatch && <p className="form-error" style={{ marginTop: '12px' }}>Sections do not match selected paper type.</p>}
-          {lowCoverageChapters.length > 0 && <p className="form-error" style={{ marginTop: '12px' }}>Some sections exceed available chapter coverage.</p>}
+          {lowCoverageChapters.length > 0 && <p className="form-error" style={{ marginTop: '12px' }}>A selected chapter has no usable source chunks.</p>}
           
           {!hasMaterial && <p className="form-error" style={{ marginTop: '12px' }}>Upload material in Step 1 to unlock generation.</p>}
+          {totalQuestions > 50 && <p className="form-error" style={{ marginTop: '12px' }}>Maximum 50 questions. Increase marks per question.</p>}
           <button className="primary-btn full" style={{ height: '48px', marginTop: '20px', fontSize: '15px' }} disabled={!canGenerate || loading} onClick={validateAndGenerate}>
             {generating ? 'Generating paper...' : 'Generate Paper'}
           </button>
@@ -1281,6 +1294,7 @@ function LiveMonitorView(props: {
   setSort: (sort: 'risk' | 'name' | 'join') => void
   notify: (kind: ToastKind, text: string) => void
   onRefreshStudents: () => void
+  onStudentsSnapshot: (sessions: ApiSession[]) => void
 }) {
   const avg = props.students.length > 0
     ? Math.round(props.students.reduce((sum, student) => sum + student.score, 0) / props.students.length)
@@ -1306,7 +1320,16 @@ function LiveMonitorView(props: {
       setConnection('connecting')
       socket = new WebSocket(examSocketUrl(props.examId))
       socket.onopen = () => { attempts = 0; setConnection('live') }
-      socket.onmessage = () => refreshStudentsRef.current()
+      socket.onmessage = (event) => {
+        try {
+          const payload = JSON.parse(event.data)
+          if (payload?.type === 'monitor_snapshot' && Array.isArray(payload.students)) {
+            props.onStudentsSnapshot(payload.students)
+            return
+          }
+        } catch { /* fall through to REST refresh */ }
+        refreshStudentsRef.current()
+      }
       socket.onerror = () => socket?.close()
       socket.onclose = () => {
         if (closed) return
@@ -1564,6 +1587,8 @@ function ExamView(props: {
   const [questionsLoading, setQuestionsLoading] = useState(true)
   const [answers, setAnswers] = useState<Record<string, string>>({})
   const [timeLeft, setTimeLeft] = useState(80 * 60) // 80 minutes default
+  const [examStatus, setExamStatus] = useState('active')
+  const [integrityStatus, setIntegrityStatus] = useState<IntegrityStatus>('CLEAN')
   const [lastSave, setLastSave] = useState<number>(Date.now())
   const [saveWarning, setSaveWarning] = useState('')
   const [submitOpen, setSubmitOpen] = useState(false)
@@ -1587,6 +1612,7 @@ function ExamView(props: {
         api.sessionExam(sessionId)
           .then((exam) => {
             setExamTitle(exam.title)
+            setExamStatus(exam.status)
             if (exam && exam.duration_minutes) {
               const deadlineKey = `examguard-deadline-${sessionId}`
               const savedDeadline = Number(window.localStorage.getItem(deadlineKey))
@@ -1597,12 +1623,34 @@ function ExamView(props: {
           })
           .catch(() => {})
       }
+      api.sessionIntegrity(sessionId)
+        .then((integrity) => setIntegrityStatus((integrity.status as IntegrityStatus) || 'CLEAN'))
+        .catch(() => {})
     }
     // Restore saved answers from localStorage
     try {
       const saved = window.localStorage.getItem('examguard-answers')
       if (saved) setAnswers(JSON.parse(saved))
     } catch { /* ignore */ }
+  }, [])
+
+  useEffect(() => {
+    const sessionId = window.localStorage.getItem('examguard-session-id')
+    if (!sessionId) return
+    const poll = window.setInterval(() => {
+      api.sessionExam(sessionId).then((exam) => {
+        setExamStatus(exam.status)
+        if (exam.status === 'ended') {
+          api.endSession(sessionId).catch(() => {})
+          props.notify('info', 'Teacher ended the exam. Your saved answers were submitted.')
+          props.go('complete')
+        }
+      }).catch(() => {})
+      api.sessionIntegrity(sessionId)
+        .then((integrity) => setIntegrityStatus((integrity.status as IntegrityStatus) || 'CLEAN'))
+        .catch(() => {})
+    }, 5000)
+    return () => window.clearInterval(poll)
   }, [])
 
   // Fill in the text area when the initial question loads
@@ -1617,12 +1665,14 @@ function ExamView(props: {
 
   // Countdown timer
   useEffect(() => {
-    const timer = setInterval(() => setTimeLeft((t) => Math.max(0, t - 1)), 1000)
+    const timer = setInterval(() => {
+      if (examStatus === 'active') setTimeLeft((t) => Math.max(0, t - 1))
+    }, 1000)
     timerRef.current = timer
     return () => {
       if (timer) clearInterval(timer)
     }
-  }, [])
+  }, [examStatus])
 
   // Auto-save answers to localStorage every 10 seconds
   useEffect(() => {
@@ -1756,8 +1806,10 @@ function ExamView(props: {
           <Timer size={20} /> {formatTime(timeLeft)}
         </span>
         <span className="save-state"><Check size={16} /> Saved {secondsSinceSave}s ago</span>
-        <span className="badge badge-amber" title="WATCH is an early integrity signal. It does not pause the exam or imply misconduct."><Shield size={14} /> WATCH · exam continues</span>
+        <span className={`badge ${integrityStatus === 'CLEAN' ? 'badge-green' : integrityStatus === 'WATCH' ? 'badge-amber' : 'badge-red'}`} title="Integrity status is informational during the exam. Teacher review remains final."><Shield size={14} /> {integrityStatus} · exam continues</span>
       </div>
+
+      {examStatus === 'paused' && <div className="connection-card" role="status"><PauseCircle size={16} /> Exam paused by teacher. Timer and answering are temporarily frozen.</div>}
 
       {questionsLoading ? <div className="empty-state">Loading generated paper...</div> : questionError ? <div className="empty-state"><AlertTriangle size={24} /><strong>Paper could not load</strong><span>{questionError}</span><button className="ghost-btn" onClick={() => window.location.reload()}>Retry</button></div> : null}
 
@@ -1765,11 +1817,11 @@ function ExamView(props: {
         <div className="palette-summary">Answered {answeredCount}/{totalQ}</div>
         <div className="palette-grid" style={{ gridTemplateColumns: 'repeat(5, 1fr)', gap: '8px' }}>
           {displayQuestions.map((dq, i) => (
-            <button key={dq.id} className={i === currentQ ? 'current' : (Reflect.get(answers, dq.id) || '').trim() ? 'answered' : 'unvisited'} onClick={() => goToQuestion(i)} aria-label={`Question ${i + 1}`}>{i + 1}</button>
+            <button disabled={examStatus === 'paused'} key={dq.id} className={i === currentQ ? 'current' : (Reflect.get(answers, dq.id) || '').trim() ? 'answered' : 'unvisited'} onClick={() => goToQuestion(i)} aria-label={`Question ${i + 1}`}>{i + 1}</button>
           ))}
         </div>
         {saveWarning && <span className="hint" role="status">{saveWarning}</span>}
-        <button className="primary-btn full" onClick={requestSubmit}>Submit Exam</button>
+        <button className="primary-btn full" disabled={examStatus === 'paused'} onClick={requestSubmit}>Submit Exam</button>
       </aside>}
 
       {/* High contrast question card: Light card on dark background */}
@@ -1823,6 +1875,7 @@ function ExamView(props: {
                     name="mcq"
                     value={opt}
                     checked={isSelected}
+                    disabled={examStatus === 'paused'}
                     onChange={() => handleMcqSelect(opt)}
                     style={{ accentColor: 'var(--eg-indigo)', cursor: 'pointer' }}
                   />
@@ -1837,6 +1890,7 @@ function ExamView(props: {
               aria-label="Answer text"
               minLength={25}
               value={props.answer}
+              disabled={examStatus === 'paused'}
               onChange={(event) => props.setAnswer(event.target.value)}
               onPaste={() => { logEvent('paste_detected'); props.notify('warning', 'Paste detected and sent as a structured event.') }}
               placeholder="Type your response here..."
@@ -1861,14 +1915,14 @@ function ExamView(props: {
         {current?.type !== 'MCQ' && !answerValid && <p className="form-error" role="alert" style={{ marginBottom: '16px' }}>Answer needs at least 25 characters before final submit.</p>}
         
         <div className="inline-actions" style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
-          <button className={props.marked ? 'warning-btn' : 'ghost-btn'} style={{ borderColor: '#E2E8F0', color: props.marked ? 'var(--eg-amber)' : '#475569' }} onClick={() => props.setMarked(!props.marked)}>
+          <button disabled={examStatus === 'paused'} className={props.marked ? 'warning-btn' : 'ghost-btn'} style={{ borderColor: '#E2E8F0', color: props.marked ? 'var(--eg-amber)' : '#475569' }} onClick={() => props.setMarked(!props.marked)}>
             <Flag size={16} /> {props.marked ? 'Marked for Review' : 'Mark for Review'}
           </button>
           <div style={{ marginLeft: 'auto', display: 'flex', gap: '8px' }}>
-            <button className="ghost-btn" style={{ borderColor: '#E2E8F0', color: '#475569' }} disabled={currentQ === 0} onClick={() => goToQuestion(currentQ - 1)}>
+            <button className="ghost-btn" style={{ borderColor: '#E2E8F0', color: '#475569' }} disabled={examStatus === 'paused' || currentQ === 0} onClick={() => goToQuestion(currentQ - 1)}>
               Previous
             </button>
-            <button className="primary-btn" disabled={currentQ >= totalQ - 1} onClick={() => goToQuestion(currentQ + 1)}>
+            <button className="primary-btn" disabled={examStatus === 'paused' || currentQ >= totalQ - 1} onClick={() => goToQuestion(currentQ + 1)}>
               Next Question
             </button>
           </div>

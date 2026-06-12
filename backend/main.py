@@ -240,9 +240,17 @@ def reset_request(request: Request, payload: dict[str, str]) -> dict[str, str]:
 @app.post("/api/v1/auth/reset-confirm")
 @limiter.limit("3/minute")
 def reset_confirm(request: Request, payload: dict[str, str]) -> dict[str, str]:
-    if len(payload.get("password", "")) < 8:
+    password = payload.get("password", "")
+    token = payload.get("token", "").strip()
+    if len(password) < 8:
         raise HTTPException(status_code=422, detail="password must be at least 8 characters")
-    return {"status": "password_updated_local"}
+    if not token:
+        raise HTTPException(status_code=422, detail="reset token is required")
+    try:
+        store.confirm_password_reset(token, password)
+    except PermissionError as exc:
+        raise HTTPException(status_code=401, detail=str(exc)) from exc
+    return {"status": "password_updated"}
 
 
 # --- Exams -------------------------------------------------------------------
@@ -382,7 +390,8 @@ def exam_students(exam_id: str, teacher: dict[str, object] = Depends(current_tea
 
 
 @app.get("/api/v1/exams/{exam_id}/materials")
-def exam_materials(exam_id: str) -> list[dict[str, object]]:
+def exam_materials(exam_id: str, teacher: dict[str, object] = Depends(current_teacher)) -> list[dict[str, object]]:
+    require_owned_exam(exam_id, teacher)
     if hasattr(store, "list_materials"):
         try:
             return store.list_materials(exam_id)
@@ -524,18 +533,21 @@ async def upload_material(request: Request, exam_id: str, file: UploadFile = Fil
 
 
 @app.get("/api/v1/materials/{material_id}/status")
-def material_status(material_id: str) -> dict[str, object]:
+def material_status(material_id: str, teacher: dict[str, object] = Depends(current_teacher)) -> dict[str, object]:
     try:
         material = store.get_material(material_id)
+        require_owned_exam(str(material["exam_id"]), teacher)
         return {key: value for key, value in material.items() if key != "chunks"}
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="material not found") from exc
 
 
 @app.delete("/api/v1/materials/{material_id}")
-def delete_material(material_id: str) -> dict[str, str]:
+def delete_material(material_id: str, teacher: dict[str, object] = Depends(current_teacher)) -> dict[str, str]:
     """Delete uploaded material."""
     try:
+        material = store.get_material(material_id)
+        require_owned_exam(str(material["exam_id"]), teacher)
         store.delete_material(material_id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="material not found") from exc
@@ -554,7 +566,7 @@ def join_session(request: Request, payload: JoinRequest) -> dict[str, object]:
         redis_hot_state.push_event(f"exam:{session['exam_id']}:events", {"type": "student_joined", "session_id": session["id"], "student_name": session["student_name"]}, ttl_seconds=10800)
         return session
     except KeyError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+        raise HTTPException(status_code=404, detail=exc.args[0] if exc.args else "Invalid join code") from exc
     except PermissionError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
@@ -691,16 +703,18 @@ def save_settings(user_id: str, payload: SettingsRequest, teacher: dict[str, obj
 
 
 @app.post("/api/v1/sessions/{session_id}/reports/generate")
-def generate_session_report(session_id: str) -> dict[str, str]:
+def generate_session_report(session_id: str, teacher: dict[str, object] = Depends(current_teacher)) -> dict[str, str]:
     session = require_session(session_id)
+    require_owned_exam(str(session["exam_id"]), teacher)
     store.generate_report_pdf(session_id)
     redis_hot_state.push_event(f"exam:{session['exam_id']}:events", {"type": "report_ready", "session_id": session_id}, ttl_seconds=10800)
     return {"status": "ready", "download_url": f"/api/v1/sessions/{session_id}/reports/pdf"}
 
 
 @app.get("/api/v1/sessions/{session_id}/reports/pdf")
-def report_pdf(session_id: str) -> Response:
-    require_session(session_id)
+def report_pdf(session_id: str, teacher: dict[str, object] = Depends(current_teacher)) -> Response:
+    session = require_session(session_id)
+    require_owned_exam(str(session["exam_id"]), teacher)
     data = store.reports.get(session_id) or store.generate_report_pdf(session_id)
     return Response(content=data, media_type="application/pdf")
 

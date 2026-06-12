@@ -88,6 +88,21 @@ class StoreBehaviorTests(unittest.TestCase):
         self.assertEqual(result["status"], "invalid")
         self.assertTrue(any("Upload syllabus" in error for error in result["errors"]))
 
+    def test_paper_config_rejects_more_than_fifty_questions(self) -> None:
+        result = validate_paper_config({
+            "material_id": "material-1", "total_marks": 102, "paper_mode": "MCQ only", "overall_level": "Standard",
+            "sections": [{"type": "MCQ", "count": 51, "marks_each": 2, "chapter_tag": "SQL", "level": "Standard"}],
+        }, {"SQL": 1})
+        self.assertEqual(result["status"], "invalid")
+        self.assertTrue(any("maximum supported" in error for error in result["errors"]))
+
+    def test_end_exam_finalizes_active_sessions(self) -> None:
+        self.store.exams["exam-physics"]["status"] = "active"
+        session = self.store.join_session("PHY001", "End Test", "end@test.example")
+        self.store.end_exam("exam-physics")
+        self.assertEqual(self.store.exams["exam-physics"]["status"], "ended")
+        self.assertEqual(self.store.sessions[session["id"]]["status"], "ended")
+
     def test_langgraph_flagged_route_includes_review(self) -> None:
         result = run_workflow("proctor", {"event": "tab_hidden"}, "FLAGGED")
         self.assertEqual(result["completed_agents"], [

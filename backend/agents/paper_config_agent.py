@@ -35,6 +35,7 @@ def validate_paper_config(config: dict[str, Any], chapter_chunk_counts: dict[str
     overall_level = config.get("overall_level", "Standard")
     material_id = config.get("material_id")
     actual = sum(int(section["count"]) * int(section["marks_each"]) for section in sections)
+    total_questions = sum(int(section["count"]) for section in sections)
     errors: list[str] = []
 
     if not material_id:
@@ -48,6 +49,9 @@ def validate_paper_config(config: dict[str, Any], chapter_chunk_counts: dict[str
 
     if actual != total_marks:
         errors.append(f"Marks budget invalid: currently {actual}/{total_marks} marks.")
+
+    if total_questions > 50:
+        errors.append(f"Paper has {total_questions} questions; maximum supported per generation is 50.")
 
     for section in sections:
         question_type = section.get("type")

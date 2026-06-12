@@ -97,6 +97,9 @@ class LocalStore:
         if not any(user.get("email") == email for user in self.users.values()):
             raise PermissionError("Account not found")
 
+    def confirm_password_reset(self, token: str, password: str) -> None:
+        raise PermissionError("Password reset confirmation requires Supabase Auth")
+
     def verify_token(self, token: str) -> dict[str, Any]:
         if not token.startswith("local-"):
             raise PermissionError("Invalid access token")
@@ -364,6 +367,10 @@ class LocalStore:
             raise KeyError("exam not found")
         exam["status"] = "ended"
         exam["ended_at"] = utc_now()
+        for session in self.sessions.values():
+            if session.get("exam_id") == exam_id and session.get("status") != "ended":
+                session["status"] = "ended"
+                session["ended_at"] = exam["ended_at"]
         return exam
 
     def join_session(self, join_code: str, student_name: str, email: str | None) -> dict[str, Any]:
