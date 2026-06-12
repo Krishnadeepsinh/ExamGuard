@@ -215,3 +215,17 @@ Deployment follow-up:
 
 - Render and Vercel must finish deploying the latest commit before production browser verification.
 - Supabase migration `005_pause_exam_status.sql` still must be applied manually for pause/resume support.
+
+## 2026-06-12 Student Flow Hardening
+
+- Replaced fixed blink threshold with 24-frame per-face calibration, adaptive close/reopen thresholds, 15-second window, closure-duration filtering, and GPU-to-CPU fallback.
+- Liveness automatically saves evidence and enters exam after blink two.
+- Removed Home/login navigation after authentication.
+- Added Arjun, Priya, and Rahul student demo identity quick-fill controls.
+- Removed prefilled exam answers and appeal text.
+- Isolated answer backups per session; students cannot inherit another student's local answers.
+- Added per-tab student session ownership and duplicate-tab reset while preserving normal reload.
+- Strengthened Gemini paper prompt for self-contained questions, plausible MCQ distractors, marking guides, uniqueness, and no source-document wording.
+- Added deterministic critical-pattern escalation for repeated tab hiding plus multiple paste/fullscreen/phone vectors.
+- Production simulation: clean student scored `91.4 CLEAN`; risk student escalated to `45 FLAGGED` after critical multi-vector behavior.
+- Backend test suite: `15 passed`; frontend production build passed.
