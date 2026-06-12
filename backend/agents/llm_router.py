@@ -149,6 +149,12 @@ Difficulty: {level}. Bloom level: {bloom}. Marks each: {marks_each}.
 Use source as subject scope and factual grounding. Write normal conceptual exam questions.
 Never ask what the document, source, syllabus, passage, or uploaded material says.
 Do not copy source sentences as questions. Test understanding, application, or analysis of concepts.
+Every question must be self-contained, unambiguous, grammatically complete, and distinct from every other question.
+Match difficulty and Bloom level through reasoning depth, not obscure wording.
+For MCQ: provide one unquestionably correct answer and three plausible same-category distractors. No joke, meta, or obviously false distractors.
+For subjective questions: ask a direct task and provide a concise marking guide containing expected key points.
+Never include source labels, page numbers, raw excerpts, quotation marks around source text, or phrases such as "according to the material".
+Avoid duplicate concepts unless different sections explicitly require different Bloom-level treatment.
 Return JSON array only. Each item: {{"text":"...","options":[],"correct_answer":"...","source_number":1}}.
 For MCQ, options must contain exactly 4 plain strings and correct_answer must exactly match one option.
 For Fill Blank, include one clear blank as _____. For True/False, correct_answer must be True or False.

@@ -147,11 +147,15 @@ function viewFromHash(): View {
 
 function storedAuth(): AuthUser | null {
   try {
-    const raw = window.localStorage.getItem('examguard-auth')
+    const raw = window.sessionStorage.getItem('examguard-student-auth') || window.localStorage.getItem('examguard-auth')
     return raw ? (JSON.parse(raw) as AuthUser) : null
   } catch {
     return null
   }
+}
+
+function studentSessionId(): string | null {
+  return window.sessionStorage.getItem('examguard-session-id') || window.localStorage.getItem('examguard-session-id')
 }
 
 function formatTime(seconds: number): string {
@@ -246,7 +250,7 @@ function App() {
   const [filter, setFilter] = useState<IntegrityStatus | 'ALL'>('ALL')
   const [sort, setSort] = useState<'risk' | 'name' | 'join'>('risk')
   const [consentScrolled, setConsentScrolled] = useState(false)
-  const [answer, setAnswer] = useState('Faraday law states that induced EMF is proportional to the rate of change of magnetic flux through a circuit.')
+  const [answer, setAnswer] = useState('')
   const [marked, setMarked] = useState(false)
   const [selectedExamId, setSelectedExamId] = useState<string>(() => {
     return window.localStorage.getItem('examguard-exam-id') || 'exam-physics'
@@ -309,7 +313,7 @@ function App() {
   }, [studentsList])
 
   const canAccess = useCallback((next: View, user = auth) => {
-    if (publicViews.includes(next)) return true
+    if (publicViews.includes(next)) return !user
     if (!user) return false
     if (user.role === 'teacher') return teacherViews.includes(next)
     return studentViews.includes(next)
@@ -321,13 +325,14 @@ function App() {
       if (canAccess(next)) {
         setView(next)
       } else {
-        setView('landing')
-        window.history.replaceState(null, '', '#landing')
+        const fallback: View = auth?.role === 'teacher' ? 'dashboard' : auth?.role === 'student' ? 'consent' : 'landing'
+        setView(fallback)
+        window.history.replaceState(null, '', `#${fallback}`)
       }
     }
     window.addEventListener('hashchange', handleHashChange)
     return () => window.removeEventListener('hashchange', handleHashChange)
-  }, [canAccess])
+  }, [auth, canAccess])
 
   const notify = (kind: ToastKind, text: string) => {
     setToast({ kind, text })
@@ -336,9 +341,10 @@ function App() {
 
   const navigate = (next: View) => {
     if (!canAccess(next)) {
-      notify('warning', auth ? 'This screen requires the other role. Please switch accounts from the landing page.' : 'Please login from the landing page before opening this screen.')
-      setView('landing')
-      window.history.replaceState(null, '', '#landing')
+      notify('warning', auth ? 'This screen requires the other role. Sign out before switching roles.' : 'Please login before opening this screen.')
+      const fallback: View = auth?.role === 'teacher' ? 'dashboard' : auth?.role === 'student' ? 'consent' : 'landing'
+      setView(fallback)
+      window.history.replaceState(null, '', `#${fallback}`)
       return
     }
     setView(next)
@@ -347,7 +353,11 @@ function App() {
 
   const login = (user: AuthUser) => {
     setAuth(user)
-    window.localStorage.setItem('examguard-auth', JSON.stringify(user))
+    if (user.role === 'student') {
+      window.sessionStorage.setItem('examguard-student-auth', JSON.stringify(user))
+    } else {
+      window.localStorage.setItem('examguard-auth', JSON.stringify(user))
+    }
     notify('success', `${user.role === 'teacher' ? 'Teacher' : 'Student'} login successful.`)
     const next = user.role === 'teacher' ? 'dashboard' : 'consent'
     setView(next)
@@ -358,7 +368,7 @@ function App() {
     if (payload.role === 'student') {
       if (!payload.joinCode) throw new Error('Exam join code is required.')
       const session = await api.joinSession({ join_code: payload.joinCode, student_name: payload.name, email: payload.email || undefined })
-      window.localStorage.setItem('examguard-session-id', session.id)
+      window.sessionStorage.setItem('examguard-session-id', session.id)
       window.localStorage.setItem('examguard-exam-id', session.exam_id)
       login({ role: 'student', name: session.student_name, email: payload.email || `${payload.name.toLowerCase().replace(/\s+/g, '.')}@student.ai` })
       return
@@ -374,9 +384,11 @@ function App() {
   const logout = () => {
     setAuth(null)
     window.localStorage.removeItem('examguard-auth')
+    window.sessionStorage.removeItem('examguard-student-auth')
     window.localStorage.removeItem('examguard-user-id')
     window.localStorage.removeItem('examguard-access-token')
     window.localStorage.removeItem('examguard-session-id')
+    window.sessionStorage.removeItem('examguard-session-id')
     window.localStorage.removeItem('examguard-exam-id')
     notify('info', 'Signed out. Protected screens are locked.')
     setView('landing')
@@ -396,9 +408,9 @@ function App() {
     })
   }, [studentsList, filter, sort])
 
-  const activeView = canAccess(view) ? view : 'landing'
+  const activeView = canAccess(view) ? view : auth?.role === 'teacher' ? 'dashboard' : auth?.role === 'student' ? 'consent' : 'landing'
   const visibleNavItems = navItems.filter((item) => {
-    if (publicViews.includes(item.view)) return true
+    if (publicViews.includes(item.view)) return !auth
     if (!auth) return false
     return auth.role === 'teacher' ? teacherViews.includes(item.view) : studentViews.includes(item.view)
   })
@@ -696,6 +708,18 @@ function AuthPanel({ initialRole, onLogin, notify }: { initialRole: AuthRole; on
         </div>
       ) : (
         <div className="login-form" style={{ display: 'flex', flexDirection: 'column', gap: '16px', marginBottom: '20px' }}>
+          <div>
+            <label>Demo Student</label>
+            <div className="inline-actions" style={{ gap: '8px', flexWrap: 'wrap' }}>
+              {[
+                ['Arjun Sharma', 'arjun@student.ai'],
+                ['Priya Patel', 'priya@student.ai'],
+                ['Rahul Mehta', 'rahul@student.ai'],
+              ].map(([name, demoEmail]) => (
+                <button key={demoEmail} type="button" className="ghost-btn" style={{ minHeight: '36px' }} onClick={() => { setStudentName(name); setEmail(demoEmail) }}>{name.split(' ')[0]}</button>
+              ))}
+            </div>
+          </div>
           <div>
             <label>Student Name</label>
             <input required minLength={3} value={studentName} onChange={(event) => setStudentName(event.target.value)} />
@@ -1436,7 +1460,7 @@ function ConsentView({ consentScrolled, setConsentScrolled, go, notify }: { cons
     if (list && list.scrollHeight <= list.clientHeight + 8) setConsentScrolled(true)
   }, [setConsentScrolled])
   const handleConsent = async () => {
-    const sessionId = window.localStorage.getItem('examguard-session-id')
+    const sessionId = studentSessionId()
     if (sessionId) {
       try { await api.saveConsent(sessionId) } catch { /* local-only fallback */ }
     }
@@ -1479,7 +1503,7 @@ function ConsentView({ consentScrolled, setConsentScrolled, go, notify }: { cons
 function LivenessView({ go, notify }: { go: (view: View) => void; notify: (kind: ToastKind, text: string) => void }) {
   const [blinkCount, setBlinkCount] = useState(0)
   const [status, setStatus] = useState('Camera is off')
-  const [seconds, setSeconds] = useState(8)
+  const [seconds, setSeconds] = useState(15)
   const [detectionDuration, setDetectionDuration] = useState(0)
   const [enteringExam, setEnteringExam] = useState(false)
   const videoRef = useRef<HTMLVideoElement>(null)
@@ -1504,7 +1528,7 @@ function LivenessView({ go, notify }: { go: (view: View) => void; notify: (kind:
     completionRef.current = true
     setEnteringExam(true)
     setStatus('Liveness verified - entering exam...')
-    const sessionId = window.localStorage.getItem('examguard-session-id')
+    const sessionId = studentSessionId()
     if (!sessionId) {
       completionRef.current = false
       setEnteringExam(false)
@@ -1525,7 +1549,7 @@ function LivenessView({ go, notify }: { go: (view: View) => void; notify: (kind:
 
   const beginDetection = async () => {
     try {
-      stopCamera(); completionRef.current = false; setEnteringExam(false); setBlinkCount(0); setSeconds(8); setStatus('Loading face detector...')
+      stopCamera(); completionRef.current = false; setEnteringExam(false); setBlinkCount(0); setSeconds(15); setStatus('Loading face detector...')
       const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: 640, height: 480 }, audio: false })
       streamRef.current = stream
       const video = videoRef.current
@@ -1533,12 +1557,20 @@ function LivenessView({ go, notify }: { go: (view: View) => void; notify: (kind:
       video.srcObject = stream
       await video.play()
       const vision = await FilesetResolver.forVisionTasks('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm')
-      const detector = await FaceLandmarker.createFromOptions(vision, {
-        baseOptions: { modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/latest/face_landmarker.task', delegate: 'GPU' },
-        runningMode: 'VIDEO', numFaces: 1,
+      const detectorOptions = (delegate: 'GPU' | 'CPU') => ({
+        baseOptions: { modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/latest/face_landmarker.task', delegate },
+        runningMode: 'VIDEO' as const, numFaces: 1,
       })
-      let closedFrames = 0; let eyeWasClosed = false; let detected = 0
-      const startedAt = performance.now(); const deadline = startedAt + 8000
+      let detector: FaceLandmarker
+      try {
+        detector = await FaceLandmarker.createFromOptions(vision, detectorOptions('GPU'))
+      } catch {
+        setStatus('GPU unavailable - using compatible CPU detector...')
+        detector = await FaceLandmarker.createFromOptions(vision, detectorOptions('CPU'))
+      }
+      let eyeWasClosed = false; let detected = 0; let closedAt = 0; let lastBlinkAt = 0
+      let smoothedEar = 0; const calibration: number[] = []
+      const startedAt = performance.now(); const deadline = startedAt + 15000
       const detect = () => {
         const now = performance.now()
         setSeconds(Math.max(0, Math.ceil((deadline - now) / 1000)))
@@ -1551,11 +1583,28 @@ function LivenessView({ go, notify }: { go: (view: View) => void; notify: (kind:
         const result = detector.detectForVideo(video, now)
         const face = result.faceLandmarks[0]
         if (face) {
-          const averageEar = (ear(face, [33, 160, 158, 133, 153, 144]) + ear(face, [362, 385, 387, 263, 373, 380])) / 2
-          if (averageEar < 0.25) closedFrames += 1; else closedFrames = 0
-          if (closedFrames >= 2 && !eyeWasClosed) eyeWasClosed = true
-          if (averageEar >= 0.27 && eyeWasClosed) {
-            eyeWasClosed = false; detected += 1; setBlinkCount(detected)
+          const rawEar = (ear(face, [33, 160, 158, 133, 153, 144]) + ear(face, [362, 385, 387, 263, 373, 380])) / 2
+          smoothedEar = smoothedEar ? smoothedEar * 0.55 + rawEar * 0.45 : rawEar
+          if (calibration.length < 24) {
+            calibration.push(smoothedEar)
+            setStatus(`Calibrating eyes - keep them open (${calibration.length}/24)`)
+            frameRef.current = requestAnimationFrame(detect)
+            return
+          }
+          const sorted = [...calibration].sort((a, b) => a - b)
+          const openEar = sorted[Math.floor(sorted.length * 0.75)]
+          const closeThreshold = Math.max(0.12, Math.min(0.29, openEar * 0.72))
+          const reopenThreshold = Math.max(closeThreshold + 0.018, openEar * 0.84)
+          if (smoothedEar <= closeThreshold && !eyeWasClosed && now - lastBlinkAt > 250) {
+            eyeWasClosed = true
+            closedAt = now
+          }
+          if (smoothedEar >= reopenThreshold && eyeWasClosed) {
+            const closureMs = now - closedAt
+            eyeWasClosed = false
+            if (closureMs >= 45 && closureMs <= 900) {
+              lastBlinkAt = now; detected += 1; setBlinkCount(detected)
+            }
             if (detected >= 2) {
               const duration = Math.round(now - startedAt)
               detector.close(); stopCamera(); setDetectionDuration(duration)
@@ -1563,7 +1612,7 @@ function LivenessView({ go, notify }: { go: (view: View) => void; notify: (kind:
               return
             }
           }
-          setStatus(`Face detected - EAR ${averageEar.toFixed(2)}`)
+          setStatus(`Face ready - blink normally (${detected}/2, sensitivity ${closeThreshold.toFixed(2)})`)
         } else setStatus('Position one face inside the oval')
         frameRef.current = requestAnimationFrame(detect)
       }
@@ -1588,8 +1637,8 @@ function LivenessView({ go, notify }: { go: (view: View) => void; notify: (kind:
           <video ref={videoRef} muted playsInline style={{ width: '100%', height: '100%', objectFit: 'cover', transform: 'scaleX(-1)' }} />
         </div>
 
-        <h2 style={{ fontSize: '22px', fontWeight: 700, margin: '8px 0' }}>Blink twice to begin liveness check</h2>
-        <p className="muted" style={{ fontSize: '14px', marginBottom: '20px' }}>Position your face in the oval. 2 blinks must be detected within 8 seconds.</p>
+        <h2 style={{ fontSize: '22px', fontWeight: 700, margin: '8px 0' }}>Look forward, then blink twice naturally</h2>
+        <p className="muted" style={{ fontSize: '14px', marginBottom: '20px' }}>Keep eyes open briefly for calibration. Then blink twice within 15 seconds. Remove glare and keep your full face visible.</p>
         
         <div className="blink-progress" style={{ display: 'flex', justifyContent: 'center', gap: '8px', marginBottom: '24px' }}>
           <span className={blinkCount >= 1 ? 'done' : ''} style={{ width: '40px', height: '6px', borderRadius: '3px', background: blinkCount >= 1 ? 'var(--eg-teal)' : 'var(--eg-navy-600)' }} />
@@ -1600,7 +1649,7 @@ function LivenessView({ go, notify }: { go: (view: View) => void; notify: (kind:
           <button className="primary-btn" style={{ minWidth: '160px' }} disabled={!livenessPassed || enteringExam} onClick={startExam}><PlayCircle size={16} /> {enteringExam ? 'Entering exam...' : 'Start exam'}</button>
           <button className="ghost-btn" disabled={enteringExam} onClick={beginDetection}><Camera size={16} /> Start camera ({seconds}s)</button>
         </div>
-        <span className="hint" aria-live="polite" style={{ marginTop: '12px' }}>{status}. EAR threshold: below 0.25 for two frames.</span>
+        <span className="hint" aria-live="polite" style={{ marginTop: '12px' }}>{status}. Sensitivity adapts to your eyes and camera.</span>
       </div>
     </section>
   )
@@ -1630,7 +1679,7 @@ function ExamView(props: {
 
   // Load questions and duration from backend
   useEffect(() => {
-    const sessionId = window.localStorage.getItem('examguard-session-id')
+    const sessionId = studentSessionId()
     if (sessionId) {
       api.sessionQuestions(sessionId)
         .then((qs) => {
@@ -1661,13 +1710,13 @@ function ExamView(props: {
     }
     // Restore saved answers from localStorage
     try {
-      const saved = window.localStorage.getItem('examguard-answers')
+      const saved = window.localStorage.getItem(`examguard-answers-${sessionId}`)
       if (saved) setAnswers(JSON.parse(saved))
     } catch { /* ignore */ }
   }, [])
 
   useEffect(() => {
-    const sessionId = window.localStorage.getItem('examguard-session-id')
+    const sessionId = studentSessionId()
     if (!sessionId) return
     const poll = window.setInterval(() => {
       api.sessionExam(sessionId).then((exam) => {
@@ -1709,7 +1758,8 @@ function ExamView(props: {
   // Auto-save answers to localStorage every 10 seconds
   useEffect(() => {
     const autoSave = setInterval(() => {
-      window.localStorage.setItem('examguard-answers', JSON.stringify(answers))
+      const sessionId = studentSessionId()
+      if (sessionId) window.localStorage.setItem(`examguard-answers-${sessionId}`, JSON.stringify(answers))
       setLastSave(Date.now())
     }, 10000)
     autoSaveRef.current = autoSave
@@ -1730,9 +1780,9 @@ function ExamView(props: {
     if (!current) return
     const text = current.id === q?.id ? props.answer : Reflect.get(answers, current.id) || ''
     setAnswers((prev) => ({ ...prev, [current.id]: text }))
-    window.localStorage.setItem('examguard-answers', JSON.stringify({ ...answers, [current.id]: text }))
+    const sessionId = studentSessionId()
+    if (sessionId) window.localStorage.setItem(`examguard-answers-${sessionId}`, JSON.stringify({ ...answers, [current.id]: text }))
     setLastSave(Date.now())
-    const sessionId = window.localStorage.getItem('examguard-session-id')
     if (sessionId && text.trim()) {
       try {
         await api.saveAnswer(sessionId, { question_id: current.id, answer_text: text })
@@ -1748,11 +1798,11 @@ function ExamView(props: {
     expirySubmitStarted.current = true
     const submitExpiredExam = async () => {
       await saveCurrentAnswer()
-      const sessionId = window.localStorage.getItem('examguard-session-id')
+      const sessionId = studentSessionId()
       if (!sessionId) return
       try {
         await api.endSession(sessionId)
-        window.localStorage.removeItem('examguard-answers')
+        window.localStorage.removeItem(`examguard-answers-${sessionId}`)
         props.notify('info', 'Time expired. Your exam was submitted automatically.')
         props.go('complete')
       } catch (error) {
@@ -1775,9 +1825,9 @@ function ExamView(props: {
     props.setAnswer(opt)
     setAnswers((prev) => {
       const updated = { ...prev, [current.id]: opt }
-      window.localStorage.setItem('examguard-answers', JSON.stringify(updated))
-      const sessionId = window.localStorage.getItem('examguard-session-id')
+      const sessionId = studentSessionId()
       if (sessionId) {
+        window.localStorage.setItem(`examguard-answers-${sessionId}`, JSON.stringify(updated))
         api.saveAnswer(sessionId, { question_id: current.id, answer_text: opt, selected_option: opt })
           .then(() => setSaveWarning(''))
           .catch(() => setSaveWarning('Offline: answer saved locally and will retry on next save.'))
@@ -1788,10 +1838,6 @@ function ExamView(props: {
 
   const answerValid = props.answer.trim().length >= 25
   const requestSubmit = () => {
-    if (!answerValid && current?.type !== 'MCQ') {
-      props.notify('error', 'Current answer is too short. Write at least 25 characters or mark it for review before submitting.')
-      return
-    }
     saveCurrentAnswer()
     setSubmitOpen(true)
   }
@@ -1799,7 +1845,7 @@ function ExamView(props: {
   const secondsSinceSave = Math.round((Date.now() - lastSave) / 1000)
 
   const logEvent = (eventType: string) => {
-    const sessionId = window.localStorage.getItem('examguard-session-id')
+    const sessionId = studentSessionId()
     if (sessionId) api.logEvent(sessionId, eventType).catch(() => {})
   }
 
@@ -2000,13 +2046,13 @@ function ExamView(props: {
 }
 
 function CompleteView({ notify }: { notify: (kind: ToastKind, text: string) => void }) {
-  const [appeal, setAppeal] = useState('I want to explain that I used my own notes while revising and did not use external AI during the test.')
+  const [appeal, setAppeal] = useState('')
   const appealWords = wordCount(appeal)
   const [submitted, setSubmitted] = useState(false)
   const [sessionData, setSessionData] = useState<any>(null)
 
   useEffect(() => {
-    const sessionId = window.localStorage.getItem('examguard-session-id')
+    const sessionId = studentSessionId()
     if (sessionId) {
       api.sessionResult(sessionId)
         .then((res) => {
@@ -2019,7 +2065,7 @@ function CompleteView({ notify }: { notify: (kind: ToastKind, text: string) => v
   const submitAppeal = async () => {
     if (appealWords < 12) { notify('error', 'Appeal response must explain the issue in at least 12 words.'); return }
     if (appealWords > 200) { notify('error', 'Appeal response cannot exceed 200 words.'); return }
-    const sessionId = window.localStorage.getItem('examguard-session-id')
+    const sessionId = studentSessionId()
     if (sessionId) {
       try {
         await api.submitAppeal(sessionId, appeal)
@@ -2602,7 +2648,7 @@ function SubmitDialog({ onClose, go, answeredCount, totalCount, markedCount }: {
     }
     setSubmitting(true)
     setSubmitError('')
-    const sessionId = window.localStorage.getItem('examguard-session-id')
+    const sessionId = studentSessionId()
     if (sessionId) {
       try { await api.endSession(sessionId) }
       catch (error) {
@@ -2611,8 +2657,10 @@ function SubmitDialog({ onClose, go, answeredCount, totalCount, markedCount }: {
         return
       }
     }
-    window.localStorage.removeItem('examguard-answers')
-    if (sessionId) window.localStorage.removeItem(`examguard-deadline-${sessionId}`)
+    if (sessionId) {
+      window.localStorage.removeItem(`examguard-answers-${sessionId}`)
+      window.localStorage.removeItem(`examguard-deadline-${sessionId}`)
+    }
     go()
   }
   return (
