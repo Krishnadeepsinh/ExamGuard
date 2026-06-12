@@ -491,6 +491,20 @@ def live_events(exam_id: str, teacher: dict[str, object] = Depends(current_teach
     }
 
 
+@app.get("/api/v1/exams/{exam_id}/live")
+def live_snapshot(exam_id: str, teacher: dict[str, object] = Depends(current_teacher)) -> dict[str, object]:
+    """Return full monitor snapshot for reconnects and non-WebSocket clients."""
+    require_owned_exam(exam_id, teacher)
+    sessions = store.exam_students(exam_id) if hasattr(store, "exam_students") else [
+        session for session in store.sessions.values() if session["exam_id"] == exam_id
+    ]
+    return {
+        "exam_id": exam_id,
+        "students": sessions,
+        "events": redis_hot_state.list_events(f"exam:{exam_id}:events") if settings.redis_enabled else [],
+    }
+
+
 @app.websocket("/api/v1/ws/exams/{exam_id}")
 async def exam_live_socket(websocket: WebSocket, exam_id: str, token: str = "") -> None:
     """Push authoritative monitor snapshots; Redis keeps events across workers."""

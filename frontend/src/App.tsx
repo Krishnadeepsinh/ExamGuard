@@ -1186,7 +1186,7 @@ function ConfigView({ examId, notify }: { examId: string; notify: (kind: ToastKi
             </div>
           </div>
           <div className="plain-points compact-points">
-            <span><Lock size={15} /> Question generation is source-locked to the uploaded material.</span>
+            <span><Lock size={15} /> Syllabus defines coverage; study material provides factual grounding.</span>
             <span><Gauge size={15} /> Section marks must add up exactly to total exam marks.</span>
             <span><Check size={15} /> Section level can override the overall paper level.</span>
           </div>
@@ -1283,7 +1283,7 @@ function ConfigView({ examId, notify }: { examId: string; notify: (kind: ToastKi
               </span>
             ))}
             <span style={{ borderTop: '1px solid var(--eg-navy-600)', paddingTop: '10px', marginTop: '4px', color: 'var(--eg-text-muted)', display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <Lock size={15} /> Source lock active. No web generation.
+              <Lock size={15} /> Scope lock active. Questions stay inside uploaded syllabus and material topics.
             </span>
           </div>
         </Card>
