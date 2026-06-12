@@ -945,7 +945,10 @@ function CreateExamModal({ onClose, onCreate }: { onClose: () => void; onCreate:
 
 function ConfigView({ examId, notify }: { examId: string; notify: (kind: ToastKind, text: string) => void }) {
   const [materialId, setMaterialId] = useState('')
+  const [materialIds, setMaterialIds] = useState<string[]>([])
   const [uploadedMaterial, setUploadedMaterial] = useState('')
+  const [syllabusName, setSyllabusName] = useState('')
+  const [studyMaterialName, setStudyMaterialName] = useState('')
   const [materialError, setMaterialError] = useState('')
   const [totalMarksTarget, setTotalMarksTarget] = useState(80)
   const [overallLevel, setOverallLevel] = useState<ExamLevel>('Standard')
@@ -965,7 +968,10 @@ function ConfigView({ examId, notify }: { examId: string; notify: (kind: ToastKi
   useEffect(() => {
     setLoading(true)
     setMaterialId('')
+    setMaterialIds([])
     setUploadedMaterial('')
+    setSyllabusName('')
+    setStudyMaterialName('')
     setAvailableChapters([])
     setChapterTopicsMap({})
     setChapterCountsMap({})
@@ -982,7 +988,10 @@ function ConfigView({ examId, notify }: { examId: string; notify: (kind: ToastKi
         const first = materials?.[0]
         if (!first) return
         setMaterialId(first.id)
-        setUploadedMaterial(first.filename)
+        setMaterialIds(materials.map((item) => item.id))
+        setUploadedMaterial(materials.map((item) => item.filename).join(', '))
+        setSyllabusName(materials.find((item) => item.source_type === 'syllabus')?.filename || '')
+        setStudyMaterialName(materials.find((item) => item.source_type !== 'syllabus')?.filename || '')
         
         if (first.chapter_counts) {
           const chList: string[] = []
@@ -1039,15 +1048,18 @@ function ConfigView({ examId, notify }: { examId: string; notify: (kind: ToastKi
   const addSection = () => { setGenerated(false); setSections((c) => [...c, { id: String.fromCharCode(65 + c.length), type: 'Fill Blank', count: 5, marks: 2, bloom: 'Apply', chapter: availableChapters[0] || 'All syllabus', level: 'Use overall', negative: 'none' }]) }
   const removeSection = (index: number) => { if (sections.length === 1) { notify('error', 'At least one paper section is required.'); return }; setGenerated(false); setSections((c) => c.filter((_, i) => i !== index).map((s, i) => ({ ...s, id: String.fromCharCode(65 + i) }))) }
 
-  const handleMaterialUpload = async (file: File | undefined) => {
+  const handleMaterialUpload = async (file: File | undefined, sourceType: 'syllabus' | 'material') => {
     setMaterialError(''); setGenerated(false)
     if (!file) return
     const allowed = ['application/pdf', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'text/plain']
     if (!allowed.includes(file.type) && !/\.(pdf|docx|txt)$/i.test(file.name)) { setMaterialError('Only PDF, DOCX, or TXT files are allowed.'); notify('error', 'Only PDF, DOCX, or TXT files are allowed.'); return }
     if (file.size > 50 * 1024 * 1024) { setMaterialError('Material file must be 50MB or smaller.'); notify('error', 'Material file must be 50MB or smaller.'); return }
     try {
-      const material = await api.uploadMaterial(examId, file)
-      setMaterialId(material.id); setUploadedMaterial(material.filename)
+      const material = await api.uploadMaterial(examId, file, sourceType)
+      setMaterialId(material.id)
+      setMaterialIds((current) => [...new Set([...current, material.id])])
+      setUploadedMaterial((current) => current ? `${current}, ${material.filename}` : material.filename)
+      if (sourceType === 'syllabus') setSyllabusName(material.filename); else setStudyMaterialName(material.filename)
       
       if (material.chapter_counts) {
         const chList: string[] = []
@@ -1070,7 +1082,7 @@ function ConfigView({ examId, notify }: { examId: string; notify: (kind: ToastKi
         }
       }
       
-      notify('success', `${file.name} uploaded. Generation will be restricted to this material only.`)
+      notify('success', `${sourceType === 'syllabus' ? 'Syllabus' : 'Study material'} uploaded and mapped for paper generation.`)
     } catch (event) { const msg = event instanceof Error ? event.message : 'Upload failed.'; setMaterialError(msg); notify('error', msg) }
   }
 
@@ -1088,6 +1100,7 @@ function ConfigView({ examId, notify }: { examId: string; notify: (kind: ToastKi
       setGenerationError('')
       const payload = { 
         material_id: materialId || null, 
+        material_ids: materialIds,
         total_marks: totalMarksTarget, 
         overall_level: overallLevel, 
         paper_mode: paperMode, 
@@ -1128,29 +1141,25 @@ function ConfigView({ examId, notify }: { examId: string; notify: (kind: ToastKi
   return (
     <section className="screen config-layout">
       <div className="config-main">
-        <Card title="Step 1: Upload syllabus or material" icon={Upload}>
-          <label htmlFor="material-file-upload" className="upload-zone" style={{ cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-            <Upload size={30} style={{ color: 'var(--eg-indigo)' }} />
-            <strong style={{ fontSize: '15px' }}>{uploadedMaterial || 'Choose a PDF, DOCX, or TXT file'}</strong>
-            <span style={{ fontSize: '12px' }}>{uploadedMaterial ? `${materialChunks} chunks extracted - ${availableChapters.length} source sections mapped` : 'Required. Every generated question will come only from this file.'}</span>
-            {materialError && <p className="form-error" role="alert">{materialError}</p>}
-            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', justifyContent: 'center', marginTop: '8px' }}>
-              <button type="button" className="ghost-btn" style={{ minHeight: '32px', fontSize: '12px' }} onClick={(event) => { event.preventDefault(); event.stopPropagation(); notify('warning', 'OCR fallback ready. Page 4 would be skipped if unreadable.'); }}>Test OCR failure state</button>
-              {uploadedMaterial && (
-                <button type="button" className="ghost-btn" style={{ minHeight: '32px', fontSize: '12px', color: 'var(--eg-red)' }} onClick={(event) => { 
-                  event.preventDefault(); 
-                  event.stopPropagation(); 
-                  setUploadedMaterial(''); 
-                  setMaterialId(''); 
-                  setAvailableChapters([]);
-                  setChapterTopicsMap({});
-                  setChapterCountsMap({});
-                  notify('info', 'Material removed. Upload material before generating again.'); 
-                }}>Remove Material</button>
-              )}
-            </div>
-          </label>
-          <input id="material-file-upload" style={{ display: 'none' }} aria-label="Upload syllabus or material" type="file" accept=".pdf,.docx,.txt,application/pdf,text/plain" onChange={(event) => handleMaterialUpload(event.target.files?.[0])} />
+        <Card title="Step 1: Add syllabus and study material" icon={Upload}>
+          <div className="two-column-grid">
+            <label htmlFor="syllabus-file-upload" className="upload-zone" style={{ cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+              <Upload size={28} style={{ color: 'var(--eg-indigo)' }} />
+              <strong>Syllabus</strong>
+              <span style={{ fontSize: '12px' }}>{syllabusName || 'Upload topic outline, curriculum, or syllabus'}</span>
+              <small>Defines topics, coverage, level, and chapter weight.</small>
+            </label>
+            <label htmlFor="study-file-upload" className="upload-zone" style={{ cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+              <Upload size={28} style={{ color: 'var(--eg-teal)' }} />
+              <strong>Study material</strong>
+              <span style={{ fontSize: '12px' }}>{studyMaterialName || 'Upload textbook, notes, or reference material'}</span>
+              <small>Provides factual grounding and examples. Optional.</small>
+            </label>
+          </div>
+          <input id="syllabus-file-upload" style={{ display: 'none' }} aria-label="Upload syllabus" type="file" accept=".pdf,.docx,.txt,application/pdf,text/plain" onChange={(event) => handleMaterialUpload(event.target.files?.[0], 'syllabus')} />
+          <input id="study-file-upload" style={{ display: 'none' }} aria-label="Upload study material" type="file" accept=".pdf,.docx,.txt,application/pdf,text/plain" onChange={(event) => handleMaterialUpload(event.target.files?.[0], 'material')} />
+          {materialError && <p className="form-error" role="alert">{materialError}</p>}
+          {uploadedMaterial && <p className="hint" style={{ marginTop: '10px' }}>{materialChunks} mapped chunks across {availableChapters.length} sections. Either source works alone; both are combined when present.</p>}
         </Card>
 
         <Card title="Step 2: Choose paper type and difficulty" icon={Gauge}>
@@ -1472,9 +1481,11 @@ function LivenessView({ go, notify }: { go: (view: View) => void; notify: (kind:
   const [status, setStatus] = useState('Camera is off')
   const [seconds, setSeconds] = useState(8)
   const [detectionDuration, setDetectionDuration] = useState(0)
+  const [enteringExam, setEnteringExam] = useState(false)
   const videoRef = useRef<HTMLVideoElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
   const frameRef = useRef<number | null>(null)
+  const completionRef = useRef(false)
   const livenessPassed = blinkCount >= 2
   const distance = (a: { x: number; y: number }, b: { x: number; y: number }) => Math.hypot(a.x - b.x, a.y - b.y)
   const ear = (points: Array<{ x: number; y: number }>, ids: number[]) =>
@@ -1488,9 +1499,33 @@ function LivenessView({ go, notify }: { go: (view: View) => void; notify: (kind:
 
   useEffect(() => stopCamera, [stopCamera])
 
+  const completeLiveness = async (blinks: number, durationMs: number) => {
+    if (completionRef.current) return
+    completionRef.current = true
+    setEnteringExam(true)
+    setStatus('Liveness verified - entering exam...')
+    const sessionId = window.localStorage.getItem('examguard-session-id')
+    if (!sessionId) {
+      completionRef.current = false
+      setEnteringExam(false)
+      notify('error', 'Exam session was not found. Join the exam again.')
+      return
+    }
+    try {
+      await api.saveLiveness(sessionId, { method: 'mediapipe_ear', blink_count: blinks, duration_ms: Math.max(250, durationMs), threshold: 0.25 })
+      notify('success', 'Liveness verified. Exam starting now.')
+      go('exam')
+    } catch (error) {
+      completionRef.current = false
+      setEnteringExam(false)
+      setStatus('Liveness passed, but verification could not be saved. Retry entry.')
+      notify('error', error instanceof Error ? error.message : 'Liveness verification could not be saved.')
+    }
+  }
+
   const beginDetection = async () => {
     try {
-      stopCamera(); setBlinkCount(0); setSeconds(8); setStatus('Loading face detector...')
+      stopCamera(); completionRef.current = false; setEnteringExam(false); setBlinkCount(0); setSeconds(8); setStatus('Loading face detector...')
       const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: 640, height: 480 }, audio: false })
       streamRef.current = stream
       const video = videoRef.current
@@ -1507,10 +1542,10 @@ function LivenessView({ go, notify }: { go: (view: View) => void; notify: (kind:
       const detect = () => {
         const now = performance.now()
         setSeconds(Math.max(0, Math.ceil((deadline - now) / 1000)))
-        if (now >= deadline || detected >= 2) {
+        if (now >= deadline) {
           detector.close(); stopCamera()
           setDetectionDuration(Math.round(now - startedAt))
-          setStatus(detected >= 2 ? 'Liveness verified' : 'No two blinks detected. Check lighting and retry.')
+          setStatus('No two blinks detected. Check lighting and retry.')
           return
         }
         const result = detector.detectForVideo(video, now)
@@ -1521,6 +1556,12 @@ function LivenessView({ go, notify }: { go: (view: View) => void; notify: (kind:
           if (closedFrames >= 2 && !eyeWasClosed) eyeWasClosed = true
           if (averageEar >= 0.27 && eyeWasClosed) {
             eyeWasClosed = false; detected += 1; setBlinkCount(detected)
+            if (detected >= 2) {
+              const duration = Math.round(now - startedAt)
+              detector.close(); stopCamera(); setDetectionDuration(duration)
+              void completeLiveness(detected, duration)
+              return
+            }
           }
           setStatus(`Face detected - EAR ${averageEar.toFixed(2)}`)
         } else setStatus('Position one face inside the oval')
@@ -1534,16 +1575,7 @@ function LivenessView({ go, notify }: { go: (view: View) => void; notify: (kind:
   }
   const startExam = async () => {
     if (!livenessPassed) { notify('error', 'Blink liveness must pass before the exam can start.'); return }
-    const sessionId = window.localStorage.getItem('examguard-session-id')
-    if (sessionId) {
-      try {
-        await api.saveLiveness(sessionId, { method: 'mediapipe_ear', blink_count: blinkCount, duration_ms: detectionDuration, threshold: 0.25 })
-      } catch (error) {
-        notify('error', error instanceof Error ? error.message : 'Liveness verification could not be saved.')
-        return
-      }
-    }
-    go('exam')
+    await completeLiveness(blinkCount, detectionDuration)
   }
   return (
     <section className="screen liveness-screen">
@@ -1565,8 +1597,8 @@ function LivenessView({ go, notify }: { go: (view: View) => void; notify: (kind:
         </div>
 
         <div className="inline-actions" style={{ justifyContent: 'center', gap: '12px' }}>
-          <button className="primary-btn" style={{ minWidth: '160px' }} disabled={!livenessPassed} onClick={startExam}><PlayCircle size={16} /> Start exam</button>
-          <button className="ghost-btn" onClick={beginDetection}><Camera size={16} /> Start camera ({seconds}s)</button>
+          <button className="primary-btn" style={{ minWidth: '160px' }} disabled={!livenessPassed || enteringExam} onClick={startExam}><PlayCircle size={16} /> {enteringExam ? 'Entering exam...' : 'Start exam'}</button>
+          <button className="ghost-btn" disabled={enteringExam} onClick={beginDetection}><Camera size={16} /> Start camera ({seconds}s)</button>
         </div>
         <span className="hint" aria-live="polite" style={{ marginTop: '12px' }}>{status}. EAR threshold: below 0.25 for two frames.</span>
       </div>

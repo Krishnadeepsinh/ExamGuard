@@ -88,6 +88,7 @@ class SectionConfig(BaseModel):
 
 class PaperConfigRequest(BaseModel):
     material_id: Optional[str] = None
+    material_ids: list[str] = Field(default_factory=list)
     total_marks: int = Field(ge=10, le=300)
     overall_level: Literal["Easy", "Standard", "Challenging"]
     paper_mode: Literal["MCQ only", "MCQ + QA", "Mixed"]
@@ -318,7 +319,12 @@ def clone_exam(exam_id: str, teacher: dict[str, object] = Depends(current_teache
 def save_paper_config(exam_id: str, payload: PaperConfigRequest, teacher: dict[str, object] = Depends(current_teacher)) -> dict[str, object]:
     require_owned_exam(exam_id, teacher)
     if payload.material_id:
-        material_status(payload.material_id)
+        try:
+            material = store.get_material(payload.material_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="material not found") from exc
+        if str(material.get("exam_id")) != exam_id:
+            raise HTTPException(status_code=422, detail="selected material does not belong to this exam")
     result = store.configure_exam(exam_id, payload.model_dump())
     if result["status"] == "invalid":
         raise HTTPException(status_code=422, detail=result["errors"])
@@ -515,7 +521,7 @@ async def exam_live_socket(websocket: WebSocket, exam_id: str, token: str = "") 
 
 @app.post("/api/v1/materials/upload")
 @limiter.limit("10/minute")
-async def upload_material(request: Request, exam_id: str, file: UploadFile = File(...), teacher: dict[str, object] = Depends(current_teacher)) -> dict[str, object]:
+async def upload_material(request: Request, exam_id: str, source_type: Literal["syllabus", "material"] = "material", file: UploadFile = File(...), teacher: dict[str, object] = Depends(current_teacher)) -> dict[str, object]:
     require_owned_exam(exam_id, teacher)
     if not file.filename:
         raise HTTPException(status_code=422, detail="filename is required")
@@ -525,7 +531,7 @@ async def upload_material(request: Request, exam_id: str, file: UploadFile = Fil
     if len(content) > 50 * 1024 * 1024:
         raise HTTPException(status_code=413, detail="material file must be 50MB or smaller")
     try:
-        material = store.add_material(exam_id, file.filename, content)
+        material = store.add_material(exam_id, file.filename, content, source_type)
         run_workflow("ingest", {"exam_id": exam_id, "material_id": material["id"]})
         return material
     except ValueError as exc:

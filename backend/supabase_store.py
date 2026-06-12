@@ -204,7 +204,7 @@ class SupabaseStore:
             "duration_minutes": exam.get("duration_min", exam.get("duration_minutes")),
         }
 
-    def add_material(self, exam_id: str, filename: str, content: bytes) -> dict[str, Any]:
+    def add_material(self, exam_id: str, filename: str, content: bytes, source_type: str = "material") -> dict[str, Any]:
         text = self.extract_text(filename, content)
         chunks, chapter_topics = chunk_text_with_chapters(text, source_page=1, approx_tokens=384)
         if not chunks:
@@ -220,7 +220,7 @@ class SupabaseStore:
                 }
 
         safe_name = "".join(char if char.isalnum() or char in {".", "-", "_"} else "_" for char in filename)
-        storage_path = f"{exam_id}/{uuid4().hex}_{safe_name}"
+        storage_path = f"{exam_id}/{source_type}/{uuid4().hex}_{safe_name}"
         content_type = "application/pdf" if filename.lower().endswith(".pdf") else "application/vnd.openxmlformats-officedocument.wordprocessingml.document" if filename.lower().endswith(".docx") else "text/plain"
         upload_headers = {
             "apikey": self.key,
@@ -259,7 +259,7 @@ class SupabaseStore:
         ]
         for start in range(0, len(chunk_rows), 500):
             self.rest("POST", "material_chunks", chunk_rows[start:start + 500])
-        return material
+        return {**material, "source_type": source_type}
 
     def extract_text(self, filename: str, content: bytes) -> str:
         suffix = filename.lower().rsplit(".", 1)[-1] if "." in filename else "txt"
@@ -283,17 +283,24 @@ class SupabaseStore:
         return text
 
     def list_materials(self, exam_id: str) -> list[dict[str, Any]]:
-        return self.rest("GET", "materials", query=f"?exam_id=eq.{exam_id}")
+        return [self.normalize_material(item) for item in self.rest("GET", "materials", query=f"?exam_id=eq.{exam_id}")]
 
     def get_material(self, material_id: str) -> dict[str, Any]:
         rows = self.rest("GET", "materials", query=f"?id=eq.{material_id}")
         if not rows:
             raise KeyError("material not found")
-        return rows[0]
+        return self.normalize_material(rows[0])
+
+    def normalize_material(self, material: dict[str, Any]) -> dict[str, Any]:
+        parts = str(material.get("storage_path", "")).split("/")
+        source_type = parts[1] if len(parts) > 2 and parts[1] in {"syllabus", "material"} else "material"
+        return {**material, "source_type": source_type}
 
     def configure_exam(self, exam_id: str, config: dict[str, Any]) -> dict[str, Any]:
-        material_id = config.get("material_id")
-        material = self.get_material(material_id) if material_id else None
+        material_ids = config.get("material_ids") or ([config.get("material_id")] if config.get("material_id") else [])
+        material_id = material_ids[0] if material_ids else None
+        materials = [self.get_material(item) for item in material_ids]
+        material = materials[0] if materials else None
         
         flat_counts = {}
         if material and "chapter_counts" in material:
@@ -345,10 +352,10 @@ class SupabaseStore:
         if existing_sessions:
             raise ValueError("Cannot regenerate a paper after students have joined. Clone the exam to create a new version.")
         config = exam.get("paper_config") or {}
-        material_id = config.get("material_id")
-        if not material_id:
-            raise ValueError("Upload syllabus material before generating questions.")
-        chunks = self.rest("GET", "material_chunks", query=f"?material_id=eq.{material_id}") if material_id else []
+        material_ids = config.get("material_ids") or ([config.get("material_id")] if config.get("material_id") else [])
+        if not material_ids:
+            raise ValueError("Upload syllabus or study material before generating questions.")
+        chunks = self.rest("GET", "material_chunks", query=f"?exam_id=eq.{exam_id}")
         if not chunks:
             raise ValueError("Uploaded material has no usable chunks. Re-upload a readable PDF, DOCX, or TXT file.")
         questions: list[dict[str, Any]] = []
@@ -442,21 +449,21 @@ class SupabaseStore:
 
     def question_text(self, question_type: str, chapter: str, level: str) -> str:
         if question_type == "MCQ":
-            return f"Which statement is best supported by the uploaded material for {chapter} at {level} level?"
+            return f"Which option best explains the central concept in {chapter}?"
         if question_type == "Fill Blank":
-            return f"Fill in the blank using only the uploaded material from {chapter}: The key principle described is ____."
+            return f"Complete the key {chapter} concept: _____."
         if question_type == "True/False":
-            return f"True or False: The uploaded material for {chapter} directly supports this concept."
-        return f"Using only the uploaded material from {chapter}, write a {level.lower()} level answer with source reasoning."
+            return f"True or False: Apply the core principle from {chapter} to the stated case."
+        return f"Explain and apply a key concept from {chapter} at {level.lower()} level."
 
     def source_fallback(self, question_type: str, excerpt: str) -> dict[str, Any]:
         if question_type == "MCQ":
-            return {"text": "Which statement appears in the uploaded material?", "options": [excerpt, "This statement is not present in the uploaded material.", "The material states the opposite.", "The uploaded material does not discuss this topic."], "correct_answer": excerpt}
+            return {"text": "Which option correctly describes this concept?", "options": [excerpt, "The concept always produces the opposite result.", "The concept has no practical application.", "The concept is unrelated to the subject."], "correct_answer": excerpt}
         if question_type == "True/False":
-            return {"text": f'True or False: The uploaded material states, "{excerpt}"', "options": [], "correct_answer": "True"}
+            return {"text": f'True or False: {excerpt}', "options": [], "correct_answer": "True"}
         if question_type == "Fill Blank":
-            return {"text": f'Complete this source statement: "{excerpt[:80]} _____"', "options": [], "correct_answer": excerpt}
-        return {"text": f'Explain this statement using only the uploaded material: "{excerpt}"', "options": [], "correct_answer": excerpt}
+            return {"text": f'Complete the concept: "{excerpt[:80]} _____"', "options": [], "correct_answer": excerpt}
+        return {"text": f'Explain the concept and its significance: "{excerpt}"', "options": [], "correct_answer": excerpt}
 
     def normalize_question(self, question: dict[str, Any]) -> dict[str, Any]:
         return {
@@ -476,6 +483,9 @@ class SupabaseStore:
         }
 
     def activate_exam(self, exam_id: str) -> dict[str, Any]:
+        questions = self.rest("GET", "questions", query=f"?exam_id=eq.{exam_id}&select=id&limit=1")
+        if not questions:
+            raise ValueError("generate questions before activation")
         return self.normalize_exam(self.rest("PATCH", "exams", {"status": "active", "activated_at": utc_now()}, query=f"?id=eq.{exam_id}")[0])
 
     def end_exam(self, exam_id: str) -> dict[str, Any]:

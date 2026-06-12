@@ -80,6 +80,23 @@ class StoreBehaviorTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Upload syllabus"):
             self.store.generate_questions(exam["id"])
 
+    def test_activation_rejects_empty_generated_paper(self) -> None:
+        exam = self.store.create_exam("teacher-demo", {
+            "title": "Empty Paper", "subject": "SQL", "duration_minutes": 60, "total_marks": 10,
+        })
+        self.store.questions[exam["id"]] = []
+        with self.assertRaisesRegex(ValueError, "generate questions"):
+            self.store.activate_exam(exam["id"])
+
+    def test_syllabus_and_material_are_kept_as_distinct_sources(self) -> None:
+        exam = self.store.create_exam("teacher-demo", {
+            "title": "Combined Sources", "subject": "SQL", "duration_minutes": 60, "total_marks": 10,
+        })
+        syllabus = self.store.add_material(exam["id"], "syllabus.txt", b"SQL syllabus covers SELECT queries, joins, grouping, filtering, constraints, normalization, transactions, indexes, views, security, and database design concepts for learners.", "syllabus")
+        material = self.store.add_material(exam["id"], "notes.txt", b"SQL SELECT retrieves rows. JOIN combines related tables. GROUP BY aggregates values. WHERE filters rows. Transactions use commit and rollback. Indexes improve lookup performance in relational databases.", "material")
+        self.assertEqual(self.store.get_material(syllabus["id"])["source_type"], "syllabus")
+        self.assertEqual(self.store.get_material(material["id"])["source_type"], "material")
+
     def test_paper_config_rejects_missing_material(self) -> None:
         result = validate_paper_config({
             "material_id": None, "total_marks": 10, "paper_mode": "MCQ only", "overall_level": "Standard",

@@ -146,7 +146,9 @@ def generate_grounded_questions(
     )
     prompt = f"""Create exactly {count} {question_type} exam questions.
 Difficulty: {level}. Bloom level: {bloom}. Marks each: {marks_each}.
-Use ONLY facts present in SOURCE MATERIAL. Never use outside knowledge.
+Use source as subject scope and factual grounding. Write normal conceptual exam questions.
+Never ask what the document, source, syllabus, passage, or uploaded material says.
+Do not copy source sentences as questions. Test understanding, application, or analysis of concepts.
 Return JSON array only. Each item: {{"text":"...","options":[],"correct_answer":"...","source_number":1}}.
 For MCQ, options must contain exactly 4 plain strings and correct_answer must exactly match one option.
 For Fill Blank, include one clear blank as _____. For True/False, correct_answer must be True or False.

@@ -69,6 +69,7 @@ export type ApiMaterial = {
   status: string
   chunk_count: number
   chapter_counts: Record<string, number>
+  source_type?: 'syllabus' | 'material'
 }
 
 export type ApiQuestion = {
@@ -184,10 +185,10 @@ export const api = {
   // Materials
   materials: (examId: string) => request<ApiMaterial[]>(`/exams/${examId}/materials`),
 
-  uploadMaterial: (examId: string, file: File) => {
+  uploadMaterial: (examId: string, file: File, sourceType: 'syllabus' | 'material' = 'material') => {
     const form = new FormData()
     form.append('file', file)
-    return request<ApiMaterial>(`/materials/upload?exam_id=${examId}`, { method: 'POST', body: form })
+    return request<ApiMaterial>(`/materials/upload?exam_id=${examId}&source_type=${sourceType}`, { method: 'POST', body: form })
   },
 
   deleteMaterial: (materialId: string) =>

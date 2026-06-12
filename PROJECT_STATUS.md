@@ -196,3 +196,22 @@ Screenshots generated for desktop and mobile flows in `docs/demo-screenshots/`.
 - Keep teacher and student areas role-separated.
 - Keep this file updated after every major implementation batch.
 - The current implementation favors offline-first development ease (`EXAMGUARD_STORE=local`) while maintaining a direct upgrade path to production Supabase storage.
+
+## 2026-06-12 Production Audit
+
+Completed:
+
+- Fixed paper-config 500 caused by calling a protected FastAPI route internally.
+- Blocked activation when generated question count is zero.
+- Fixed MediaPipe flow: second valid blink now saves liveness proof and enters exam automatically.
+- Split syllabus and study-material upload controls. Either source works alone; both are combined for retrieval.
+- Tagged source type without a database migration by using private Storage paths (`exam/syllabus/...` and `exam/material/...`).
+- Reworked Gemini and fallback prompts so questions test concepts instead of asking what an uploaded document says.
+- Added regression tests for empty activation and distinct syllabus/material sources.
+- Verified backend: `14 passed`.
+- Verified frontend: production build passes; ESLint has zero errors (existing warnings remain).
+
+Deployment follow-up:
+
+- Render and Vercel must finish deploying the latest commit before production browser verification.
+- Supabase migration `005_pause_exam_status.sql` still must be applied manually for pause/resume support.

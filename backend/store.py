@@ -139,7 +139,7 @@ class LocalStore:
         clone["paper_config"] = dict(source.get("paper_config") or {})
         return clone
 
-    def add_material(self, exam_id: str, filename: str, content: bytes) -> dict[str, Any]:
+    def add_material(self, exam_id: str, filename: str, content: bytes, source_type: str = "material") -> dict[str, Any]:
         text = self.extract_text(filename, content)
         chunks, chapter_topics = chunk_text_with_chapters(text, source_page=1, approx_tokens=384)
         if not chunks:
@@ -159,6 +159,7 @@ class LocalStore:
             "id": material_id,
             "exam_id": exam_id,
             "filename": filename,
+            "source_type": source_type,
             "status": "ready",
             "chunk_count": len(chunks),
             "chapter_counts": chapter_counts,
@@ -196,8 +197,10 @@ class LocalStore:
 
     def configure_exam(self, exam_id: str, config: dict[str, Any]) -> dict[str, Any]:
         exam = self.exams[exam_id]
-        material_id = config.get("material_id")
-        material = self.materials.get(material_id) if material_id else None
+        material_ids = config.get("material_ids") or ([config.get("material_id")] if config.get("material_id") else [])
+        material_id = material_ids[0] if material_ids else None
+        materials = [self.materials[item] for item in material_ids if item in self.materials and self.materials[item]["exam_id"] == exam_id]
+        material = materials[0] if materials else None
         
         flat_counts = {}
         if material and "chapter_counts" in material:
@@ -243,16 +246,14 @@ class LocalStore:
     def generate_questions(self, exam_id: str) -> dict[str, Any]:
         exam = self.exams[exam_id]
         config = exam.get("paper_config") or {}
-        material_id = config.get("material_id")
-        if not material_id:
-            raise ValueError("Upload syllabus material before generating questions.")
-        material = self.materials.get(material_id) if material_id else None
-        if not material or not material.get("chunks"):
-            raise ValueError("Uploaded material has no usable chunks. Re-upload a readable PDF, DOCX, or TXT file.")
+        material_ids = config.get("material_ids") or ([config.get("material_id")] if config.get("material_id") else [])
+        materials = [self.materials[item] for item in material_ids if item in self.materials and self.materials[item]["exam_id"] == exam_id]
+        if not materials:
+            raise ValueError("Upload syllabus or study material before generating questions.")
         
         questions: list[dict[str, Any]] = []
         fallback_count = 0
-        chunks = material["chunks"] if material else []
+        chunks = [chunk for material in materials for chunk in material.get("chunks", [])]
         for section_index, section in enumerate(config["sections"]):
             chapter_tag = section.get("chapter_tag")
             topic_tag = section.get("topic_tag")
@@ -335,27 +336,27 @@ class LocalStore:
 
     def question_text(self, question_type: str, chapter: str, level: str) -> str:
         if question_type == "MCQ":
-            return f"Which statement is best supported by the uploaded material for {chapter} at {level} level?"
+            return f"Which option best explains the central concept in {chapter}?"
         if question_type == "Fill Blank":
-            return f"Fill in the blank using only the uploaded material from {chapter}: The key principle described is ____."
+            return f"Complete the key {chapter} concept: _____."
         if question_type == "True/False":
-            return f"True or False: The uploaded material for {chapter} directly supports this concept."
-        return f"Using only the uploaded material from {chapter}, write a {level.lower()} level answer with source reasoning."
+            return f"True or False: Apply the core principle from {chapter} to the stated case."
+        return f"Explain and apply a key concept from {chapter} at {level.lower()} level."
 
     def source_fallback(self, question_type: str, excerpt: str) -> dict[str, Any]:
         if question_type == "MCQ":
-            return {"text": "Which statement appears in the uploaded material?", "options": [excerpt, "This statement is not present in the uploaded material.", "The material states the opposite.", "The uploaded material does not discuss this topic."], "correct_answer": excerpt}
+            return {"text": "Which option correctly describes this concept?", "options": [excerpt, "The concept always produces the opposite result.", "The concept has no practical application.", "The concept is unrelated to the subject."], "correct_answer": excerpt}
         if question_type == "True/False":
-            return {"text": f'True or False: The uploaded material states, "{excerpt}"', "options": [], "correct_answer": "True"}
+            return {"text": f'True or False: {excerpt}', "options": [], "correct_answer": "True"}
         if question_type == "Fill Blank":
-            return {"text": f'Complete this source statement: "{excerpt[:80]} _____"', "options": [], "correct_answer": excerpt}
-        return {"text": f'Explain this statement using only the uploaded material: "{excerpt}"', "options": [], "correct_answer": excerpt}
+            return {"text": f'Complete the concept: "{excerpt[:80]} _____"', "options": [], "correct_answer": excerpt}
+        return {"text": f'Explain the concept and its significance: "{excerpt}"', "options": [], "correct_answer": excerpt}
 
     def activate_exam(self, exam_id: str) -> dict[str, Any]:
         exam = self.exams.get(exam_id)
         if not exam:
             raise KeyError("exam not found")
-        if exam_id not in self.questions:
+        if not self.questions.get(exam_id):
             raise ValueError("generate questions before activation")
         exam["status"] = "active"
         exam["activated_at"] = utc_now()
