@@ -564,21 +564,32 @@ class SupabaseStore:
         return created[0]
 
     def exam_students(self, exam_id: str) -> list[dict[str, Any]]:
-        rows = self.rest("GET", "exam_sessions", query=f"?exam_id=eq.{exam_id}")
+        rows = self.rest(
+            "GET",
+            "exam_sessions",
+            query=(
+                f"?exam_id=eq.{exam_id}"
+                "&select=*,users!exam_sessions_student_id_fkey(display_name),"
+                "answers(count),integrity_events(count),"
+                "integrity_appeals(student_response,submitted_at,deadline_at)"
+            ),
+        )
         result = []
         for row in rows:
-            session = self.normalize_session(row)
-            answers = self.rest("GET", "answers", query=f"?session_id=eq.{row['id']}&select=id")
-            events = self.rest("GET", "integrity_events", query=f"?session_id=eq.{row['id']}&select=id")
-            session["answers_count"] = len(answers)
-            session["events_count"] = len(events)
+            user = row.pop("users", None) or {}
+            answers = row.pop("answers", None) or []
+            events = row.pop("integrity_events", None) or []
+            appeals = row.pop("integrity_appeals", None) or []
+            session = self.normalize_session(row, user.get("display_name") or "Student")
+            session["answers_count"] = int(answers[0].get("count", 0)) if answers else 0
+            session["events_count"] = int(events[0].get("count", 0)) if events else 0
             session["joined_at"] = row.get("started_at") or row.get("created_at")
-            appeals = self.rest("GET", "integrity_appeals", query=f"?session_id=eq.{row['id']}&order=submitted_at.desc&limit=1") or []
             if appeals:
+                appeal = appeals[0] if isinstance(appeals, list) else appeals
                 session["appeal"] = {
-                    "response": appeals[0].get("student_response", ""),
-                    "submitted_at": appeals[0].get("submitted_at"),
-                    "deadline_at": appeals[0].get("deadline_at"),
+                    "response": appeal.get("student_response", ""),
+                    "submitted_at": appeal.get("submitted_at"),
+                    "deadline_at": appeal.get("deadline_at"),
                 }
             result.append(session)
         return result
