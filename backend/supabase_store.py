@@ -196,10 +196,11 @@ class SupabaseStore:
         chapter_counts = {}
         for tag, topics in chapter_topics.items():
             count = sum(1 for c in chunks if c.chapter_tag == tag)
-            chapter_counts[tag] = {
-                "count": count,
-                "topics": topics
-            }
+            if count > 0:
+                chapter_counts[tag] = {
+                    "count": count,
+                    "topics": topics
+                }
 
         safe_name = "".join(char if char.isalnum() or char in {".", "-", "_"} else "_" for char in filename)
         storage_path = f"{exam_id}/{uuid4().hex}_{safe_name}"

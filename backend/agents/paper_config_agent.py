@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import random
 import string
-import math
 from typing import Any
 
 ALLOWED_QUESTION_TYPES = {"MCQ", "Short Answer", "Long Answer", "Fill Blank", "True/False", "Essay"}
@@ -68,9 +67,10 @@ def validate_paper_config(config: dict[str, Any], chapter_chunk_counts: dict[str
             continue
             
         if material_id:
-            # A substantial 384-token chunk can safely support several distinct
-            # questions while remaining source-locked.
-            needed = max(1, math.ceil(int(section["count"]) / 3))
+            # Short syllabus PDFs may only produce a few dense 384-token chunks.
+            # One verified source chunk is enough to keep generation grounded;
+            # diversity is handled later by retrieval/ranking and citations.
+            needed = 1
             available = chapter_chunk_counts.get(chapter, 0)
             if available < needed:
                 errors.append(f"Not enough material in {chapter}: need {needed} chunks, have {available}.")

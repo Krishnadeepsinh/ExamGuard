@@ -142,10 +142,11 @@ class LocalStore:
         chapter_counts = {}
         for tag, topics in chapter_topics.items():
             count = sum(1 for c in chunks if c.chapter_tag == tag)
-            chapter_counts[tag] = {
-                "count": count,
-                "topics": topics
-            }
+            if count > 0:
+                chapter_counts[tag] = {
+                    "count": count,
+                    "topics": topics
+                }
 
         material = {
             "id": material_id,
