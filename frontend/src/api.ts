@@ -175,6 +175,9 @@ export const api = {
   login: (payload: { email: string; password: string; role: 'teacher' | 'student'; display_name?: string }) =>
     request<{ user: ApiUser; token: string }>('/auth/login', { method: 'POST', body: JSON.stringify(payload) }),
 
+  demoLogin: (email: string, password: string) =>
+    request<{ user: ApiUser; token: string; demo: boolean }>('/auth/demo', { method: 'POST', body: JSON.stringify({ email, password }) }),
+
   signup: (payload: { email: string; password: string; role: 'teacher' | 'student'; display_name?: string }) =>
     request<{ user: ApiUser; token: string }>('/auth/signup', { method: 'POST', body: JSON.stringify(payload) }),
 

@@ -77,6 +77,18 @@ class LocalStore:
             raise PermissionError("Invalid access token")
         return user
 
+    def ensure_demo_teacher(self, email: str) -> dict[str, Any]:
+        existing = next((user for user in self.users.values() if user.get("email", "").lower() == email.lower()), None)
+        if existing:
+            existing["role"] = "teacher"
+            return existing
+        user = {
+            "id": f"teacher-{uuid4().hex[:10]}", "email": email, "display_name": "Demo Teacher",
+            "role": "teacher", "institute": "ExamGuard Demo", "baseline_answer_count": 0,
+        }
+        self.users[user["id"]] = user
+        return user
+
     def create_exam(self, teacher_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         exam_id = f"exam-{uuid4().hex[:10]}"
         existing_codes = {exam["join_code"] for exam in self.exams.values()}

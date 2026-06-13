@@ -438,7 +438,11 @@ function App() {
       login({ role: 'student', name: session.student_name, email: payload.email || `${payload.name.toLowerCase().replace(/\s+/g, '.')}@student.ai` })
       return
     }
-    const result = payload.signup
+    const demoEmail = import.meta.env.VITE_DEMO_TEACHER_EMAIL ?? 'teacher@demo.examguard.ai'
+    const demoPassword = import.meta.env.VITE_DEMO_TEACHER_PASSWORD ?? 'ExamGuard-Demo-2026!'
+    const result = !payload.signup && payload.email === demoEmail && payload.password === demoPassword
+      ? await api.demoLogin(payload.email, payload.password)
+      : payload.signup
       ? await api.signup({ email: payload.email, password: payload.password, role: payload.role, display_name: payload.name })
       : await api.login({ email: payload.email, password: payload.password, role: payload.role, display_name: payload.name })
     window.localStorage.setItem('examguard-user-id', result.user.id)
@@ -705,13 +709,13 @@ function AuthPanel({ initialRole, onLogin, notify }: { initialRole: AuthRole; on
   const [submitting, setSubmitting] = useState(false)
   const [signupMode, setSignupMode] = useState(false)
   const teacherDemo = {
-    email: import.meta.env.VITE_DEMO_TEACHER_EMAIL ?? '',
-    password: import.meta.env.VITE_DEMO_TEACHER_PASSWORD ?? '',
+    email: import.meta.env.VITE_DEMO_TEACHER_EMAIL ?? 'teacher@demo.examguard.ai',
+    password: import.meta.env.VITE_DEMO_TEACHER_PASSWORD ?? 'ExamGuard-Demo-2026!',
   }
   const studentDemo = {
-    name: import.meta.env.VITE_DEMO_STUDENT_NAME ?? '',
-    email: import.meta.env.VITE_DEMO_STUDENT_EMAIL ?? '',
-    joinCode: import.meta.env.VITE_DEMO_JOIN_CODE ?? '',
+    name: import.meta.env.VITE_DEMO_STUDENT_NAME ?? 'Demo Student',
+    email: import.meta.env.VITE_DEMO_STUDENT_EMAIL ?? 'student@demo.examguard.ai',
+    joinCode: import.meta.env.VITE_DEMO_JOIN_CODE ?? 'PO316D',
   }
   const demoReady = role === 'teacher'
     ? Boolean(teacherDemo.email && teacherDemo.password)

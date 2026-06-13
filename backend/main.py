@@ -7,6 +7,9 @@ from __future__ import annotations
 
 import csv
 import asyncio
+import base64
+import hashlib
+import hmac
 import io
 import json
 from datetime import datetime, timedelta, timezone
@@ -65,6 +68,11 @@ class LoginRequest(BaseModel):
         if "@" not in value or "." not in value.rsplit("@", 1)[-1]:
             raise ValueError("valid email is required")
         return value
+
+
+class DemoLoginRequest(BaseModel):
+    email: str
+    password: str
 
 
 class ExamCreateRequest(BaseModel):
@@ -175,6 +183,37 @@ def session_expired(session: dict[str, object], exam: dict[str, object]) -> bool
     expiry = session.get("expires_at")
     if not expiry:
         return False
+
+
+def issue_demo_token(user: dict[str, object]) -> str:
+    expires = int((datetime.now(timezone.utc) + timedelta(hours=8)).timestamp())
+    payload = base64.urlsafe_b64encode(json.dumps({"sub": user["id"], "email": user["email"], "exp": expires}, separators=(",", ":")).encode()).decode().rstrip("=")
+    signature = hmac.new(demo_signing_secret(), payload.encode(), hashlib.sha256).hexdigest()
+    return f"demo.{payload}.{signature}"
+
+
+def verify_demo_token(token: str) -> dict[str, object] | None:
+    if not settings.demo_access_enabled or not token.startswith("demo."):
+        return None
+    try:
+        _, payload, signature = token.split(".", 2)
+        expected = hmac.new(demo_signing_secret(), payload.encode(), hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(signature, expected):
+            return None
+        decoded = json.loads(base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4)))
+        if int(decoded["exp"]) <= int(datetime.now(timezone.utc).timestamp()):
+            return None
+        user = store.ensure_demo_teacher(str(decoded["email"]))
+        return user if str(user.get("id")) == str(decoded["sub"]) else None
+    except (ValueError, KeyError, json.JSONDecodeError):
+        return None
+
+
+def demo_signing_secret() -> bytes:
+    configured = settings.demo_session_secret or settings.supabase_service_role_key
+    if not configured:
+        configured = "examguard-local-demo-signing-key"
+    return hashlib.sha256(f"examguard-demo:{configured}".encode()).digest()
     try:
         return datetime.fromisoformat(str(expiry).replace("Z", "+00:00")) <= datetime.now(timezone.utc)
     except ValueError:
@@ -184,8 +223,9 @@ def session_expired(session: dict[str, object], exam: dict[str, object]) -> bool
 def current_teacher(authorization: str | None = Header(default=None)) -> dict[str, object]:
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Teacher authentication is required")
+    token = authorization.removeprefix("Bearer ").strip()
     try:
-        user = store.verify_token(authorization.removeprefix("Bearer ").strip())
+        user = verify_demo_token(token) or store.verify_token(token)
     except PermissionError as exc:
         raise HTTPException(status_code=401, detail=str(exc)) from exc
     if user.get("role") != "teacher":
@@ -223,6 +263,19 @@ def agent_graph() -> dict[str, object]:
 
 
 # --- Auth --------------------------------------------------------------------
+
+
+@app.post("/api/v1/auth/demo")
+@limiter.limit("10/minute")
+def demo_login(request: Request, payload: DemoLoginRequest) -> dict[str, object]:
+    if not settings.demo_access_enabled or not settings.demo_teacher_password:
+        raise HTTPException(status_code=404, detail="Demo access is not configured")
+    valid_email = hmac.compare_digest(payload.email.strip().lower(), settings.demo_teacher_email)
+    valid_password = hmac.compare_digest(payload.password, settings.demo_teacher_password)
+    if not valid_email or not valid_password:
+        raise HTTPException(status_code=401, detail="Invalid demo credentials")
+    user = store.ensure_demo_teacher(settings.demo_teacher_email)
+    return {"user": user, "token": issue_demo_token(user), "demo": True}
 
 
 @app.post("/api/v1/auth/login")

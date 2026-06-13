@@ -83,6 +83,19 @@ class SupabaseStore:
             raise PermissionError("User profile is missing")
         return profiles[0]
 
+    def ensure_demo_teacher(self, email: str) -> dict[str, Any]:
+        encoded = parse.quote(email, safe="")
+        existing = self.rest("GET", "users", query=f"?email=eq.{encoded}")
+        if existing:
+            profile = existing[0]
+            if profile.get("role") != "teacher":
+                profile = self.rest("PATCH", "users", {"role": "teacher"}, query=f"?id=eq.{profile['id']}")[0]
+            return profile
+        return self.rest("POST", "users", {
+            "id": str(uuid4()), "email": email, "display_name": "Demo Teacher",
+            "institute_name": "ExamGuard Demo", "role": "teacher", "baseline_answer_count": 0,
+        })[0]
+
     def login(self, email: str, password: str, role: str, display_name: str | None = None, signup: bool = False) -> dict[str, Any]:
         auth = self.auth_request("signup" if signup else "token?grant_type=password", {
             "email": email, "password": password,

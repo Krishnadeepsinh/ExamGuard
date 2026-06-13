@@ -18,6 +18,10 @@ class Settings:
     gemini_api_keys: tuple[str, ...]
     gemini_model: str
     cors_origins: tuple[str, ...]
+    demo_access_enabled: bool
+    demo_teacher_email: str
+    demo_teacher_password: str
+    demo_session_secret: str
 
     @property
     def supabase_enabled(self) -> bool:
@@ -69,6 +73,10 @@ def load_settings() -> Settings:
         cors_origins=tuple(origin.strip() for origin in os.getenv(
             "CORS_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173,http://localhost:3000"
         ).split(",") if origin.strip()),
+        demo_access_enabled=os.getenv("DEMO_ACCESS_ENABLED", "true").lower() in {"1", "true", "yes"},
+        demo_teacher_email=os.getenv("DEMO_TEACHER_EMAIL", "teacher@demo.examguard.ai").strip().lower(),
+        demo_teacher_password=os.getenv("DEMO_TEACHER_PASSWORD", "ExamGuard-Demo-2026!"),
+        demo_session_secret=os.getenv("DEMO_SESSION_SECRET", ""),
     )
 
 
