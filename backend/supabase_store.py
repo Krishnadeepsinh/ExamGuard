@@ -571,7 +571,8 @@ class SupabaseStore:
             if session.get("locked_for_review") or session.get("integrity_state") == "FLAGGED":
                 held += 1
                 continue
-            self.update_session(str(session["id"]), {"grade_released": True, "review_status": "released_clean"})
+            self.evaluate_session(str(session["id"]))
+            self.update_session(str(session["id"]), {"grade_released": True, "review_status": "decided"})
             released += 1
         return {"released": released, "held_for_review": held}
 

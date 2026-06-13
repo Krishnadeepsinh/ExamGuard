@@ -505,6 +505,14 @@ function App() {
       window.localStorage.setItem('examguard-auth', JSON.stringify(updated))
     }
   }
+  const refreshSelectedExamStudents = useCallback(() => {
+    if (!selectedExamId) return Promise.resolve()
+    return api.examStudents(selectedExamId).then((sessions) => {
+      const mapped = sessions.map(mapSessionToStudent)
+      setStudentsList(mapped)
+      setSelectedStudent((current: any) => current ? mapped.find((student) => student.id === current.id) || current : current)
+    })
+  }, [selectedExamId])
 
   const contentMap = {
     landing: <LandingView notify={notify} onLogin={loginWithApi} />,
@@ -532,11 +540,7 @@ function App() {
         sort={sort}
         setSort={setSort}
         notify={notify}
-        onRefreshStudents={() => {
-          api.examStudents(selectedExamId).then(sessions => {
-            setStudentsList(sessions.map(mapSessionToStudent))
-          }).catch(() => {})
-        }}
+        onRefreshStudents={() => { refreshSelectedExamStudents().catch(() => {}) }}
         onStudentsSnapshot={(sessions) => setStudentsList(sessions.map(mapSessionToStudent))}
       />
     ),
@@ -544,7 +548,7 @@ function App() {
     consent: <ConsentView consentScrolled={consentScrolled} setConsentScrolled={setConsentScrolled} go={navigate} notify={notify} />,
     liveness: <LivenessView go={navigate} notify={notify} />,
     exam: <ExamView answer={answer} setAnswer={setAnswer} marked={marked} setMarked={setMarked} notify={notify} go={navigate} />,
-    complete: <CompleteView notify={notify} />,
+    complete: <CompleteView notify={notify} go={navigate} />,
     review: (
       <ReviewView
         examId={selectedExamId}
@@ -552,6 +556,7 @@ function App() {
         selected={selectedStudent}
         setSelected={setSelectedStudent}
         notify={notify}
+        onRefreshStudents={refreshSelectedExamStudents}
       />
     ),
     reports: (
@@ -559,6 +564,7 @@ function App() {
         examId={selectedExamId}
         students={studentsList}
         notify={notify}
+        onRefreshStudents={refreshSelectedExamStudents}
       />
     ),
     settings: <SettingsView auth={auth} onSaveSettings={handleSaveSettings} notify={notify} />,
@@ -2549,7 +2555,7 @@ function ExamView(props: {
   )
 }
 
-function CompleteView({ notify }: { notify: (kind: ToastKind, text: string) => void }) {
+function CompleteView({ notify, go }: { notify: (kind: ToastKind, text: string) => void; go: (view: View) => void }) {
   const [appeal, setAppeal] = useState('')
   const appealWords = wordCount(appeal)
   const [submitted, setSubmitted] = useState(false)
@@ -2557,7 +2563,10 @@ function CompleteView({ notify }: { notify: (kind: ToastKind, text: string) => v
 
   useEffect(() => {
     const sessionId = studentSessionId()
-    if (!sessionId) return
+    if (!sessionId) {
+      setSessionData({ missingSession: true })
+      return
+    }
     const refresh = () => api.sessionResult(sessionId).then(setSessionData).catch(() => {})
     refresh()
     const timer = window.setInterval(refresh, 5000)
@@ -2595,6 +2604,7 @@ function CompleteView({ notify }: { notify: (kind: ToastKind, text: string) => v
     ci: sessionData.integrity?.ci ?? null
   } : null
 
+  if (sessionData?.missingSession) return <section className="screen"><div className="empty-state"><Lock size={28} /><strong>Login required</strong><span>Open your student portal to see only your own submitted result.</span><button className="primary-btn" onClick={() => go('student')}>Open Student Portal</button></div></section>
   if (!studentObj) return <section className="screen"><div className="empty-state"><RefreshCw size={28} /><strong>Loading submission result</strong><span>Your locally saved answers remain available.</span></div></section>
 
   return (
@@ -2639,7 +2649,7 @@ function CompleteView({ notify }: { notify: (kind: ToastKind, text: string) => v
   )
 }
 
-function ReviewView({ examId, students, selected, setSelected, notify }: { examId: string; students: any[]; selected: any; setSelected: (s: any) => void; notify: (kind: ToastKind, text: string) => void }) {
+function ReviewView({ examId, students, selected, setSelected, notify, onRefreshStudents }: { examId: string; students: any[]; selected: any; setSelected: (s: any) => void; notify: (kind: ToastKind, text: string) => void; onRefreshStudents: () => Promise<void> }) {
   const [teacherNote, setTeacherNote] = useState('')
   const [exam, setExam] = useState<ApiExam | null>(null)
 
@@ -2649,9 +2659,10 @@ function ReviewView({ examId, students, selected, setSelected, notify }: { examI
     if (!selected || !selected.id) { notify('error', 'No student session selected.'); return }
     if (teacherNote.trim().length < 12) { notify('error', 'Add a teacher note before saving the decision.'); return }
     try {
-      await api.teacherDecision(selected.id, decision, teacherNote)
-      setSelected({ ...selected, gradeReleased: true, reviewStatus: 'decided' })
-      notify(decision === 'clear' ? 'success' : 'warning', decision === 'clear' ? 'Decision saved: student cleared, grade released.' : 'Decision saved: flag confirmed, grade released with note.')
+      const updated = await api.teacherDecision(selected.id, decision, teacherNote) as ApiSession
+      setSelected(mapSessionToStudent(updated))
+      await onRefreshStudents()
+      notify(decision === 'clear' ? 'success' : 'warning', decision === 'clear' ? 'Decision saved: student cleared, grade released.' : 'Decision saved: student kept under watch, grade released with note.')
     } catch (e) {
       notify('error', e instanceof Error ? e.message : 'Failed to save decision.')
     }
@@ -2724,10 +2735,10 @@ function ReviewView({ examId, students, selected, setSelected, notify }: { examI
                 
                 <div className="inline-actions">
                   <button className="primary-btn" style={{ background: 'var(--eg-emerald)', borderColor: 'var(--eg-emerald)' }} disabled={teacherNote.trim().length < 12} onClick={() => saveDecision('clear')}>
-                    Clear & Release Grade
+                    Clear & Release Result
                   </button>
                   <button className="danger-btn" disabled={teacherNote.trim().length < 12} onClick={() => saveDecision('confirm_flag')}>
-                    Confirm Violation
+                    Keep Under Watch
                   </button>
                 </div>
               </div>
@@ -2741,7 +2752,7 @@ function ReviewView({ examId, students, selected, setSelected, notify }: { examI
   )
 }
 
-function ReportsView({ examId, students, notify }: { examId: string; students: any[]; notify: (kind: ToastKind, text: string) => void }) {
+function ReportsView({ examId, students, notify, onRefreshStudents }: { examId: string; students: any[]; notify: (kind: ToastKind, text: string) => void; onRefreshStudents: () => Promise<void> }) {
   const [summary, setSummary] = useState<any>(null)
   const [exam, setExam] = useState<ApiExam | null>(null)
 
@@ -2780,6 +2791,7 @@ function ReportsView({ examId, students, notify }: { examId: string; students: a
     if (!window.confirm('Publish marks for all completed, non-flagged students? Flagged attempts will remain held for review.')) return
     try {
       const result = await api.releaseExamResults(examId)
+      await onRefreshStudents()
       notify('success', `${result.released} result(s) published. ${result.held_for_review} flagged result(s) remain held.`)
     } catch (event) {
       notify('error', event instanceof Error ? event.message : 'Results could not be published.')

@@ -1,6 +1,10 @@
 const configuredApiBase = String(import.meta.env.VITE_API_BASE_URL ?? '').trim().replace(/\/$/, '')
 const localHost = ['localhost', '127.0.0.1'].includes(window.location.hostname)
-const API_BASE = configuredApiBase || (localHost ? 'http://127.0.0.1:8000/api/v1' : '')
+const normalizeApiBase = (value: string) => {
+  if (!value) return ''
+  return /\/api\/v1$/i.test(value) ? value : `${value}/api/v1`
+}
+const API_BASE = normalizeApiBase(configuredApiBase || (localHost ? 'http://127.0.0.1:8000' : ''))
 
 function requireApiBase(): string {
   if (API_BASE) return API_BASE
