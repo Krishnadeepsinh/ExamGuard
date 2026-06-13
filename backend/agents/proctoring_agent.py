@@ -32,16 +32,40 @@ def behavioral_score(events: list[dict[str, object]]) -> float:
     return max(0, min(100, score))
 
 
+def _signal_category(event: dict[str, object]) -> str | None:
+    event_type = str(event.get("type"))
+    metadata = event.get("metadata") if isinstance(event.get("metadata"), dict) else {}
+    if event_type in {"tab_switch", "tab_hidden", "window_blur", "fullscreen_exit"}:
+        return "focus"
+    if event_type == "paste_detected" and metadata.get("bulk_paste") is True:
+        return "content"
+    if event_type in {"face_missing", "multiple_faces"}:
+        return "presence"
+    if event_type == "phone_detected":
+        return "device"
+    if event_type == "monitoring_interrupted" and metadata.get("reason") != "camera_or_detector_unavailable":
+        return "monitoring"
+    return None
+
+
+def integrity_warning_count(events: list[dict[str, object]]) -> int:
+    """Return 0-2 warnings from meaningful evidence, ignoring weak one-off noise."""
+    categorized = [category for event in events if (category := _signal_category(event)) is not None]
+    if not categorized:
+        return 0
+    if len(set(categorized)) >= 2 or len(categorized) >= 3:
+        return 2
+    return 1
+
+
 def has_critical_pattern(events: list[dict[str, object]]) -> bool:
-    """Escalate only repeated, multi-vector behavior; one accidental event never flags."""
-    types = [str(event.get("type")) for event in events]
-    tab_events = types.count("tab_hidden") + types.count("tab_switch")
-    bulk_pastes = sum(
-        event.get("type") == "paste_detected"
-        and isinstance(event.get("metadata"), dict)
-        and event["metadata"].get("bulk_paste") is True
+    """Require corroborated evidence across three independent vectors before a hold."""
+    categorized = [category for event in events if (category := _signal_category(event)) is not None]
+    categories = set(categorized)
+    has_strong_evidence = any(
+        str(event.get("type")) in {"phone_detected", "multiple_faces"}
+        or (event.get("type") == "paste_detected" and isinstance(event.get("metadata"), dict) and event["metadata"].get("bulk_paste") is True)
         for event in events
     )
-    presence_events = types.count("face_missing") + (types.count("multiple_faces") * 2)
-    independent_vectors = sum((bulk_pastes > 0, "fullscreen_exit" in types, "phone_detected" in types, presence_events >= 2))
-    return (tab_events >= 3 and independent_vectors >= 1) or independent_vectors >= 2
+    repeated_category = any(categorized.count(category) >= 2 for category in categories)
+    return len(categories) >= 3 and len(categorized) >= 5 and has_strong_evidence and repeated_category

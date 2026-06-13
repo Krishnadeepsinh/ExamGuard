@@ -896,6 +896,7 @@ def session_integrity(session_id: str, student: dict[str, object] = Depends(curr
     session = store.normalize_session(raw_session)
     integrity = dict(session.get("integrity") or {})
     integrity["locked_for_review"] = bool(session.get("locked_for_review", False))
+    integrity["warning_count"] = store.session_warning_count(session_id) if hasattr(store, "session_warning_count") else 0
     return integrity
 
 
@@ -944,9 +945,11 @@ def log_proctoring_event(session_id: str, payload: ProctoringEventRequest, stude
         updated_integrity = stored_event.get("integrity")
         if updated_integrity:
             event["integrity"] = updated_integrity
+        event["warning_count"] = stored_event.get("warning_count", 0)
+        event["locked_for_review"] = stored_event.get("locked_for_review", False)
     redis_hot_state.push_event(f"exam:{session['exam_id']}:events", event, ttl_seconds=10800)
     run_workflow("proctor", event, str(session.get("integrity", {}).get("status", "CLEAN")))
-    return {"status": "logged", "integrity": updated_integrity}
+    return {"status": "logged", "integrity": updated_integrity, "warning_count": event.get("warning_count", 0), "locked_for_review": event.get("locked_for_review", False)}
 
 
 # --- Settings ----------------------------------------------------------------
