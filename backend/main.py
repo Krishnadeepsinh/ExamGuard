@@ -27,7 +27,7 @@ from backend.agents.constants import FACTOR_WEIGHTS
 from backend.agents.graph import AGENT_NODES, EDGES, run_workflow
 from backend.config import settings
 from backend.redis_client import redis_hot_state
-from backend.store import store as local_store
+from backend.store import build_class_pdf_report, store as local_store
 
 if settings.supabase_enabled:
     from backend.supabase_store import SupabaseStore
@@ -47,6 +47,7 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=list(settings.cors_origins),
+    allow_origin_regex=settings.cors_origin_regex or None,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -73,6 +74,19 @@ class LoginRequest(BaseModel):
 class DemoLoginRequest(BaseModel):
     email: str
     password: str
+
+
+class StudentAccessRequest(BaseModel):
+    student_name: str = Field(min_length=3, max_length=80)
+    email: str | None = None
+    device_id: str | None = Field(default=None, min_length=8, max_length=120)
+
+    @field_validator("email")
+    @classmethod
+    def validate_student_email(cls, value: str | None) -> str | None:
+        if value and ("@" not in value or "." not in value.rsplit("@", 1)[-1]):
+            raise ValueError("valid email is required")
+        return value.strip().lower() if value else None
 
 
 class ExamCreateRequest(BaseModel):
@@ -187,6 +201,10 @@ def session_expired(session: dict[str, object], exam: dict[str, object]) -> bool
     expiry = session.get("expires_at")
     if not expiry:
         return False
+    try:
+        return datetime.fromisoformat(str(expiry).replace("Z", "+00:00")) <= datetime.now(timezone.utc)
+    except ValueError:
+        return False
 
 
 def issue_demo_token(user: dict[str, object]) -> str:
@@ -241,10 +259,6 @@ def demo_signing_secret() -> bytes:
     if not configured:
         configured = "examguard-local-demo-signing-key"
     return hashlib.sha256(f"examguard-demo:{configured}".encode()).digest()
-    try:
-        return datetime.fromisoformat(str(expiry).replace("Z", "+00:00")) <= datetime.now(timezone.utc)
-    except ValueError:
-        return False
 
 
 def current_teacher(authorization: str | None = Header(default=None)) -> dict[str, object]:
@@ -269,6 +283,19 @@ def current_user(authorization: str | None = Header(default=None)) -> dict[str, 
     except PermissionError as exc:
         raise HTTPException(status_code=401, detail=str(exc)) from exc
     return user
+
+
+def current_student(user: dict[str, object] = Depends(current_user)) -> dict[str, object]:
+    if user.get("role") != "student":
+        raise HTTPException(status_code=403, detail="Student role is required")
+    return user
+
+
+def require_student_session(session_id: str, student: dict[str, object]) -> dict[str, object]:
+    session = require_session(session_id)
+    if str(session.get("student_id")) != str(student.get("id")):
+        raise HTTPException(status_code=403, detail="This exam attempt belongs to another student")
+    return session
 
 
 def require_owned_exam(exam_id: str, teacher: dict[str, object]) -> dict[str, object]:
@@ -327,6 +354,16 @@ def login(request: Request, payload: LoginRequest) -> dict[str, object]:
     user.pop("refresh_token", None)
     user.pop("password", None)
     return {"user": user, "token": token}
+
+
+@app.post("/api/v1/auth/student-access")
+@limiter.limit("10/minute")
+def student_access(request: Request, payload: StudentAccessRequest) -> dict[str, object]:
+    if not payload.email and not payload.device_id:
+        raise HTTPException(status_code=422, detail="email or device_id is required")
+    identity_email = payload.email or f"guest-{hashlib.sha256(f'{payload.device_id}:{payload.student_name.strip().lower()}'.encode()).hexdigest()[:24]}@student.local"
+    user = store.ensure_student(identity_email, payload.student_name.strip())
+    return {"user": user, "token": issue_student_token(str(user["id"]), str(user["email"]))}
 
 
 @app.post("/api/v1/auth/signup")
@@ -608,43 +645,11 @@ def exam_reports_csv(exam_id: str, teacher: dict[str, object] = Depends(current_
 
 @app.get("/api/v1/exams/{exam_id}/reports/pdf")
 def exam_reports_pdf(exam_id: str, teacher: dict[str, object] = Depends(current_teacher)) -> Response:
-    """Generate one compact PDF containing every student result for an exam."""
-    from reportlab.lib.pagesizes import A4
-    from reportlab.pdfgen import canvas
-
+    """Generate a paginated class report with an overview and student detail pages."""
     exam = require_owned_exam(exam_id, teacher)
     sessions = owned_exam_sessions(exam_id, teacher)
-    output = io.BytesIO()
-    pdf = canvas.Canvas(output, pagesize=A4)
-    width, height = A4
-
-    def header() -> float:
-        pdf.setFont("Helvetica-Bold", 16)
-        pdf.drawString(42, height - 42, f"ExamGuard Class Report - {exam.get('title', 'Exam')}")
-        pdf.setFont("Helvetica", 9)
-        pdf.drawString(42, height - 58, f"Subject: {exam.get('subject', '')}  |  Students: {len(sessions)}  |  Total marks: {exam.get('total_marks', '')}")
-        pdf.line(42, height - 68, width - 42, height - 68)
-        return height - 88
-
-    y = header()
-    for index, session in enumerate(sessions, 1):
-        if y < 80:
-            pdf.showPage()
-            y = header()
-        integrity = session.get("integrity", {}) or {}
-        grade = session.get("grade", {}) or {}
-        pdf.setFont("Helvetica-Bold", 10)
-        pdf.drawString(42, y, f"{index}. {session.get('student_name', 'Student')}")
-        pdf.setFont("Helvetica", 9)
-        marks = f"{grade.get('earned_marks', 'Pending')}/{grade.get('total_marks', exam.get('total_marks', ''))}"
-        pdf.drawString(210, y, f"Marks: {marks}")
-        pdf.drawString(315, y, f"Integrity: {integrity.get('score', '')} {integrity.get('status', '')}")
-        pdf.drawString(465, y, "Released" if session.get("grade_released") else "Held")
-        pdf.setFont("Helvetica", 8)
-        pdf.drawString(58, y - 14, f"Review: {session.get('review_status', 'pending')}  |  Events: {session.get('events_count', 0)}  |  Answers: {session.get('answers_count', 0)}")
-        y -= 34
-    pdf.save()
-    return Response(output.getvalue(), media_type="application/pdf", headers={"Content-Disposition": f"attachment; filename=examguard_{exam_id}_class_report.pdf"})
+    data = build_class_pdf_report(exam, sessions)
+    return Response(data, media_type="application/pdf", headers={"Content-Disposition": f"attachment; filename=examguard_{exam_id}_class_report.pdf"})
 
 
 @app.get("/api/v1/exams/{exam_id}/reports/summary")
@@ -774,12 +779,12 @@ def delete_material(material_id: str, teacher: dict[str, object] = Depends(curre
 
 @app.post("/api/v1/sessions/join")
 @limiter.limit("15/minute")
-def join_session(request: Request, payload: JoinRequest) -> dict[str, object]:
+def join_session(request: Request, payload: JoinRequest, student: dict[str, object] = Depends(current_student)) -> dict[str, object]:
     try:
-        session = store.join_session(payload.join_code.upper(), payload.student_name, str(payload.email) if payload.email else None)
+        session = store.join_session(payload.join_code.upper(), payload.student_name, str(student.get("email") or payload.email or ""), str(student["id"]))
         redis_hot_state.set_json(f"session:{session['id']}:state", session, ttl_seconds=10800)
         redis_hot_state.push_event(f"exam:{session['exam_id']}:events", {"type": "student_joined", "session_id": session["id"], "student_name": session["student_name"]}, ttl_seconds=10800)
-        session["student_access_token"] = issue_student_token(str(session["student_id"]), str(payload.email or ""))
+        session["student_access_token"] = issue_student_token(str(session["student_id"]), str(student.get("email") or ""))
         return session
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=exc.args[0] if exc.args else "Invalid join code") from exc
@@ -795,8 +800,10 @@ def student_sessions(user: dict[str, object] = Depends(current_user)) -> list[di
 
 
 @app.post("/api/v1/sessions/{session_id}/consent")
-def save_consent(session_id: str) -> dict[str, object]:
-    session = require_session(session_id)
+def save_consent(session_id: str, student: dict[str, object] = Depends(current_student)) -> dict[str, object]:
+    session = require_student_session(session_id, student)
+    if session.get("status") == "ended":
+        raise HTTPException(status_code=409, detail="You already submitted this exam.")
     updated = store.update_session(session_id, {"consent_given": True, "consent_given_at": store.appeal_deadline(), "status": "consented"})
     normalized = store.normalize_session(updated)
     redis_hot_state.set_json(f"session:{session_id}:state", normalized, ttl_seconds=10800)
@@ -805,8 +812,10 @@ def save_consent(session_id: str) -> dict[str, object]:
 
 
 @app.post("/api/v1/sessions/{session_id}/liveness")
-def save_liveness(session_id: str, payload: LivenessRequest) -> dict[str, object]:
-    session = require_session(session_id)
+def save_liveness(session_id: str, payload: LivenessRequest, student: dict[str, object] = Depends(current_student)) -> dict[str, object]:
+    session = require_student_session(session_id, student)
+    if session.get("status") == "ended":
+        raise HTTPException(status_code=409, detail="You already submitted this exam.")
     if not _get_session_field(session, "consent"):
         raise HTTPException(status_code=422, detail="consent is required before liveness")
     exam = lookup_exam(str(session["exam_id"]))
@@ -828,16 +837,18 @@ def student_safe_question(question: dict[str, object]) -> dict[str, object]:
 
 
 @app.get("/api/v1/sessions/{session_id}/questions")
-def session_questions(session_id: str) -> list[dict[str, object]]:
-    session = require_session(session_id)
+def session_questions(session_id: str, student: dict[str, object] = Depends(current_student)) -> list[dict[str, object]]:
+    session = require_student_session(session_id, student)
+    if session.get("status") == "ended":
+        raise HTTPException(status_code=409, detail="You already submitted this exam.")
     if not _get_session_field(session, "liveness"):
         raise HTTPException(status_code=422, detail="liveness is required before questions")
     return [student_safe_question(question) for question in store.session_questions(session_id)]
 
 
 @app.get("/api/v1/sessions/{session_id}/exam")
-def session_exam(session_id: str) -> dict[str, object]:
-    session = require_session(session_id)
+def session_exam(session_id: str, student: dict[str, object] = Depends(current_student)) -> dict[str, object]:
+    session = require_student_session(session_id, student)
     exam = lookup_exam(str(session["exam_id"]))
     result = {key: exam.get(key) for key in ("id", "title", "subject", "duration_minutes", "total_marks", "status")}
     result["expires_at"] = session.get("expires_at")
@@ -847,8 +858,8 @@ def session_exam(session_id: str) -> dict[str, object]:
 
 @app.post("/api/v1/sessions/{session_id}/answers")
 @limiter.limit("60/minute")
-def save_answer(request: Request, session_id: str, payload: AnswerRequest) -> dict[str, object]:
-    session = require_session(session_id)
+def save_answer(request: Request, session_id: str, payload: AnswerRequest, student: dict[str, object] = Depends(current_student)) -> dict[str, object]:
+    session = require_student_session(session_id, student)
     if not _get_session_field(session, "consent") or not _get_session_field(session, "liveness"):
         raise HTTPException(status_code=403, detail="consent and liveness are required before answering")
     if session.get("status") != "active":
@@ -868,8 +879,10 @@ def save_answer(request: Request, session_id: str, payload: AnswerRequest) -> di
 
 
 @app.post("/api/v1/sessions/{session_id}/end")
-def end_session(session_id: str) -> dict[str, object]:
-    session = require_session(session_id)
+def end_session(session_id: str, student: dict[str, object] = Depends(current_student)) -> dict[str, object]:
+    session = require_student_session(session_id, student)
+    if session.get("status") == "ended":
+        return store.normalize_session(session)
     if hasattr(store, "evaluate_session"):
         store.evaluate_session(session_id)
     run_workflow("finish", {"session_id": session_id})
@@ -878,8 +891,8 @@ def end_session(session_id: str) -> dict[str, object]:
 
 
 @app.get("/api/v1/sessions/{session_id}/integrity")
-def session_integrity(session_id: str) -> dict[str, object]:
-    raw_session = require_session(session_id)
+def session_integrity(session_id: str, student: dict[str, object] = Depends(current_student)) -> dict[str, object]:
+    raw_session = require_student_session(session_id, student)
     session = store.normalize_session(raw_session)
     integrity = dict(session.get("integrity") or {})
     integrity["locked_for_review"] = bool(session.get("locked_for_review", False))
@@ -887,17 +900,19 @@ def session_integrity(session_id: str) -> dict[str, object]:
 
 
 @app.get("/api/v1/sessions/{session_id}/result")
-def session_result(session_id: str) -> dict[str, object]:
+def session_result(session_id: str, student: dict[str, object] = Depends(current_student)) -> dict[str, object]:
     """Get session result with answers, integrity, and review status."""
     try:
+        require_student_session(session_id, student)
         return store.get_session_result(session_id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="session not found") from exc
 
 
 @app.post("/api/v1/sessions/{session_id}/appeal")
-def submit_appeal(session_id: str, payload: AppealRequest) -> dict[str, object]:
+def submit_appeal(session_id: str, payload: AppealRequest, student: dict[str, object] = Depends(current_student)) -> dict[str, object]:
     try:
+        require_student_session(session_id, student)
         return store.submit_appeal(session_id, payload.response)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="session not found") from exc
@@ -917,9 +932,9 @@ def teacher_decision(session_id: str, payload: DecisionRequest, teacher: dict[st
 
 
 @app.post("/api/v1/sessions/{session_id}/events")
-def log_proctoring_event(session_id: str, payload: ProctoringEventRequest) -> dict[str, object]:
+def log_proctoring_event(session_id: str, payload: ProctoringEventRequest, student: dict[str, object] = Depends(current_student)) -> dict[str, object]:
     """Log a browser-side proctoring event (tab switch, paste, gaze, etc.)."""
-    session = require_session(session_id)
+    session = require_student_session(session_id, student)
     if session.get("status") != "active":
         raise HTTPException(status_code=409, detail="proctoring events are accepted only during an active session")
     event = {"type": payload.event_type, **payload.metadata, "session_id": session_id}

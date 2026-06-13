@@ -10,6 +10,7 @@ from __future__ import annotations
 from dataclasses import asdict
 from datetime import datetime, timedelta, timezone
 from io import BytesIO
+from html import escape
 import hashlib
 import json
 from typing import Any
@@ -21,8 +22,12 @@ from backend.agents.evaluation_agent import grade_objective, grade_subjective
 from backend.agents.orchestrator_agent import compute_integrity_score
 from backend.agents.paper_config_agent import generate_join_code, validate_paper_config
 from backend.agents.proctoring_agent import behavioral_score, has_critical_pattern, impact_for
+from reportlab.lib import colors
+from reportlab.lib.enums import TA_CENTER, TA_LEFT
 from reportlab.lib.pagesizes import A4
-from reportlab.pdfgen import canvas
+from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+from reportlab.lib.units import mm
+from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
 
 def utc_now() -> str:
@@ -89,6 +94,15 @@ class LocalStore:
         self.users[user["id"]] = user
         return user
 
+    def ensure_student(self, email: str, display_name: str) -> dict[str, Any]:
+        user = next((item for item in self.users.values() if item.get("email") == email and item.get("role") == "student"), None)
+        if user:
+            user["display_name"] = display_name
+            return user
+        user = {"id": f"student-{uuid4().hex[:10]}", "email": email, "display_name": display_name, "role": "student", "institute": "", "baseline_answer_count": 0}
+        self.users[user["id"]] = user
+        return user
+
     def create_exam(self, teacher_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         exam_id = f"exam-{uuid4().hex[:10]}"
         existing_codes = {exam["join_code"] for exam in self.exams.values()}
@@ -102,6 +116,7 @@ class LocalStore:
             "join_code": generate_join_code(existing_codes),
             "status": "draft",
             "paper_config": {},
+            "questions_generated": False,
             "activated_at": None,
             "ended_at": None,
             "created_at": utc_now(),
@@ -224,6 +239,8 @@ class LocalStore:
             return {"status": "invalid", "errors": validation["errors"]}
         exam["total_marks"] = config["total_marks"]
         exam["paper_config"] = config
+        exam["questions_generated"] = False
+        exam["status"] = "draft"
         return {"status": "saved", "exam": exam, "validation": validation}
 
     def generate_questions(self, exam_id: str) -> dict[str, Any]:
@@ -322,6 +339,7 @@ class LocalStore:
                     }
                 )
         self.questions[exam_id] = questions
+        exam["questions_generated"] = True
         exam["status"] = "generated"
         return {"status": "generated", "count": len(questions), "questions": questions, "llm": gemini_router.status(), "fallback_count": 0}
 
@@ -371,7 +389,7 @@ class LocalStore:
                 session["ended_at"] = exam["ended_at"]
         return exam
 
-    def join_session(self, join_code: str, student_name: str, email: str | None) -> dict[str, Any]:
+    def join_session(self, join_code: str, student_name: str, email: str | None, student_id: str | None = None) -> dict[str, Any]:
         exam = next((item for item in self.exams.values() if item["join_code"] == join_code), None)
         if not exam:
             raise KeyError("Invalid join code.")
@@ -379,11 +397,21 @@ class LocalStore:
             self.activate_exam(exam["id"])
         if exam["status"] != "active":
             raise PermissionError(f"Exam is {exam['status']} and is not accepting students.")
-        student_email = email or f"{student_name.lower().replace(' ', '.')}@student.local"
-        user = next((item for item in self.users.values() if item["email"] == student_email and item["role"] == "student"), None)
-        if not user:
-            user = {"id": f"student-{uuid4().hex[:10]}", "email": student_email, "display_name": student_name, "role": "student", "institute": "", "baseline_answer_count": 0}
-            self.users[user["id"]] = user
+        if student_id:
+            user = self.users.get(student_id)
+            if not user or user.get("role") != "student":
+                raise PermissionError("Student login is invalid. Sign in again before joining.")
+            user["display_name"] = student_name
+        else:
+            student_email = email or f"guest-{uuid4().hex}@student.local"
+            user = self.ensure_student(student_email, student_name)
+        existing = next(
+            (item for item in self.sessions.values() if item.get("exam_id") == exam["id"] and item.get("student_id") == user["id"]),
+            None,
+        )
+        if existing:
+            existing["already_submitted"] = existing.get("status") == "ended"
+            return existing
         session_id = f"sess-{uuid4().hex[:10]}"
         # New students start Tier 3. Unmeasured signals remain neutral; they are
         # never replaced with invented scores or treated as evidence.
@@ -437,8 +465,11 @@ class LocalStore:
             if not question:
                 continue
             response = str(answer.get("selected_option") or answer.get("answer_text") or "")
-            grader = grade_objective if question.get("type") in {"MCQ", "True/False", "Fill Blank"} else grade_subjective
-            result = grader(response, str(question.get("correct_answer") or ""), int(question.get("marks", 0)))
+            question_type = str(question.get("type") or "Short Answer")
+            if question_type in {"MCQ", "True/False", "Fill Blank"}:
+                result = grade_objective(response, str(question.get("correct_answer") or ""), int(question.get("marks", 0)))
+            else:
+                result = grade_subjective(response, str(question.get("correct_answer") or ""), int(question.get("marks", 0)), question_type)
             answer["eval_score"] = result["score"]
             answer["eval_reasoning"] = result["reasoning"]
             earned += float(result["score"])
@@ -447,10 +478,12 @@ class LocalStore:
 
     def generate_report_pdf(self, session_id: str) -> bytes:
         session = self.sessions[session_id]
+        if not session.get("grade"):
+            self.evaluate_session(session_id)
         questions = self.questions.get(session["exam_id"], [])
         answers = self.answers.get(session_id, [])
         events = []
-        data = build_pdf_report(session, questions, answers, events)
+        data = build_pdf_report(session, questions, answers, events, self.exams.get(session["exam_id"]))
         self.reports[session_id] = data
         return data
 
@@ -880,6 +913,140 @@ def build_pdf_report(session: dict[str, Any], questions: list[dict[str, Any]], a
     pdf.showPage()
     
     pdf.save()
+    return buffer.getvalue()
+
+
+NAVY = colors.HexColor("#102A43")
+PALE = colors.HexColor("#F2F6FA")
+MUTED = colors.HexColor("#52606D")
+
+
+def _pdf_styles() -> dict[str, ParagraphStyle]:
+    base = getSampleStyleSheet()
+    return {
+        "title": ParagraphStyle("EgTitle", parent=base["Title"], fontName="Helvetica-Bold", fontSize=20, leading=24, textColor=NAVY, alignment=TA_LEFT, spaceAfter=8),
+        "subtitle": ParagraphStyle("EgSubtitle", parent=base["Normal"], fontSize=9, leading=13, textColor=MUTED, spaceAfter=14),
+        "heading": ParagraphStyle("EgHeading", parent=base["Heading2"], fontName="Helvetica-Bold", fontSize=12, leading=15, textColor=NAVY, spaceBefore=8, spaceAfter=8),
+        "body": ParagraphStyle("EgBody", parent=base["BodyText"], fontSize=8.5, leading=12, textColor=colors.HexColor("#243B53")),
+        "small": ParagraphStyle("EgSmall", parent=base["BodyText"], fontSize=7.2, leading=9.5, textColor=MUTED),
+        "center": ParagraphStyle("EgCenter", parent=base["BodyText"], fontSize=8, leading=10, alignment=TA_CENTER, textColor=NAVY),
+    }
+
+
+def _p(value: object, style: ParagraphStyle) -> Paragraph:
+    return Paragraph(escape(str(value if value not in (None, "") else "Not available")), style)
+
+
+def _table(data: list[list[object]], widths: list[float], header: bool = True) -> Table:
+    table = Table(data, colWidths=widths, repeatRows=1 if header else 0, hAlign="LEFT")
+    commands = [
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("GRID", (0, 0), (-1, -1), 0.35, colors.HexColor("#CBD5E1")),
+        ("LEFTPADDING", (0, 0), (-1, -1), 6),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+        ("TOPPADDING", (0, 0), (-1, -1), 5),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+        ("ROWBACKGROUNDS", (0, 1 if header else 0), (-1, -1), [colors.white, PALE]),
+    ]
+    if header:
+        commands.extend([
+            ("BACKGROUND", (0, 0), (-1, 0), NAVY),
+            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+        ])
+    table.setStyle(TableStyle(commands))
+    return table
+
+
+def _page_footer(canvas_obj: Any, document: Any) -> None:
+    canvas_obj.saveState()
+    canvas_obj.setStrokeColor(colors.HexColor("#D9E2EC"))
+    canvas_obj.line(18 * mm, 13 * mm, 192 * mm, 13 * mm)
+    canvas_obj.setFillColor(MUTED)
+    canvas_obj.setFont("Helvetica", 7)
+    canvas_obj.drawString(18 * mm, 8 * mm, "ExamGuard AI - confidential academic record")
+    canvas_obj.drawRightString(192 * mm, 8 * mm, f"Page {document.page}")
+    canvas_obj.restoreState()
+
+
+def build_pdf_report(session: dict[str, Any], questions: list[dict[str, Any]], answers: list[dict[str, Any]], events: list[dict[str, Any]], exam: dict[str, Any] | None = None) -> bytes:
+    buffer = BytesIO()
+    styles = _pdf_styles()
+    document = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=18 * mm, leftMargin=18 * mm, topMargin=16 * mm, bottomMargin=18 * mm, title=f"ExamGuard report {session.get('id', '')}")
+    exam = exam or {}
+    integrity = session.get("integrity") or {}
+    grade = session.get("grade") or {}
+    story: list[Any] = [
+        _p("ExamGuard AI Student Examination Report", styles["title"]),
+        _p(f"Generated {utc_now()[:19].replace('T', ' ')} UTC | Integrity evidence supports human review and is not an automatic misconduct decision.", styles["subtitle"]),
+        _table([
+            [_p("Student", styles["small"]), _p(session.get("student_name", "Student"), styles["body"]), _p("Exam", styles["small"]), _p(exam.get("title") or session.get("exam_id"), styles["body"])],
+            [_p("Subject", styles["small"]), _p(exam.get("subject"), styles["body"]), _p("Session", styles["small"]), _p(session.get("id"), styles["body"])],
+            [_p("Attempt status", styles["small"]), _p(session.get("status"), styles["body"]), _p("Joined", styles["small"]), _p(session.get("joined_at") or session.get("started_at"), styles["body"])],
+        ], [25 * mm, 55 * mm, 28 * mm, 66 * mm], header=False),
+        Spacer(1, 8),
+        _p("Outcome Summary", styles["heading"]),
+        _table([
+            [_p("Marks", styles["small"]), _p("Integrity", styles["small"]), _p("Review", styles["small"]), _p("Release", styles["small"])],
+            [_p(f"{grade.get('earned_marks', 'Pending')} / {grade.get('total_marks', exam.get('total_marks', 'Pending'))}", styles["center"]), _p(f"{integrity.get('score', 'N/A')} - {integrity.get('status', 'N/A')}", styles["center"]), _p(session.get("review_status", "pending"), styles["center"]), _p("Released" if session.get("grade_released") else "Held", styles["center"])],
+        ], [43.5 * mm] * 4),
+        _p("Answer Evaluation", styles["heading"]),
+    ]
+    answers_by_question = {str(item.get("question_id")): item for item in answers}
+    answer_rows: list[list[object]] = [[_p("# / Type", styles["small"]), _p("Question and submitted answer", styles["small"]), _p("Score", styles["small"]), _p("Evaluation", styles["small"])]]
+    for index, question in enumerate(questions, 1):
+        answer = answers_by_question.get(str(question.get("id")), {})
+        response = answer.get("selected_option") or answer.get("answer_text") or "No answer submitted"
+        combined = f"<b>{escape(str(question.get('text', 'Question')))}</b><br/><font color='#52606D'>{escape(str(response))}</font>"
+        answer_rows.append([_p(f"{index}. {question.get('type', '')}", styles["small"]), Paragraph(combined, styles["body"]), _p(f"{answer.get('eval_score', 0)} / {question.get('marks', 0)}", styles["center"]), _p(answer.get("eval_reasoning") or "Not evaluated", styles["small"])])
+    if len(answer_rows) == 1:
+        answer_rows.append([_p("-", styles["small"]), _p("No question records were available.", styles["body"]), _p("-", styles["small"]), _p("-", styles["small"])])
+    story.append(_table(answer_rows, [25 * mm, 91 * mm, 22 * mm, 36 * mm]))
+    story.append(_p("Integrity Factors", styles["heading"]))
+    factor_rows = [[_p("Factor", styles["small"]), _p("Score", styles["small"])]]
+    for key, value in (integrity.get("factors") or {}).items():
+        factor_rows.append([_p(key.replace("_", " ").title(), styles["body"]), _p(value, styles["center"])])
+    if len(factor_rows) == 1:
+        factor_rows.append([_p("No factor detail", styles["body"]), _p("N/A", styles["center"])])
+    story.append(_table(factor_rows, [120 * mm, 54 * mm]))
+    story.append(_p("Proctoring Timeline", styles["heading"]))
+    event_rows = [[_p("Time", styles["small"]), _p("Event", styles["small"]), _p("Details", styles["small"])]]
+    for event in events:
+        detail = event.get("metadata") or event.get("event_data") or {}
+        event_rows.append([_p(str(event.get("occurred_at") or "")[:19], styles["small"]), _p(event.get("type") or event.get("event_type"), styles["body"]), _p(json.dumps(detail, sort_keys=True), styles["small"])])
+    if len(event_rows) == 1:
+        event_rows.append([_p("-", styles["small"]), _p("No integrity events recorded", styles["body"]), _p("Clean event timeline", styles["small"])])
+    story.append(_table(event_rows, [35 * mm, 45 * mm, 94 * mm]))
+    document.build(story, onFirstPage=_page_footer, onLaterPages=_page_footer)
+    return buffer.getvalue()
+
+
+def build_class_pdf_report(exam: dict[str, Any], sessions: list[dict[str, Any]]) -> bytes:
+    buffer = BytesIO()
+    styles = _pdf_styles()
+    document = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=18 * mm, leftMargin=18 * mm, topMargin=16 * mm, bottomMargin=18 * mm, title=f"{exam.get('title', 'Exam')} class report")
+    story: list[Any] = [_p("ExamGuard AI Class Examination Report", styles["title"]), _p(f"{exam.get('title', 'Exam')} | {exam.get('subject', '')} | {exam.get('total_marks', '')} marks | {len(sessions)} students", styles["subtitle"]), _p("Class Overview", styles["heading"])]
+    overview = [[_p("Student", styles["small"]), _p("Attempt", styles["small"]), _p("Marks", styles["small"]), _p("Integrity", styles["small"]), _p("Review / Release", styles["small"])]]
+    for session in sessions:
+        grade = session.get("grade") or {}
+        integrity = session.get("integrity") or {}
+        overview.append([_p(session.get("student_name", "Student"), styles["body"]), _p(session.get("status", ""), styles["center"]), _p(f"{grade.get('earned_marks', 'Pending')} / {grade.get('total_marks', exam.get('total_marks', ''))}", styles["center"]), _p(f"{integrity.get('score', 'N/A')} {integrity.get('status', '')}", styles["center"]), _p(f"{session.get('review_status', 'pending')} | {'Released' if session.get('grade_released') else 'Held'}", styles["small"])])
+    if len(overview) == 1:
+        overview.append([_p("No student submissions", styles["body"]), _p("-", styles["center"]), _p("-", styles["center"]), _p("-", styles["center"]), _p("-", styles["center"])])
+    story.append(_table(overview, [47 * mm, 24 * mm, 31 * mm, 32 * mm, 40 * mm]))
+    for index, session in enumerate(sessions, 1):
+        grade = session.get("grade") or {}
+        integrity = session.get("integrity") or {}
+        story.extend([PageBreak(), _p(f"Student {index}: {session.get('student_name', 'Student')}", styles["title"]), _table([
+            [_p("Session ID", styles["small"]), _p(session.get("id") or session.get("session_id"), styles["body"])],
+            [_p("Attempt status", styles["small"]), _p(session.get("status"), styles["body"])],
+            [_p("Joined / started", styles["small"]), _p(session.get("joined_at") or session.get("started_at"), styles["body"])],
+            [_p("Answers / events", styles["small"]), _p(f"{session.get('answers_count', 0)} answers | {session.get('events_count', 0)} events", styles["body"])],
+            [_p("Marks", styles["small"]), _p(f"{grade.get('earned_marks', 'Pending')} / {grade.get('total_marks', exam.get('total_marks', ''))} ({grade.get('percentage', 'Pending')}%)", styles["body"])],
+            [_p("Integrity", styles["small"]), _p(f"{integrity.get('score', 'N/A')} - {integrity.get('status', 'N/A')} | CI {integrity.get('ci', 'N/A')} | Tier {integrity.get('baseline_tier', 'N/A')}", styles["body"])],
+            [_p("Review outcome", styles["small"]), _p(f"{session.get('review_status', 'pending')} | {'Grade released' if session.get('grade_released') else 'Grade held'}", styles["body"])],
+        ], [42 * mm, 132 * mm], header=False), Spacer(1, 8), _p("Integrity signals are indicators for teacher review. The recorded teacher decision remains the authoritative outcome.", styles["subtitle"])])
+    document.build(story, onFirstPage=_page_footer, onLaterPages=_page_footer)
     return buffer.getvalue()
 
 

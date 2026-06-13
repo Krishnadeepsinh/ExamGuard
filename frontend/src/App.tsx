@@ -52,6 +52,7 @@ type View =
   | 'dashboard'
   | 'config'
   | 'live'
+  | 'student'
   | 'consent'
   | 'liveness'
   | 'exam'
@@ -74,6 +75,7 @@ const navItems: Array<{ view: View; label: string; icon: typeof Shield }> = [
   { view: 'dashboard', label: 'Teacher Dashboard', icon: Layers },
   { view: 'config', label: 'Paper Config', icon: BookOpen },
   { view: 'live', label: 'Live Monitor', icon: Radar },
+  { view: 'student', label: 'Student Portal', icon: GraduationCap },
   { view: 'consent', label: 'Student Consent', icon: Shield },
   { view: 'liveness', label: 'Blink Liveness', icon: Camera },
   { view: 'exam', label: 'Exam Session', icon: GraduationCap },
@@ -84,7 +86,7 @@ const navItems: Array<{ view: View; label: string; icon: typeof Shield }> = [
 ]
 
 const teacherViews: View[] = ['dashboard', 'config', 'live', 'review', 'reports', 'settings']
-const studentViews: View[] = ['consent', 'liveness', 'exam', 'complete', 'settings']
+const studentViews: View[] = ['student', 'consent', 'liveness', 'exam', 'complete', 'settings']
 const publicViews: View[] = ['landing']
 
 type QuestionType = 'MCQ' | 'Short Answer' | 'Long Answer' | 'Fill Blank' | 'True/False' | 'Essay'
@@ -142,6 +144,15 @@ function currentTabId(): string {
     window.name = `examguard-tab-${crypto.randomUUID()}`
   }
   return window.name
+}
+
+function studentDeviceId(): string {
+  const key = 'examguard-student-device-id'
+  const existing = window.localStorage.getItem(key)
+  if (existing) return existing
+  const created = crypto.randomUUID()
+  window.localStorage.setItem(key, created)
+  return created
 }
 
 function wordCount(value: string) {
@@ -388,7 +399,7 @@ function App() {
       if (canAccess(next)) {
         setView(next)
       } else {
-        const fallback: View = auth?.role === 'teacher' ? 'dashboard' : auth?.role === 'student' ? 'consent' : 'landing'
+        const fallback: View = auth?.role === 'teacher' ? 'dashboard' : auth?.role === 'student' ? 'student' : 'landing'
         setView(fallback)
         window.history.replaceState(null, '', `#${fallback}`)
       }
@@ -405,7 +416,7 @@ function App() {
   const navigate = (next: View) => {
     if (!canAccess(next)) {
       notify('warning', auth ? 'This screen requires the other role. Sign out before switching roles.' : 'Please login before opening this screen.')
-      const fallback: View = auth?.role === 'teacher' ? 'dashboard' : auth?.role === 'student' ? 'consent' : 'landing'
+      const fallback: View = auth?.role === 'teacher' ? 'dashboard' : auth?.role === 'student' ? 'student' : 'landing'
       setView(fallback)
       window.history.replaceState(null, '', `#${fallback}`)
       return
@@ -423,28 +434,19 @@ function App() {
       window.localStorage.setItem('examguard-auth', JSON.stringify(user))
     }
     notify('success', `${user.role === 'teacher' ? 'Teacher' : 'Student'} login successful.`)
-    const next = user.role === 'teacher' ? 'dashboard' : 'consent'
+    const next = user.role === 'teacher' ? 'dashboard' : 'student'
     setView(next)
     window.history.replaceState(null, '', `#${next}`)
   }
 
   const loginWithApi = async (payload: { role: AuthRole; email: string; password: string; name: string; joinCode?: string; signup?: boolean }) => {
     if (payload.role === 'student') {
-      if (!payload.joinCode) {
-        const sessions = await api.myStudentSessions()
-        if (!sessions.length) throw new Error('No exam history was found for this student account.')
-        window.sessionStorage.setItem('examguard-session-id', sessions[0].session_id)
-        login({ role: 'student', name: sessions[0].student_name || payload.name, email: payload.email })
-        setView('complete')
-        window.history.replaceState(null, '', '#complete')
-        return
-      }
-      const session = await api.joinSession({ join_code: payload.joinCode, student_name: payload.name, email: payload.email || undefined })
-      window.sessionStorage.setItem('examguard-session-id', session.id)
-      if (session.student_access_token) window.localStorage.setItem('examguard-access-token', session.student_access_token)
+      const access = await api.studentAccess(payload.name, payload.email, studentDeviceId())
+      window.localStorage.setItem('examguard-access-token', access.token)
+      window.localStorage.setItem('examguard-user-id', access.user.id)
       window.sessionStorage.setItem('examguard-tab-owner', currentTabId())
-      window.localStorage.setItem('examguard-exam-id', session.exam_id)
-      login({ role: 'student', name: session.student_name, email: payload.email || `${payload.name.toLowerCase().replace(/\s+/g, '.')}@student.ai` })
+      window.sessionStorage.removeItem('examguard-session-id')
+      login({ role: 'student', name: access.user.display_name, email: payload.email, userId: access.user.id })
       return
     }
     const demoEmail = import.meta.env.VITE_DEMO_TEACHER_EMAIL ?? 'teacher@demo.examguard.ai'
@@ -536,6 +538,7 @@ function App() {
         onStudentsSnapshot={(sessions) => setStudentsList(sessions.map(mapSessionToStudent))}
       />
     ),
+    student: <StudentPortalView auth={auth} go={navigate} notify={notify} />,
     consent: <ConsentView consentScrolled={consentScrolled} setConsentScrolled={setConsentScrolled} go={navigate} notify={notify} />,
     liveness: <LivenessView go={navigate} notify={notify} />,
     exam: <ExamView answer={answer} setAnswer={setAnswer} marked={marked} setMarked={setMarked} notify={notify} go={navigate} />,
@@ -713,23 +716,23 @@ function AuthPanel({ initialRole, onLogin, notify }: { initialRole: AuthRole; on
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [studentName, setStudentName] = useState('')
-  const [joinCode, setJoinCode] = useState('')
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [signupMode, setSignupMode] = useState(false)
-  const [studentAccessMode, setStudentAccessMode] = useState<'join' | 'results'>('join')
   const teacherDemo = {
     email: import.meta.env.VITE_DEMO_TEACHER_EMAIL ?? 'teacher@demo.examguard.ai',
     password: import.meta.env.VITE_DEMO_TEACHER_PASSWORD ?? 'ExamGuard-Demo-2026!',
   }
-  const studentDemo = {
-    name: import.meta.env.VITE_DEMO_STUDENT_NAME ?? 'Demo Student',
-    email: import.meta.env.VITE_DEMO_STUDENT_EMAIL ?? 'student@demo.examguard.ai',
-    joinCode: import.meta.env.VITE_DEMO_JOIN_CODE ?? 'PO316D',
-  }
+  const demoStudents = [
+    'Arjun Sharma',
+    'Priya Singh',
+    'Rahul Verma',
+    'Meera Nair',
+    'Kabir Khan',
+  ]
   const demoReady = role === 'teacher'
     ? Boolean(teacherDemo.email && teacherDemo.password)
-    : Boolean(studentDemo.name && studentDemo.joinCode)
+    : true
 
   const fillDemo = () => {
     setError('')
@@ -738,11 +741,6 @@ function AuthPanel({ initialRole, onLogin, notify }: { initialRole: AuthRole; on
       setEmail(teacherDemo.email)
       setPassword(teacherDemo.password)
       notify('info', 'Demo teacher credentials filled. Select Sign In.')
-    } else {
-      setStudentName(studentDemo.name)
-      setEmail(studentDemo.email)
-      setJoinCode(studentDemo.joinCode.toUpperCase())
-      notify('info', 'Demo student session filled. Select Join Session.')
     }
   }
 
@@ -752,7 +750,6 @@ function AuthPanel({ initialRole, onLogin, notify }: { initialRole: AuthRole; on
     setEmail('')
     setPassword('')
     setStudentName('')
-    setJoinCode('')
   }, [initialRole])
 
   const submit = async () => {
@@ -766,12 +763,9 @@ function AuthPanel({ initialRole, onLogin, notify }: { initialRole: AuthRole; on
       finally { setSubmitting(false) }
       return
     }
-    if (studentAccessMode === 'join' && !/^[A-Z0-9]{6}$/.test(joinCode.trim().toUpperCase())) { setError('Join code must be 6 letters or numbers.'); notify('error', 'Join code must be 6 letters or numbers.'); setSubmitting(false); return }
     if (studentName.trim().length < 3) { setError('Student name must be at least 3 characters.'); notify('error', 'Student name is required before joining.'); setSubmitting(false); return }
-    if (email.trim() && !isValidEmail(email)) { setError('Optional student email must be valid if provided.'); notify('error', 'Optional student email must be valid if provided.'); setSubmitting(false); return }
-    if (studentAccessMode === 'results' && !window.localStorage.getItem('examguard-access-token')) { setError('Use this browser after joining an exam, or sign in with a verified student account.'); setSubmitting(false); return }
-    try { await onLogin({ role: 'student', name: studentName.trim(), email: email || `${studentName.toLowerCase().replace(/\s+/g, '.')}@student.ai`, password, joinCode: studentAccessMode === 'join' ? joinCode : undefined }) }
-    catch (event) { const message = event instanceof Error ? event.message : 'Student join failed.'; setError(message); notify('error', message) }
+    try { await onLogin({ role: 'student', name: studentName.trim(), email: '', password: '' }) }
+    catch (event) { const message = event instanceof Error ? event.message : 'Student portal login failed.'; setError(message); notify('error', message) }
     finally { setSubmitting(false) }
   }
 
@@ -781,10 +775,10 @@ function AuthPanel({ initialRole, onLogin, notify }: { initialRole: AuthRole; on
       <span className="badge badge-purple" style={{ marginBottom: '12px' }}><Shield size={14} /> Secure Access Portal</span>
       <h2 style={{ fontSize: '24px', fontWeight: 700, margin: '8px 0 16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
         <Shield size={24} style={{ color: 'var(--eg-indigo)' }} />
-        {role === 'teacher' ? 'Teacher Sign In' : studentAccessMode === 'join' ? 'Student Join Session' : 'Student Results'}
+        {role === 'teacher' ? 'Teacher Sign In' : 'Student Portal'}
       </h2>
       <p className="muted" style={{ fontSize: '14px', marginBottom: '24px' }}>
-        {role === 'teacher' ? (signupMode ? 'Create a secure teacher account for your institute.' : 'Manage exam papers, configurations, and review flagged session anomalies.') : studentAccessMode === 'join' ? 'Join a live exam. Draft and scheduled papers remain private.' : 'Open your own released results without entering an exam code.'}
+        {role === 'teacher' ? (signupMode ? 'Create a secure teacher account for your institute.' : 'Manage exam papers, configurations, and review flagged session anomalies.') : 'Enter only your name. Add the exam code after the portal opens.'}
       </p>
 
       {role === 'teacher' ? (
@@ -800,41 +794,110 @@ function AuthPanel({ initialRole, onLogin, notify }: { initialRole: AuthRole; on
         </div>
       ) : (
         <div className="login-form" style={{ display: 'flex', flexDirection: 'column', gap: '16px', marginBottom: '20px' }}>
-          <div className="segmented-control" aria-label="Student access mode">
-            <button type="button" className={studentAccessMode === 'join' ? 'active' : ''} onClick={() => setStudentAccessMode('join')}>Join Exam</button>
-            <button type="button" className={studentAccessMode === 'results' ? 'active' : ''} onClick={() => setStudentAccessMode('results')}>My Results</button>
-          </div>
           <div>
             <label htmlFor="student-name">Student Name</label>
             <input id="student-name" name="student-name" autoComplete="name" required minLength={3} placeholder="Enter your full name…" value={studentName} onChange={(event) => setStudentName(event.target.value)} />
-          </div>
-          {studentAccessMode === 'join' && <div>
-            <label htmlFor="join-code">Join Code</label>
-            <input id="join-code" name="join-code" required maxLength={6} placeholder="Example: A7K9P2" autoComplete="off" spellCheck={false} value={joinCode} onChange={(event) => setJoinCode(event.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''))} />
-          </div>}
-          <div>
-            <label htmlFor="student-email">Optional Email</label>
-            <input id="student-email" name="student-email" type="email" autoComplete="email" spellCheck={false} placeholder="name@example.com" value={email} onChange={(event) => setEmail(event.target.value)} />
           </div>
         </div>
       )}
 
       {error && <p className="form-error" role="alert" style={{ marginBottom: '16px' }}>{error}</p>}
 
-      {demoReady && <button type="button" className="demo-fill-btn" onClick={fillDemo}>
+      {role === 'student' && <div className="demo-student-picker" aria-label="Demo students">
+        <span>Choose a demo student</span>
+        <div>
+          {demoStudents.map((name, index) => <button type="button" key={name} className={studentName === name ? 'active' : ''} onClick={() => {
+            setError('')
+            setStudentName(name)
+            notify('info', `${name} selected. Open the portal, then enter the exam code.`)
+          }}><strong>{index + 1}</strong>{name}</button>)}
+        </div>
+      </div>}
+
+      {demoReady && role === 'teacher' && <button type="button" className="demo-fill-btn" onClick={fillDemo}>
         <PlayCircle size={16} aria-hidden="true" /> Fill Demo {role === 'teacher' ? 'Teacher' : 'Student'}
         <span>Demo environment only</span>
       </button>}
       
       <button className="primary-btn full" disabled={submitting} onClick={submit}>
-        <Lock size={16} /> {submitting ? 'Authenticating…' : role === 'teacher' ? (signupMode ? 'Create Teacher Account' : 'Sign In') : studentAccessMode === 'join' ? 'Join Session' : 'View My Results'}
+        <Lock size={16} /> {submitting ? 'Authenticating…' : role === 'teacher' ? (signupMode ? 'Create Teacher Account' : 'Sign In') : 'Open Student Portal'}
       </button>
       {role === 'teacher' && <button type="button" className="ghost-btn full" style={{ marginTop: '10px' }} onClick={() => setSignupMode(value => !value)}>
         {signupMode ? 'Already registered? Sign in' : 'New teacher? Create account'}
       </button>}
 
-      {role === 'student' && <p className="hint" style={{ marginTop: '12px' }}>Use the 6-character code provided by your teacher.</p>}
+      {role === 'student' && <p className="hint" style={{ marginTop: '12px' }}>No password, email, or exam code is required on this screen.</p>}
     </div>
+  )
+}
+
+function StudentPortalView({ auth, go, notify }: { auth: AuthUser | null; go: (view: View) => void; notify: (kind: ToastKind, text: string) => void }) {
+  const [joinCode, setJoinCode] = useState('')
+  const [sessions, setSessions] = useState<Array<{ session_id: string; status: string; grade_released: boolean; grade?: { earned_marks: number; total_marks: number; percentage: number } }>>([])
+  const [joining, setJoining] = useState(false)
+  const [error, setError] = useState('')
+
+  const loadSessions = () => api.myStudentSessions().then(setSessions).catch(() => setSessions([]))
+  useEffect(() => { void loadSessions() }, [])
+
+  const joinExam = async () => {
+    const code = joinCode.trim().toUpperCase()
+    if (!/^[A-Z0-9]{6}$/.test(code)) { setError('Enter the 6-character code from your teacher.'); return }
+    if (!auth) return
+    setJoining(true)
+    setError('')
+    try {
+      const session = await api.joinSession({ join_code: code, student_name: auth.name })
+      window.sessionStorage.setItem('examguard-session-id', session.id)
+      window.sessionStorage.setItem('examguard-tab-owner', currentTabId())
+      window.localStorage.setItem('examguard-exam-id', session.exam_id)
+      if (session.student_access_token) window.localStorage.setItem('examguard-access-token', session.student_access_token)
+      if (session.status === 'ended' || session.already_submitted) {
+        notify('info', 'You already submitted this exam. Your saved result is shown instead of a new attempt.')
+        go('complete')
+      } else if (session.status === 'active') {
+        notify('success', 'Your unfinished attempt was restored.')
+        go('exam')
+      } else if (session.liveness) {
+        go('exam')
+      } else if (session.consent) {
+        go('liveness')
+      } else {
+        notify('success', 'Exam found. Review consent to continue.')
+        go('consent')
+      }
+    } catch (event) {
+      setError(event instanceof Error ? event.message : 'Could not join this exam.')
+    } finally { setJoining(false) }
+  }
+
+  const openAttempt = (sessionId: string, status: string) => {
+    window.sessionStorage.setItem('examguard-session-id', sessionId)
+    window.sessionStorage.setItem('examguard-tab-owner', currentTabId())
+    go(status === 'ended' ? 'complete' : status === 'active' ? 'exam' : 'consent')
+  }
+
+  return (
+    <section className="screen student-portal-layout">
+      <StudentStepIndicator currentStep="join" />
+      <Card title={`Welcome, ${auth?.name || 'Student'}`} icon={GraduationCap}>
+        <p className="muted">You are signed in. Enter a code only when your teacher has activated an exam.</p>
+        <div className="student-code-entry">
+          <input aria-label="Exam join code" maxLength={6} placeholder="6-character exam code" value={joinCode} onChange={(event) => setJoinCode(event.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''))} />
+          <button className="primary-btn" disabled={joining} onClick={joinExam}>{joining ? 'Checking…' : 'Join Exam'}</button>
+        </div>
+        {error && <p className="form-error" role="alert">{error}</p>}
+        <p className="hint">Draft, generated, paused, ended, and not-yet-started exams cannot create a new attempt.</p>
+      </Card>
+      <Card title="Your Exam History" icon={FileText}>
+        {sessions.length === 0 ? <div className="empty-state"><BookOpen size={24} /><strong>No exam attempts yet</strong><span>Enter a join code above when your teacher shares one.</span></div> : sessions.map((session) => (
+          <div className="student-history-row" key={session.session_id}>
+            <span><strong>{session.status === 'ended' ? 'Submitted exam' : 'Exam attempt'}</strong><small>{session.grade_released && session.grade ? `${session.grade.earned_marks}/${session.grade.total_marks} (${session.grade.percentage}%)` : session.status === 'ended' ? 'Waiting for teacher release' : 'Not submitted'}</small></span>
+            <button className="ghost-btn" onClick={() => openAttempt(session.session_id, session.status)}>{session.status === 'ended' ? 'View Status' : 'Resume'}</button>
+          </div>
+        ))}
+      </Card>
+    </section>
   )
 }
 
