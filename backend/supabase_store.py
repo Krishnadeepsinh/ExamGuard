@@ -7,6 +7,7 @@ frontend code and do not expose these calls to the browser.
 from __future__ import annotations
 
 import json
+import hashlib
 from datetime import datetime, timedelta, timezone
 from io import BytesIO
 from typing import Any
@@ -260,6 +261,9 @@ class SupabaseStore:
         return {**material, "source_type": source_type}
 
     def configure_exam(self, exam_id: str, config: dict[str, Any]) -> dict[str, Any]:
+        current = self.get_exam(exam_id)
+        if current.get("status") in {"active", "paused", "ended", "archived"}:
+            raise ValueError("Activated papers are immutable. Clone this exam to create a new version.")
         material_ids = config.get("material_ids") or ([config.get("material_id")] if config.get("material_id") else [])
         material_id = material_ids[0] if material_ids else None
         materials = [self.get_material(item) for item in material_ids]
@@ -311,6 +315,8 @@ class SupabaseStore:
 
     def generate_questions(self, exam_id: str) -> dict[str, Any]:
         exam = self.get_exam(exam_id)
+        if exam.get("status") in {"active", "paused", "ended", "archived"}:
+            raise ValueError("Activated papers are immutable. Clone this exam to regenerate questions.")
         existing_sessions = self.rest("GET", "exam_sessions", query=f"?exam_id=eq.{exam_id}&select=id&limit=1")
         if existing_sessions:
             raise ValueError("Cannot regenerate a paper after students have joined. Clone the exam to create a new version.")
@@ -428,10 +434,15 @@ class SupabaseStore:
         }
 
     def activate_exam(self, exam_id: str) -> dict[str, Any]:
-        questions = self.rest("GET", "questions", query=f"?exam_id=eq.{exam_id}&select=id&limit=1")
+        questions = self.rest("GET", "questions", query=f"?exam_id=eq.{exam_id}")
         if not questions:
             raise ValueError("generate questions before activation")
-        return self.normalize_exam(self.rest("PATCH", "exams", {"status": "active", "activated_at": utc_now()}, query=f"?id=eq.{exam_id}")[0])
+        current = self.get_exam(exam_id)
+        if current.get("status") == "active":
+            return current
+        version = int(current.get("paper_version") or 0) + 1
+        snapshot = {"version": version, "config": current.get("paper_config") or {}, "questions": questions, "captured_at": utc_now()}
+        return self.normalize_exam(self.rest("PATCH", "exams", {"status": "active", "activated_at": utc_now(), "paper_version": version, "paper_snapshot": snapshot}, query=f"?id=eq.{exam_id}")[0])
 
     def end_exam(self, exam_id: str) -> dict[str, Any]:
         ended_at = utc_now()
@@ -467,6 +478,7 @@ class SupabaseStore:
             "integrity_score": integrity["score"],
             "integrity_ci": integrity["ci"],
             "baseline_tier": integrity["baseline_tier"],
+            "integrity_factors": factors,
         })[0]
         return self.normalize_session(session, student_name)
 
@@ -487,9 +499,11 @@ class SupabaseStore:
                 "status": session.get("integrity_state"),
                 "ci": session.get("integrity_ci"),
                 "baseline_tier": session.get("baseline_tier"),
+                "factors": session.get("integrity_factors") or {},
             },
             "review_status": session.get("review_status"),
             "grade_released": session.get("grade_released", False),
+            "expires_at": session.get("expires_at"),
         }
 
     def require_session(self, session_id: str) -> dict[str, Any]:
@@ -513,7 +527,13 @@ class SupabaseStore:
             "answer_text": payload.get("answer_text"),
             "selected_option": payload.get("selected_option"),
             "time_spent_seconds": payload.get("time_spent_seconds", 0),
+            "idempotency_key": payload.get("idempotency_key"),
         }
+        if payload.get("idempotency_key"):
+            encoded = parse.quote(str(payload["idempotency_key"]), safe="")
+            duplicate = self.rest("GET", "answers", query=f"?session_id=eq.{session_id}&idempotency_key=eq.{encoded}")
+            if duplicate:
+                return duplicate[0]
         existing = self.rest("GET", "answers", query=f"?session_id=eq.{session_id}&question_id=eq.{payload['question_id']}")
         created = self.rest("PATCH", "answers", row, query=f"?id=eq.{existing[0]['id']}") if existing else self.rest("POST", "answers", row)
         return created[0]
@@ -571,23 +591,40 @@ class SupabaseStore:
 
     def log_integrity_event(self, session_id: str, event_type: str, metadata: dict[str, Any]) -> dict[str, Any]:
         severity = "warning" if event_type in {"tab_hidden", "window_blur", "fullscreen_exit", "paste_detected"} else "info"
+        prior_rows = self.rest("GET", "integrity_events", query=f"?session_id=eq.{session_id}&select=sequence_number,event_hash&order=sequence_number.desc&limit=1") or []
+        sequence = int(prior_rows[0].get("sequence_number") or 0) + 1 if prior_rows else 1
+        previous_hash = str(prior_rows[0].get("event_hash") or "") if prior_rows else ""
+        occurred_at = utc_now()
+        canonical = json.dumps({"session_id": session_id, "sequence": sequence, "type": event_type, "metadata": metadata, "occurred_at": occurred_at}, sort_keys=True, separators=(",", ":"))
+        event_hash = hashlib.sha256(f"{previous_hash}:{canonical}".encode()).hexdigest()
         created = self.rest("POST", "integrity_events", {
             "session_id": session_id,
             "event_type": event_type,
             "event_data": metadata,
             "score_impact": impact_for(event_type, metadata),
             "severity": severity,
+            "occurred_at": occurred_at,
+            "sequence_number": sequence,
+            "previous_hash": previous_hash or None,
+            "event_hash": event_hash,
         })[0]
         rows = self.rest("GET", "integrity_events", query=f"?session_id=eq.{session_id}&select=event_type,event_data") or []
         event_types = [{"type": row["event_type"], "metadata": row.get("event_data") or {}} for row in rows]
         behavioral = behavioral_score(event_types)
-        factors = {"behavioral": behavioral, "perplexity": 100, "stylometric": 100, "answer_quality": 100, "time_anomaly": 100}
         session = self.require_session(session_id)
+        prior_factors = session.get("integrity_factors") or {}
+        factors = {
+            "behavioral": behavioral,
+            "perplexity": float(prior_factors.get("perplexity", 100)),
+            "stylometric": float(prior_factors.get("stylometric", 100)),
+            "answer_quality": float(prior_factors.get("answer_quality", 100)),
+            "time_anomaly": float(prior_factors.get("time_anomaly", 100)),
+        }
         baseline_tier = int(session.get("baseline_tier") or 3)
         result = compute_integrity_score(factors, baseline_tier=baseline_tier)
         if has_critical_pattern(event_types):
             result = {**result, "score": min(float(result["score"]), 45.0), "status": "FLAGGED"}
-        patch: dict[str, Any] = {"integrity_score": result["score"], "integrity_state": result["status"], "integrity_ci": result["ci"]}
+        patch: dict[str, Any] = {"integrity_score": result["score"], "integrity_state": result["status"], "integrity_ci": result["ci"], "integrity_factors": factors}
         if result["status"] == "FLAGGED":
             patch["review_status"] = "awaiting_response"
         self.update_session(session_id, patch)

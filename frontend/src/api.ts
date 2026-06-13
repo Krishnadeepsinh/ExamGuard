@@ -1,4 +1,13 @@
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? 'http://127.0.0.1:8000/api/v1'
+
+export class ApiError extends Error {
+  status: number
+  constructor(message: string, status: number) {
+    super(message)
+    this.name = 'ApiError'
+    this.status = status
+  }
+}
 export const examSocketUrl = (examId: string) => {
   const token = window.localStorage.getItem('examguard-access-token') ?? ''
   return `${API_BASE.replace(/^http/, 'ws')}/ws/exams/${examId}?token=${encodeURIComponent(token)}`
@@ -6,17 +15,36 @@ export const examSocketUrl = (examId: string) => {
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const token = window.localStorage.getItem('examguard-access-token')
-  const response = await fetch(`${API_BASE}${path}`, {
-    ...options,
-    headers: {
-      ...(options.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }),
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...options.headers,
-    },
-  })
+  const method = options.method ?? 'GET'
+  const attempts = method === 'GET' ? 2 : 1
+  let response: Response | undefined
+  let networkError: unknown
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    const controller = new AbortController()
+    const timeout = window.setTimeout(() => controller.abort(), 30_000)
+    try {
+      response = await fetch(`${API_BASE}${path}`, {
+        ...options,
+        signal: controller.signal,
+        headers: {
+          ...(options.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }),
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          ...options.headers,
+        },
+      })
+      if (response.ok || response.status < 500 || attempt === attempts - 1) break
+    } catch (error) {
+      networkError = error
+      if (attempt === attempts - 1) throw new ApiError('Backend is temporarily unreachable. Check your connection and retry.', 0)
+    } finally {
+      window.clearTimeout(timeout)
+    }
+    await new Promise((resolve) => window.setTimeout(resolve, 1200))
+  }
+  if (!response) throw new ApiError(networkError instanceof Error ? networkError.message : 'Backend is temporarily unreachable.', 0)
   if (!response.ok) {
     const error = await response.json().catch(() => ({ detail: response.statusText }))
-    throw new Error(Array.isArray(error.detail) ? error.detail.join(' ') : error.detail || response.statusText)
+    throw new ApiError(Array.isArray(error.detail) ? error.detail.join(' ') : error.detail || response.statusText, response.status)
   }
   return response.json() as Promise<T>
 }
@@ -59,6 +87,8 @@ export type ApiExam = {
   paper_config?: Record<string, unknown>
   activated_at?: string | null
   ended_at?: string | null
+  expires_at?: string | null
+  server_now?: string
   created_at?: string
 }
 
@@ -216,9 +246,9 @@ export const api = {
     request<ApiQuestion[]>(`/sessions/${sessionId}/questions`),
 
   sessionExam: (sessionId: string) =>
-    request<Pick<ApiExam, 'id' | 'title' | 'subject' | 'duration_minutes' | 'total_marks' | 'status'>>(`/sessions/${sessionId}/exam`),
+    request<Pick<ApiExam, 'id' | 'title' | 'subject' | 'duration_minutes' | 'total_marks' | 'status' | 'expires_at' | 'server_now'>>(`/sessions/${sessionId}/exam`),
 
-  saveAnswer: (sessionId: string, payload: { question_id: string; answer_text: string; selected_option?: string; time_spent_seconds?: number }) =>
+  saveAnswer: (sessionId: string, payload: { question_id: string; answer_text: string; selected_option?: string; time_spent_seconds?: number; idempotency_key?: string }) =>
     request<ApiAnswer>(`/sessions/${sessionId}/answers`, { method: 'POST', body: JSON.stringify(payload) }),
 
   endSession: (sessionId: string) =>

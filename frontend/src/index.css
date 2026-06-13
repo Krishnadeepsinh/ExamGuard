@@ -15,6 +15,10 @@
   --eg-text:        #F1F5F9;   /* primary text */
   --eg-text-muted:  #94A3B8;   /* secondary text */
   --eg-text-faint:  #475569;   /* placeholder / disabled */
+  --eg-bg: var(--eg-navy);
+  --eg-surface: var(--eg-navy-800);
+  --eg-surface-raised: var(--eg-navy-700);
+  --eg-border: var(--eg-navy-600);
   
   --shadow-card: 0 1px 3px rgba(0,0,0,0.4), 0 8px 24px rgba(0,0,0,0.25);
   --shadow-elevated: 0 4px 6px rgba(0,0,0,0.5), 0 16px 48px rgba(0,0,0,0.35);
@@ -52,7 +56,11 @@ body {
   min-width: 320px;
   background: var(--eg-navy);
   color: var(--eg-text);
+  overflow-x: hidden;
+  -webkit-tap-highlight-color: rgba(79, 70, 229, 0.16);
 }
+
+button, a, input, select, textarea { touch-action: manipulation; }
 
 #root {
   min-height: 100vh;

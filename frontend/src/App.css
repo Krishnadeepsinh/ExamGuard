@@ -7,7 +7,7 @@
   min-height: 100vh;
   display: grid;
   grid-template-columns: 260px 1fr;
-  background: var(--eg-navy);
+  background: var(--eg-bg);
   color: var(--eg-text);
   font-family: 'Inter', system-ui, sans-serif;
   overflow-x: hidden;
@@ -17,6 +17,22 @@ main {
   min-width: 0;
   display: flex;
   flex-direction: column;
+}
+
+.view-transition { min-width: 0; flex: 1; }
+
+.network-banner {
+  margin: 14px 32px 0;
+  min-height: 44px;
+  padding: 10px 14px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid rgba(245, 158, 11, 0.45);
+  border-radius: 8px;
+  background: rgba(245, 158, 11, 0.1);
+  color: var(--eg-text);
+  font-size: 13px;
 }
 
 .screen {
@@ -41,7 +57,7 @@ main {
 
 /* Sidebar Navigation */
 .sidebar {
-  background: var(--eg-navy);
+  background: color-mix(in srgb, var(--eg-navy) 94%, #16233b);
   border-right: 1px solid var(--eg-navy-600);
   color: var(--eg-text);
   padding: 24px 16px;
@@ -52,7 +68,7 @@ main {
   top: 0;
   height: 100vh;
   z-index: 20;
-  box-shadow: 4px 0 24px rgba(0, 0, 0, 0.15);
+  box-shadow: 12px 0 40px rgba(0, 0, 0, 0.12);
 }
 
 .brand {
@@ -69,7 +85,7 @@ main {
   width: 40px;
   height: 40px;
   border-radius: 10px;
-  background: linear-gradient(135deg, var(--eg-indigo), var(--eg-teal));
+  background: var(--eg-indigo);
   display: grid;
   place-items: center;
   font-weight: 800;
@@ -383,7 +399,7 @@ main {
   font-weight: 600;
   font-size: 14px;
   cursor: pointer;
-  transition: all 150ms cubic-bezier(0.4, 0, 0.2, 1);
+  transition: transform 150ms cubic-bezier(0.4, 0, 0.2, 1), background-color 150ms ease, border-color 150ms ease, color 150ms ease, box-shadow 150ms ease;
 }
 
 .primary-btn {
@@ -472,17 +488,18 @@ main {
 .card {
   background: var(--eg-navy-800);
   border: 1px solid var(--eg-navy-600);
-  border-radius: 12px;
+  border-radius: 8px;
   padding: 24px;
   box-shadow: var(--shadow-card);
-  transition: all 200ms ease;
+  transition: border-color 200ms ease, box-shadow 200ms ease, transform 200ms ease;
   position: relative;
   overflow: hidden;
 }
 
 .card:hover {
   border-color: rgba(79, 70, 229, 0.3);
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.22);
+  transform: translateY(-2px);
 }
 
 .card-title {
@@ -512,8 +529,166 @@ input, select, textarea {
   padding: 10px 14px;
   font-size: 14px;
   font-family: inherit;
-  transition: all 150ms ease;
+  transition: border-color 150ms ease, box-shadow 150ms ease, background-color 150ms ease;
   box-sizing: border-box;
+}
+
+/* Premium access surface: depth without a heavy WebGL runtime. */
+.auth-stage {
+  position: relative;
+  isolation: isolate;
+  min-height: calc(100vh - 72px);
+  max-width: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 30px;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 50% 28%, rgba(107, 53, 184, 0.14), transparent 34%),
+    linear-gradient(180deg, color-mix(in srgb, var(--eg-bg) 86%, #101c35), var(--eg-bg));
+}
+
+.signal-field {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  overflow: hidden;
+  perspective: 900px;
+  opacity: 0.72;
+}
+
+.signal-field::before {
+  content: '';
+  position: absolute;
+  width: min(820px, 94vw);
+  aspect-ratio: 1;
+  left: 50%;
+  top: 54%;
+  transform: translate(-50%, -50%) rotateX(66deg) rotateZ(45deg);
+  background-image: linear-gradient(rgba(14, 165, 160, 0.12) 1px, transparent 1px), linear-gradient(90deg, rgba(107, 53, 184, 0.15) 1px, transparent 1px);
+  background-size: 42px 42px;
+  mask-image: radial-gradient(circle, #000 12%, transparent 68%);
+}
+
+.signal-field i {
+  position: absolute;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--eg-teal);
+  box-shadow: 0 0 20px rgba(14, 165, 160, 0.65);
+  animation: signalFloat 5s ease-in-out infinite;
+}
+.signal-field i:nth-child(1) { left: 18%; top: 34%; }
+.signal-field i:nth-child(2) { right: 20%; top: 28%; animation-delay: -1.2s; }
+.signal-field i:nth-child(3) { left: 27%; bottom: 20%; animation-delay: -2.4s; }
+.signal-field i:nth-child(4) { right: 25%; bottom: 24%; animation-delay: -3.4s; }
+
+@keyframes signalFloat { 50% { transform: translateY(-10px); opacity: 0.55; } }
+
+.portal-intro {
+  width: min(680px, 100%);
+  text-align: center;
+  display: grid;
+  justify-items: center;
+  gap: 12px;
+}
+
+.portal-mark {
+  width: 68px;
+  height: 68px;
+  display: grid;
+  place-items: center;
+  border-radius: 18px;
+  background: var(--eg-indigo);
+  color: #fff;
+  box-shadow: 0 20px 55px rgba(107, 53, 184, 0.35), inset 0 1px rgba(255, 255, 255, 0.25);
+}
+
+.portal-kicker {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--eg-text-muted);
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+.portal-kicker span { width: 7px; height: 7px; border-radius: 50%; background: var(--eg-teal); box-shadow: 0 0 12px var(--eg-teal); }
+.portal-intro h1 { margin: 0; font-size: clamp(38px, 6vw, 62px); line-height: 1; letter-spacing: 0; text-wrap: balance; }
+.portal-intro p { max-width: 610px; margin: 0; color: var(--eg-text-muted); line-height: 1.7; font-size: 16px; text-wrap: pretty; }
+
+.role-choice-grid {
+  width: min(820px, 100%);
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.role-card-select {
+  min-height: 108px;
+  padding: 18px;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 16px;
+  text-align: left;
+  border: 1px solid var(--eg-border);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--eg-surface) 92%, transparent);
+  color: var(--eg-text);
+  box-shadow: var(--shadow-card);
+  cursor: pointer;
+  transition: border-color 180ms ease, box-shadow 180ms ease, background-color 180ms ease;
+}
+.role-card-select:hover { border-color: color-mix(in srgb, var(--eg-indigo) 65%, var(--eg-border)); box-shadow: 0 18px 44px rgba(15, 23, 42, 0.2); }
+.role-icon { width: 50px; height: 50px; display: grid; place-items: center; border-radius: 8px; }
+.role-icon.teacher { color: var(--eg-indigo-hover); background: rgba(107, 53, 184, 0.12); }
+.role-icon.student { color: var(--eg-teal); background: rgba(14, 165, 160, 0.12); }
+.role-copy { min-width: 0; display: grid; gap: 5px; }
+.role-copy strong { font-size: 16px; }
+.role-copy small { color: var(--eg-text-muted); line-height: 1.45; }
+
+.portal-trust { display: flex; flex-wrap: wrap; justify-content: center; gap: 18px; color: var(--eg-text-muted); font-size: 12px; }
+.portal-trust span { display: inline-flex; align-items: center; gap: 6px; }
+.auth-panel-wrap { width: min(460px, 100%); display: grid; gap: 14px; }
+.premium-auth-card { padding: 32px; border: 1px solid var(--eg-border); border-radius: 10px; background: color-mix(in srgb, var(--eg-surface) 94%, transparent); box-shadow: 0 28px 80px rgba(0, 0, 0, 0.24); backdrop-filter: blur(18px); }
+
+.recovery-panel {
+  min-height: 64px;
+  margin-bottom: 20px;
+  padding: 12px 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  border: 1px solid rgba(245, 158, 11, 0.45);
+  border-radius: 8px;
+  background: rgba(245, 158, 11, 0.08);
+}
+.recovery-panel > div { min-width: 0; display: flex; align-items: center; gap: 10px; }
+.recovery-panel span { min-width: 0; display: grid; gap: 2px; }
+.recovery-panel small { color: var(--eg-text-muted); overflow-wrap: anywhere; }
+
+.skeleton-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 20px; }
+.skeleton-row i { height: 108px; border-radius: 8px; border: 1px solid var(--eg-border); background: linear-gradient(100deg, var(--eg-surface) 20%, var(--eg-surface-raised) 45%, var(--eg-surface) 70%); background-size: 220% 100%; animation: skeletonShift 1.3s ease-in-out infinite; }
+@keyframes skeletonShift { to { background-position: -120% 0; } }
+
+@media (max-width: 720px) {
+  .auth-stage { justify-content: flex-start; padding-top: 54px; min-height: calc(100vh - 64px); }
+  .role-choice-grid { grid-template-columns: 1fr; }
+  .portal-intro h1 { font-size: 40px; }
+  .portal-trust { gap: 10px; }
+  .premium-auth-card { padding: 24px 18px; }
+  .recovery-panel { align-items: stretch; flex-direction: column; }
+  .skeleton-row { grid-template-columns: repeat(2, 1fr); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .signal-field i, .skeleton-row i { animation: none; }
+  .screen { animation: none; }
 }
 
 input::placeholder, textarea::placeholder {
@@ -734,7 +909,7 @@ label {
   align-items: center;
   justify-content: center;
   gap: 8px;
-  transition: all 150ms ease;
+  transition: transform 150ms ease, background-color 150ms ease, border-color 150ms ease, color 150ms ease, box-shadow 150ms ease;
 }
 
 .role-toggle button.active {
@@ -772,7 +947,7 @@ label {
   flex-direction: column;
   gap: 8px;
   position: relative;
-  transition: all 150ms ease;
+  transition: transform 150ms ease, background-color 150ms ease, border-color 150ms ease, color 150ms ease, box-shadow 150ms ease;
 }
 
 .metric-card:hover {
@@ -863,6 +1038,80 @@ label {
   margin-top: 24px;
 }
 
+.summary-grid .metric-card.compact {
+  min-height: 118px;
+  overflow: hidden;
+  background: var(--eg-surface) !important;
+  border: 1px solid var(--eg-border) !important;
+  border-radius: 8px !important;
+  box-shadow: var(--shadow-card);
+}
+
+.summary-grid .metric-card.compact::after {
+  content: '';
+  position: absolute;
+  inset: auto -18px -42px auto;
+  width: 96px;
+  height: 96px;
+  border-radius: 50%;
+  border: 18px solid rgba(107, 53, 184, 0.06);
+}
+
+.summary-grid .metric-card.compact strong {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
+}
+
+.toolbar {
+  padding: 10px;
+  border: 1px solid var(--eg-border);
+  border-radius: 8px;
+  background: var(--eg-surface);
+  box-shadow: var(--shadow-card);
+}
+
+.search-box {
+  min-height: 42px;
+  padding-left: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--eg-border);
+  border-radius: 7px;
+  background: var(--eg-surface-raised);
+}
+
+.search-box input { border: 0; background: transparent; box-shadow: none; }
+.search-box:focus-within { border-color: var(--eg-indigo); box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.16); }
+
+.exam-card-body { display: grid; gap: 14px; }
+.join-code { background: var(--eg-surface-raised); border: 1px dashed color-mix(in srgb, var(--eg-teal) 50%, var(--eg-border)); }
+
+table { font-variant-numeric: tabular-nums; }
+thead { background: color-mix(in srgb, var(--eg-surface-raised) 72%, transparent); }
+tbody tr:last-child { border-bottom: 0 !important; }
+
+.login-form label {
+  display: inline-block;
+  margin-bottom: 7px;
+  color: var(--eg-text);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.login-form input { min-height: 46px; }
+.premium-auth-card h2 { text-wrap: balance; }
+.premium-auth-card .muted { text-wrap: pretty; }
+
+.toast {
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--eg-surface) 94%, transparent);
+  backdrop-filter: blur(16px);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.24);
+}
+
+.modal { overscroll-behavior: contain; }
+
 .exam-card-body {
   display: flex;
   flex-direction: column;
@@ -930,7 +1179,7 @@ label {
   padding: 8px 16px;
   font-weight: 500;
   font-size: 14px;
-  transition: all 150ms ease;
+  transition: transform 150ms ease, background-color 150ms ease, border-color 150ms ease, color 150ms ease, box-shadow 150ms ease;
 }
 
 .tab-strip button:hover {
@@ -1184,7 +1433,7 @@ label {
   gap: 12px;
   text-align: left;
   cursor: pointer;
-  transition: all 150ms ease;
+  transition: transform 150ms ease, background-color 150ms ease, border-color 150ms ease, color 150ms ease, box-shadow 150ms ease;
   position: relative;
   box-shadow: var(--shadow-card);
 }
@@ -1556,7 +1805,7 @@ label {
   font-family: 'JetBrains Mono', monospace;
   font-size: 12px;
   font-weight: 700;
-  transition: all 150ms ease;
+  transition: transform 150ms ease, background-color 150ms ease, border-color 150ms ease, color 150ms ease, box-shadow 150ms ease;
   cursor: pointer;
 }
 
@@ -1631,7 +1880,7 @@ label {
   font-size: 14px;
   font-weight: 500;
   cursor: pointer;
-  transition: all 150ms ease;
+  transition: transform 150ms ease, background-color 150ms ease, border-color 150ms ease, color 150ms ease, box-shadow 150ms ease;
   user-select: none;
 }
 
@@ -1675,7 +1924,7 @@ label {
   text-align: left;
   margin-bottom: 8px;
   cursor: pointer;
-  transition: all 150ms ease;
+  transition: transform 150ms ease, background-color 150ms ease, border-color 150ms ease, color 150ms ease, box-shadow 150ms ease;
 }
 
 .queue-item:hover {
@@ -1807,7 +2056,7 @@ label {
   display: grid;
   place-items: center;
   cursor: pointer;
-  transition: all 150ms ease;
+  transition: transform 150ms ease, background-color 150ms ease, border-color 150ms ease, color 150ms ease, box-shadow 150ms ease;
 }
 
 .report-row button:hover {
@@ -2182,7 +2431,7 @@ label {
 
 /* Custom Additions for Redesign */
 .role-card-select {
-  transition: all 200ms ease;
+  transition: transform 200ms ease, background-color 200ms ease, border-color 200ms ease, color 200ms ease, box-shadow 200ms ease;
 }
 .role-card-select:hover {
   border-color: var(--eg-indigo) !important;
@@ -2327,4 +2576,35 @@ input[type="range"]::-moz-range-thumb:hover {
 
 @keyframes pulseBlinkRed {
   50% { opacity: 0.4; }
+}
+
+.readiness-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0 auto 20px;
+  max-width: 520px;
+  text-align: left;
+}
+
+.readiness-item {
+  min-height: 48px;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--eg-border);
+  border-radius: 8px;
+  background: var(--eg-surface);
+  font-size: 12px;
+}
+
+.readiness-item.ready svg,
+.readiness-item.ready strong { color: var(--eg-emerald); }
+.readiness-item.blocked svg,
+.readiness-item.blocked strong { color: var(--eg-red); }
+
+@media (max-width: 520px) {
+  .readiness-grid { grid-template-columns: 1fr; }
 }

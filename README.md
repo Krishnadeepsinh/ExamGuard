@@ -9,6 +9,8 @@ ExamGuard AI is a syllabus-aware exam platform for teachers, coaching institutes
 
 ## Quick Start
 
+Apply every SQL file in `supabase/migrations/` in numeric order. Migration `006` is required for immutable papers, server deadlines, retry-safe answers, transparent integrity factors, and tamper-evident event logs.
+
 Apply Supabase migrations `001` through `004` in numeric order. Migration `004` adds the Auth profile trigger, ownership policies, and pgvector matching function.
 
 ### Simplest Windows start

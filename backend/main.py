@@ -9,6 +9,7 @@ import csv
 import asyncio
 import io
 import json
+from datetime import datetime, timedelta, timezone
 from typing import Literal, Optional
 
 from fastapi import Depends, FastAPI, File, Header, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
@@ -112,6 +113,7 @@ class AnswerRequest(BaseModel):
     answer_text: str = Field(default="", max_length=8000)
     selected_option: str | None = None
     time_spent_seconds: int = Field(default=0, ge=0, le=10800)
+    idempotency_key: str | None = Field(default=None, min_length=8, max_length=120)
 
 
 class AppealRequest(BaseModel):
@@ -163,6 +165,20 @@ def _get_session_field(session: dict, field: str) -> object:
     if field == "liveness":
         return session.get("liveness", session.get("liveness_verified", False))
     return session.get(field)
+
+
+def now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def session_expired(session: dict[str, object], exam: dict[str, object]) -> bool:
+    expiry = session.get("expires_at")
+    if not expiry:
+        return False
+    try:
+        return datetime.fromisoformat(str(expiry).replace("Z", "+00:00")) <= datetime.now(timezone.utc)
+    except ValueError:
+        return False
 
 
 def current_teacher(authorization: str | None = Header(default=None)) -> dict[str, object]:
@@ -336,7 +352,10 @@ def save_paper_config(exam_id: str, payload: PaperConfigRequest, teacher: dict[s
             raise HTTPException(status_code=404, detail="material not found") from exc
         if str(material.get("exam_id")) != exam_id:
             raise HTTPException(status_code=422, detail="selected material does not belong to this exam")
-    result = store.configure_exam(exam_id, payload.model_dump())
+    try:
+        result = store.configure_exam(exam_id, payload.model_dump())
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     if result["status"] == "invalid":
         raise HTTPException(status_code=422, detail=result["errors"])
     return result
@@ -663,7 +682,12 @@ def save_liveness(session_id: str, payload: LivenessRequest) -> dict[str, object
     session = require_session(session_id)
     if not _get_session_field(session, "consent"):
         raise HTTPException(status_code=422, detail="consent is required before liveness")
-    updated = store.update_session(session_id, {"liveness_verified": True, "status": "active", "started_at": store.appeal_deadline()})
+    exam = lookup_exam(str(session["exam_id"]))
+    started_at = now_iso()
+    expires_at = (datetime.now(timezone.utc) + timedelta(minutes=int(exam["duration_minutes"]))).isoformat()
+    updated = store.update_session(session_id, {
+        "liveness_verified": True, "status": "active", "started_at": started_at, "expires_at": expires_at,
+    })
     normalized = store.normalize_session(updated)
     redis_hot_state.set_json(f"session:{session_id}:state", normalized, ttl_seconds=10800)
     redis_hot_state.push_event(f"exam:{normalized['exam_id']}:events", {"type": "liveness_verified", "session_id": session_id}, ttl_seconds=10800)
@@ -688,7 +712,10 @@ def session_questions(session_id: str) -> list[dict[str, object]]:
 def session_exam(session_id: str) -> dict[str, object]:
     session = require_session(session_id)
     exam = lookup_exam(str(session["exam_id"]))
-    return {key: exam.get(key) for key in ("id", "title", "subject", "duration_minutes", "total_marks", "status")}
+    result = {key: exam.get(key) for key in ("id", "title", "subject", "duration_minutes", "total_marks", "status")}
+    result["expires_at"] = session.get("expires_at")
+    result["server_now"] = now_iso()
+    return result
 
 
 @app.post("/api/v1/sessions/{session_id}/answers")
@@ -699,6 +726,10 @@ def save_answer(request: Request, session_id: str, payload: AnswerRequest) -> di
         raise HTTPException(status_code=403, detail="consent and liveness are required before answering")
     if session.get("status") != "active":
         raise HTTPException(status_code=409, detail="session is not active")
+    exam = lookup_exam(str(session["exam_id"]))
+    if session_expired(session, exam):
+        store.update_session(session_id, {"status": "ended", "ended_at": now_iso()})
+        raise HTTPException(status_code=409, detail="exam time has expired; answers are no longer accepted")
     if not payload.answer_text and not payload.selected_option:
         raise HTTPException(status_code=422, detail="answer text or selected option is required")
     answer = store.save_answer(session_id, payload.model_dump())
@@ -713,7 +744,7 @@ def end_session(session_id: str) -> dict[str, object]:
     if hasattr(store, "evaluate_session"):
         store.evaluate_session(session_id)
     run_workflow("finish", {"session_id": session_id})
-    updated = store.update_session(session_id, {"status": "ended", "ended_at": store.appeal_deadline()})
+    updated = store.update_session(session_id, {"status": "ended", "ended_at": now_iso()})
     return store.normalize_session(updated)
 
 

@@ -104,6 +104,33 @@ class StoreBehaviorTests(unittest.TestCase):
         self.assertEqual(len(self.store.answers[session["id"]]), 1)
         self.assertEqual(second["answer_text"], "latest")
 
+    def test_answer_retry_with_same_idempotency_key_is_not_duplicated(self) -> None:
+        self.store.exams["exam-physics"]["status"] = "active"
+        session = self.store.join_session("PHY001", "Retry Student", "retry@student.ai")
+        payload = {"question_id": "q1", "answer_text": "stable", "idempotency_key": "retry-key-123"}
+        first = self.store.save_answer(session["id"], payload)
+        second = self.store.save_answer(session["id"], payload)
+        self.assertEqual(first["id"], second["id"])
+        self.assertEqual(len(self.store.answers[session["id"]]), 1)
+
+    def test_activation_captures_immutable_paper_snapshot(self) -> None:
+        self.store.questions["exam-physics"] = [{"id": "q1", "text": "What is SQL?", "marks": 2}]
+        activated = self.store.activate_exam("exam-physics")
+        self.assertEqual(activated["paper_version"], 1)
+        self.assertEqual(activated["paper_snapshot"]["questions"][0]["id"], "q1")
+        with self.assertRaisesRegex(ValueError, "immutable"):
+            self.store.generate_questions("exam-physics")
+
+    def test_integrity_events_form_hash_chain(self) -> None:
+        self.store.exams["exam-physics"]["status"] = "active"
+        session = self.store.join_session("PHY001", "Chain Student", "chain@student.ai")
+        first = self.store.log_integrity_event(session["id"], "tab_hidden", {})
+        second = self.store.log_integrity_event(session["id"], "window_blur", {})
+        self.assertEqual(first["sequence_number"], 1)
+        self.assertEqual(second["sequence_number"], 2)
+        self.assertEqual(second["previous_hash"], first["event_hash"])
+        self.assertEqual(len(second["event_hash"]), 64)
+
     def test_generation_requires_uploaded_material(self) -> None:
         exam = self.store.create_exam("teacher-demo", {
             "title": "No Material Exam", "subject": "SQL", "duration_minutes": 60, "total_marks": 10,

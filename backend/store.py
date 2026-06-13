@@ -10,6 +10,8 @@ from __future__ import annotations
 from dataclasses import asdict
 from datetime import datetime, timedelta, timezone
 from io import BytesIO
+import hashlib
+import json
 from typing import Any
 from uuid import uuid4
 
@@ -164,6 +166,8 @@ class LocalStore:
 
     def configure_exam(self, exam_id: str, config: dict[str, Any]) -> dict[str, Any]:
         exam = self.exams[exam_id]
+        if exam.get("status") in {"active", "paused", "ended", "archived"}:
+            raise ValueError("Activated papers are immutable. Clone this exam to create a new version.")
         material_ids = config.get("material_ids") or ([config.get("material_id")] if config.get("material_id") else [])
         material_id = material_ids[0] if material_ids else None
         materials = [self.materials[item] for item in material_ids if item in self.materials and self.materials[item]["exam_id"] == exam_id]
@@ -212,6 +216,10 @@ class LocalStore:
 
     def generate_questions(self, exam_id: str) -> dict[str, Any]:
         exam = self.exams[exam_id]
+        if exam.get("status") in {"active", "paused", "ended", "archived"}:
+            raise ValueError("Activated papers are immutable. Clone this exam to regenerate questions.")
+        if any(session.get("exam_id") == exam_id for session in self.sessions.values()):
+            raise ValueError("Cannot regenerate a paper after students have joined. Clone the exam to create a new version.")
         config = exam.get("paper_config") or {}
         material_ids = config.get("material_ids") or ([config.get("material_id")] if config.get("material_id") else [])
         materials = [self.materials[item] for item in material_ids if item in self.materials and self.materials[item]["exam_id"] == exam_id]
@@ -307,6 +315,15 @@ class LocalStore:
             raise KeyError("exam not found")
         if not self.questions.get(exam_id):
             raise ValueError("generate questions before activation")
+        if exam.get("status") == "active":
+            return exam
+        exam["paper_version"] = int(exam.get("paper_version", 0)) + 1
+        exam["paper_snapshot"] = {
+            "version": exam["paper_version"],
+            "config": exam.get("paper_config") or {},
+            "questions": [dict(question) for question in self.questions[exam_id]],
+            "captured_at": utc_now(),
+        }
         exam["status"] = "active"
         exam["activated_at"] = utc_now()
         return exam
@@ -360,6 +377,11 @@ class LocalStore:
 
     def save_answer(self, session_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         rows = self.answers.setdefault(session_id, [])
+        idem = payload.get("idempotency_key")
+        if idem:
+            duplicate = next((item for item in rows if item.get("idempotency_key") == idem), None)
+            if duplicate:
+                return duplicate
         existing = next((item for item in rows if item["question_id"] == payload["question_id"]), None)
         if existing:
             existing.update({**payload, "saved_at": utc_now()})
@@ -479,8 +501,13 @@ class LocalStore:
         return session
 
     def log_integrity_event(self, session_id: str, event_type: str, metadata: dict[str, Any]) -> dict[str, Any]:
-        event = {"type": event_type, "metadata": metadata, "score_impact": impact_for(event_type, metadata), "occurred_at": utc_now()}
         events = self.integrity_events.setdefault(session_id, [])
+        sequence = len(events) + 1
+        previous_hash = str(events[-1].get("event_hash", "")) if events else ""
+        occurred_at = utc_now()
+        canonical = json.dumps({"session_id": session_id, "sequence": sequence, "type": event_type, "metadata": metadata, "occurred_at": occurred_at}, sort_keys=True, separators=(",", ":"))
+        event_hash = hashlib.sha256(f"{previous_hash}:{canonical}".encode()).hexdigest()
+        event = {"type": event_type, "metadata": metadata, "score_impact": impact_for(event_type, metadata), "occurred_at": occurred_at, "sequence_number": sequence, "previous_hash": previous_hash or None, "event_hash": event_hash}
         events.append(event)
         behavioral = behavioral_score(events)
         prior = self.sessions[session_id].get("integrity", {})

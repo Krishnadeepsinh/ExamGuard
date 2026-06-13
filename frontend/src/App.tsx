@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { FaceLandmarker, FilesetResolver } from '@mediapipe/tasks-vision'
+import { AnimatePresence, domAnimation, LazyMotion, m, MotionConfig } from 'motion/react'
 import {
   Activity,
   AlertTriangle,
@@ -41,7 +42,7 @@ import {
   X,
 } from 'lucide-react'
 import './App.css'
-import { api, examSocketUrl, type ApiExam, type ApiQuestion, type ApiSession } from './api'
+import { api, ApiError, examSocketUrl, type ApiExam, type ApiQuestion, type ApiSession } from './api'
 
 type IntegrityStatus = 'CLEAN' | 'WATCH' | 'WARN' | 'FLAGGED'
 type AuthRole = 'teacher' | 'student'
@@ -261,6 +262,7 @@ function App() {
   const [auth, setAuth] = useState<AuthUser | null>(() => storedAuth())
   const [mobileOpen, setMobileOpen] = useState(false)
   const [toast, setToast] = useState<{ kind: ToastKind; text: string } | null>(null)
+  const [online, setOnline] = useState(navigator.onLine)
   const [selectedStudent, setSelectedStudent] = useState<any>(null)
   const [filter, setFilter] = useState<IntegrityStatus | 'ALL'>('ALL')
   const [sort, setSort] = useState<'risk' | 'name' | 'join'>('risk')
@@ -311,6 +313,17 @@ function App() {
     document.documentElement.dataset.theme = theme
     window.localStorage.setItem('examguard-theme', theme)
   }, [theme])
+
+  useEffect(() => {
+    const connected = () => setOnline(true)
+    const disconnected = () => setOnline(false)
+    window.addEventListener('online', connected)
+    window.addEventListener('offline', disconnected)
+    return () => {
+      window.removeEventListener('online', connected)
+      window.removeEventListener('offline', disconnected)
+    }
+  }, [])
 
   useEffect(() => {
     if (auth && auth.role === 'teacher') {
@@ -535,6 +548,8 @@ function App() {
   const content = Reflect.get(contentMap, activeView)
 
   return (
+    <LazyMotion features={domAnimation}>
+    <MotionConfig reducedMotion="user">
     <div className="app-shell">
       <aside className={`sidebar ${mobileOpen ? 'sidebar-open' : ''}`}>
         <div className="brand">
@@ -590,7 +605,7 @@ function App() {
             ) : null}
             {auth ? (
               <>
-                <button className="ghost-btn" onClick={() => notify('info', 'Live connection restored. Scores rehydrated.')}>
+                <button className="ghost-btn" onClick={() => window.location.reload()}>
                   <RefreshCw size={16} aria-hidden="true" /> Reconnect
                 </button>
                 {auth.role === 'teacher' ? (
@@ -615,12 +630,19 @@ function App() {
             </div>
           )}
         </header>
-        {content}
+        {!online && <div className="network-banner" role="status"><RefreshCw size={16} /><span>You are offline. Answers remain stored on this device until connection returns.</span></div>}
+        <AnimatePresence mode="wait">
+          <m.div key={activeView} className="view-transition" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} transition={{ duration: 0.18, ease: 'easeOut' }}>
+            {content}
+          </m.div>
+        </AnimatePresence>
       </main>
 
-      {mobileOpen && <button className="scrim" aria-label="Close navigation" onClick={() => setMobileOpen(false)} />}
-      {toast && <Toast kind={toast.kind} text={toast.text} onClose={() => setToast(null)} />}
+      <AnimatePresence>{mobileOpen && <m.button initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="scrim" aria-label="Close navigation" onClick={() => setMobileOpen(false)} />}</AnimatePresence>
+      <AnimatePresence>{toast && <m.div key={toast.text} initial={{ opacity: 0, x: 28, scale: 0.98 }} animate={{ opacity: 1, x: 0, scale: 1 }} exit={{ opacity: 0, x: 20, scale: 0.98 }} transition={{ type: 'spring', stiffness: 420, damping: 34 }}><Toast kind={toast.kind} text={toast.text} onClose={() => setToast(null)} /></m.div>}</AnimatePresence>
     </div>
+    </MotionConfig>
+    </LazyMotion>
   )
 }
 
@@ -631,78 +653,44 @@ function LandingView({ notify, onLogin }: { notify: (kind: ToastKind, text: stri
 
   if (chosenRole) {
     return (
-      <section className="screen landing-screen" style={{ background: 'var(--eg-navy)', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center' }}>
-        <div style={{ maxWidth: '420px', width: '100%', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+      <section className="screen landing-screen auth-stage">
+        <div className="signal-field" aria-hidden="true"><i /><i /><i /><i /></div>
+        <m.div className="auth-panel-wrap" initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }}>
           <button className="ghost-btn" onClick={() => setChosenRole(null)} style={{ alignSelf: 'flex-start' }}>
             &larr; Back to Role Selection
           </button>
           <AuthPanel initialRole={chosenRole} onLogin={onLogin} notify={notify} />
-        </div>
+        </m.div>
       </section>
     )
   }
 
   return (
-    <section className="screen landing-screen" style={{ background: 'var(--eg-navy)', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', margin: '0 auto', maxWidth: '480px' }}>
-      <div style={{ textAlign: 'center', marginBottom: '32px' }}>
-        <div style={{ display: 'inline-block', filter: 'drop-shadow(0 0 12px #4F46E5)', marginBottom: '16px' }}>
-          <Shield size={64} style={{ color: 'var(--eg-indigo)' }} />
+    <section className="screen landing-screen auth-stage">
+      <div className="signal-field" aria-hidden="true"><i /><i /><i /><i /></div>
+      <m.div className="portal-intro" initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.45 }}>
+        <div className="portal-mark">
+          <Shield size={38} aria-hidden="true" />
         </div>
-        <h1 style={{ fontSize: '40px', fontWeight: 700, margin: '0 0 8px 0', background: 'linear-gradient(135deg, #4F46E5 0%, #0EA5E9 100%)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
-          ExamGuard AI
-        </h1>
-        <p style={{ fontSize: '16px', color: 'var(--eg-text-muted)', margin: 0 }}>
-          Privacy-first exam platform for institutes
-        </p>
-      </div>
+        <span className="portal-kicker"><span /> Private by design</span>
+        <h1>ExamGuard AI</h1>
+        <p>Create grounded papers, run verified exams, and review integrity evidence without uploading raw camera or audio.</p>
+      </m.div>
 
-      <div style={{ display: 'flex', gap: '24px', justifyContent: 'center', width: '100%', marginBottom: '40px' }}>
-        {/* Card: Teacher */}
-        <button
-          type="button"
-          onClick={() => setChosenRole('teacher')}
-          className="role-card-select"
-          style={{
-            width: '180px',
-            border: '1.5px solid var(--eg-navy-600)',
-            borderRadius: '12px',
-            padding: '28px 20px',
-            textAlign: 'center',
-            cursor: 'pointer',
-            background: 'var(--eg-navy-800)',
-            color: 'inherit',
-            font: 'inherit',
-          }}
-        >
-          <Users size={48} style={{ color: 'var(--eg-indigo)', marginBottom: '16px' }} />
-          <div style={{ fontWeight: 600, fontSize: '15px', color: 'var(--eg-text)' }}>Teacher Portal</div>
-        </button>
+      <m.div className="role-choice-grid" initial="hidden" animate="show" variants={{ hidden: {}, show: { transition: { staggerChildren: 0.08 } } }}>
+        <m.button variants={{ hidden: { opacity: 0, y: 14 }, show: { opacity: 1, y: 0 } }} whileHover={{ y: -4 }} whileTap={{ scale: 0.985 }} type="button" onClick={() => setChosenRole('teacher')} className="role-card-select">
+          <span className="role-icon teacher"><Users size={25} aria-hidden="true" /></span>
+          <span className="role-copy"><strong>Teacher Workspace</strong><small>Create papers, monitor sessions, and release reviewed results.</small></span>
+          <ChevronRight size={19} aria-hidden="true" />
+        </m.button>
+        <m.button variants={{ hidden: { opacity: 0, y: 14 }, show: { opacity: 1, y: 0 } }} whileHover={{ y: -4 }} whileTap={{ scale: 0.985 }} type="button" onClick={() => setChosenRole('student')} className="role-card-select">
+          <span className="role-icon student"><GraduationCap size={25} aria-hidden="true" /></span>
+          <span className="role-copy"><strong>Join an Exam</strong><small>Enter your code, complete consent and liveness, then begin.</small></span>
+          <ChevronRight size={19} aria-hidden="true" />
+        </m.button>
+      </m.div>
 
-        {/* Card: Student */}
-        <button
-          type="button"
-          onClick={() => setChosenRole('student')}
-          className="role-card-select"
-          style={{
-            width: '180px',
-            border: '1.5px solid var(--eg-navy-600)',
-            borderRadius: '12px',
-            padding: '28px 20px',
-            textAlign: 'center',
-            cursor: 'pointer',
-            background: 'var(--eg-navy-800)',
-            color: 'inherit',
-            font: 'inherit',
-          }}
-        >
-          <GraduationCap size={48} style={{ color: 'var(--eg-indigo)', marginBottom: '16px' }} />
-          <div style={{ fontWeight: 600, fontSize: '15px', color: 'var(--eg-text)' }}>Student Portal</div>
-        </button>
-      </div>
-
-      <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '4px 10px', borderRadius: '20px', background: 'var(--eg-navy-700)', fontSize: '11px', color: 'var(--eg-text-muted)', fontWeight: 500 }}>
-        ExamGuard v6.0
-      </div>
+      <div className="portal-trust"><span><Lock size={14} /> Encrypted access</span><span><Eye size={14} /> On-device vision</span><span><Activity size={14} /> Live autosave</span></div>
     </section>
   )
 }
@@ -746,7 +734,7 @@ function AuthPanel({ initialRole, onLogin, notify }: { initialRole: AuthRole; on
   }
 
   return (
-    <div className="login-card" style={{ padding: '40px', borderRadius: '16px', background: 'var(--eg-navy-800)', boxShadow: 'var(--shadow-elevated)' }}>
+    <div className="login-card premium-auth-card">
       {role === 'student' && <StudentStepIndicator currentStep="join" />}
       <span className="badge badge-purple" style={{ marginBottom: '12px' }}><Shield size={14} /> Secure Access Portal</span>
       <h2 style={{ fontSize: '24px', fontWeight: 700, margin: '8px 0 16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -760,27 +748,27 @@ function AuthPanel({ initialRole, onLogin, notify }: { initialRole: AuthRole; on
       {role === 'teacher' ? (
         <div className="login-form" style={{ display: 'flex', flexDirection: 'column', gap: '16px', marginBottom: '20px' }}>
           <div>
-            <label>Teacher Email</label>
-            <input type="email" required value={email} onChange={(event) => setEmail(event.target.value)} />
+            <label htmlFor="teacher-email">Teacher Email</label>
+            <input id="teacher-email" name="teacher-email" type="email" autoComplete="email" spellCheck={false} required value={email} onChange={(event) => setEmail(event.target.value)} />
           </div>
           <div>
-            <label>Password</label>
-            <input type="password" required minLength={6} value={password} onChange={(event) => setPassword(event.target.value)} />
+            <label htmlFor="teacher-password">Password</label>
+            <input id="teacher-password" name="teacher-password" type="password" autoComplete={signupMode ? 'new-password' : 'current-password'} required minLength={6} value={password} onChange={(event) => setPassword(event.target.value)} />
           </div>
         </div>
       ) : (
         <div className="login-form" style={{ display: 'flex', flexDirection: 'column', gap: '16px', marginBottom: '20px' }}>
           <div>
-            <label>Student Name</label>
-            <input name="student-name" autoComplete="name" required minLength={3} placeholder="Enter your full name…" value={studentName} onChange={(event) => setStudentName(event.target.value)} />
+            <label htmlFor="student-name">Student Name</label>
+            <input id="student-name" name="student-name" autoComplete="name" required minLength={3} placeholder="Enter your full name…" value={studentName} onChange={(event) => setStudentName(event.target.value)} />
           </div>
           <div>
-            <label>Join Code</label>
-            <input name="join-code" required maxLength={6} placeholder="Example: A7K9P2" autoComplete="off" spellCheck={false} value={joinCode} onChange={(event) => setJoinCode(event.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''))} />
+            <label htmlFor="join-code">Join Code</label>
+            <input id="join-code" name="join-code" required maxLength={6} placeholder="Example: A7K9P2" autoComplete="off" spellCheck={false} value={joinCode} onChange={(event) => setJoinCode(event.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''))} />
           </div>
           <div>
-            <label>Optional Email</label>
-            <input name="student-email" type="email" autoComplete="email" spellCheck={false} placeholder="name@example.com" value={email} onChange={(event) => setEmail(event.target.value)} />
+            <label htmlFor="student-email">Optional Email</label>
+            <input id="student-email" name="student-email" type="email" autoComplete="email" spellCheck={false} placeholder="name@example.com" value={email} onChange={(event) => setEmail(event.target.value)} />
           </div>
         </div>
       )}
@@ -788,7 +776,7 @@ function AuthPanel({ initialRole, onLogin, notify }: { initialRole: AuthRole; on
       {error && <p className="form-error" role="alert" style={{ marginBottom: '16px' }}>{error}</p>}
       
       <button className="primary-btn full" disabled={submitting} onClick={submit}>
-        <Lock size={16} /> {submitting ? 'Authenticating...' : role === 'teacher' ? (signupMode ? 'Create Teacher Account' : 'Sign In') : 'Join Session'}
+        <Lock size={16} /> {submitting ? 'Authenticating…' : role === 'teacher' ? (signupMode ? 'Create Teacher Account' : 'Sign In') : 'Join Session'}
       </button>
       {role === 'teacher' && <button type="button" className="ghost-btn full" style={{ marginTop: '10px' }} onClick={() => setSignupMode(value => !value)}>
         {signupMode ? 'Already registered? Sign in' : 'New teacher? Create account'}
@@ -804,11 +792,27 @@ function DashboardView({ go, notify, onSelectExam, students, selectedExamId }: {
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [search, setSearch] = useState('')
   const [showArchived, setShowArchived] = useState(false)
+  const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState('')
+
+  const loadExams = async () => {
+    const teacherId = window.localStorage.getItem('examguard-user-id')
+    if (!teacherId) { setLoadError('Teacher session is missing. Sign out and sign in again.'); setLoading(false); return }
+    setLoading(true)
+    setLoadError('')
+    try {
+      setExams(await api.exams(teacherId))
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 401) {
+        setLoadError('Your login session expired. Sign out and sign in again.')
+      } else {
+        setLoadError(error instanceof Error ? error.message : 'The backend is waking up. Retry in a moment.')
+      }
+    } finally { setLoading(false) }
+  }
 
   useEffect(() => {
-    const teacherId = window.localStorage.getItem('examguard-user-id')
-    if (!teacherId) { notify('error', 'Teacher session is missing. Sign in again.'); return }
-    api.exams(teacherId).then(setExams).catch(() => notify('warning', 'Could not fetch exams from backend.'))
+    void loadExams()
   }, [])
 
   const handleCreateExam = async (payload: { title: string; subject: string; duration_minutes: number; total_marks: number }) => {
@@ -848,6 +852,8 @@ function DashboardView({ go, notify, onSelectExam, students, selectedExamId }: {
 
   return (
     <section className="screen">
+      {loadError && <div className="recovery-panel" role="alert"><div><AlertTriangle size={19} /><span><strong>Exams could not load</strong><small>{loadError}</small></span></div><button className="ghost-btn" onClick={loadExams}><RefreshCw size={16} /> Retry</button></div>}
+      {loading && <div className="skeleton-row" role="status" aria-label="Loading exams"><i /><i /><i /><i /></div>}
       {/* Dynamic Stats Row at top of Dashboard */}
       <div className="summary-grid" style={{ marginBottom: '24px' }}>
         <div className="metric-card compact" style={{ background: 'var(--eg-navy-800)', border: '1px solid var(--eg-navy-600)', borderRadius: '12px', padding: '20px', display: 'flex', flexDirection: 'column', position: 'relative' }}>
@@ -1560,7 +1566,9 @@ function LivenessView({ go, notify }: { go: (view: View) => void; notify: (kind:
   const [status, setStatus] = useState('Camera is off')
   const [seconds, setSeconds] = useState(15)
   const [detectionDuration, setDetectionDuration] = useState(0)
+  const detectedThresholdRef = useRef(0.25)
   const [enteringExam, setEnteringExam] = useState(false)
+  const [readiness, setReadiness] = useState({ secure: false, camera: false, online: false, storage: false })
   const videoRef = useRef<HTMLVideoElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
   const frameRef = useRef<number | null>(null)
@@ -1578,6 +1586,21 @@ function LivenessView({ go, notify }: { go: (view: View) => void; notify: (kind:
 
   useEffect(() => stopCamera, [stopCamera])
 
+  useEffect(() => {
+    let storage: boolean
+    try {
+      window.localStorage.setItem('examguard-readiness', 'ok')
+      window.localStorage.removeItem('examguard-readiness')
+      storage = true
+    } catch { storage = false }
+    setReadiness({
+      secure: window.isSecureContext || window.location.hostname === 'localhost',
+      camera: Boolean(navigator.mediaDevices?.getUserMedia),
+      online: navigator.onLine,
+      storage,
+    })
+  }, [])
+
   const completeLiveness = async (blinks: number, durationMs: number) => {
     if (completionRef.current) return
     completionRef.current = true
@@ -1591,7 +1614,7 @@ function LivenessView({ go, notify }: { go: (view: View) => void; notify: (kind:
       return
     }
     try {
-      await api.saveLiveness(sessionId, { method: 'mediapipe_ear', blink_count: blinks, duration_ms: Math.max(250, durationMs), threshold: 0.25 })
+      await api.saveLiveness(sessionId, { method: 'mediapipe_ear', blink_count: blinks, duration_ms: Math.max(250, durationMs), threshold: Math.max(0.15, Math.min(0.35, detectedThresholdRef.current)) })
       notify('success', 'Liveness verified. Exam starting now.')
       go('exam')
     } catch (error) {
@@ -1603,6 +1626,10 @@ function LivenessView({ go, notify }: { go: (view: View) => void; notify: (kind:
   }
 
   const beginDetection = async () => {
+    if (!readiness.secure || !readiness.camera || !readiness.storage) {
+      notify('error', 'This device is not ready. Use HTTPS, allow browser storage, and choose a browser with camera support.')
+      return
+    }
     try {
       stopCamera(); completionRef.current = false; setEnteringExam(false); setBlinkCount(0); setSeconds(15); setStatus('Loading face detector...')
       const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: 640, height: 480 }, audio: false })
@@ -1638,6 +1665,22 @@ function LivenessView({ go, notify }: { go: (view: View) => void; notify: (kind:
         const result = detector.detectForVideo(video, now)
         const face = result.faceLandmarks[0]
         if (face) {
+          const xs = face.map((point) => point.x)
+          const ys = face.map((point) => point.y)
+          const faceWidth = Math.max(...xs) - Math.min(...xs)
+          const faceHeight = Math.max(...ys) - Math.min(...ys)
+          const centerX = (Math.max(...xs) + Math.min(...xs)) / 2
+          const centerY = (Math.max(...ys) + Math.min(...ys)) / 2
+          if (faceWidth < 0.2 || faceHeight < 0.28) {
+            setStatus('Move closer so your face fills the oval')
+            frameRef.current = requestAnimationFrame(detect)
+            return
+          }
+          if (Math.abs(centerX - 0.5) > 0.18 || Math.abs(centerY - 0.5) > 0.2) {
+            setStatus('Center your face inside the oval')
+            frameRef.current = requestAnimationFrame(detect)
+            return
+          }
           const rawEar = (ear(face, [33, 160, 158, 133, 153, 144]) + ear(face, [362, 385, 387, 263, 373, 380])) / 2
           smoothedEar = smoothedEar ? smoothedEar * 0.55 + rawEar * 0.45 : rawEar
           if (calibration.length < 24) {
@@ -1650,6 +1693,7 @@ function LivenessView({ go, notify }: { go: (view: View) => void; notify: (kind:
           const openEar = sorted[Math.floor(sorted.length * 0.75)]
           const closeThreshold = Math.max(0.12, Math.min(0.29, openEar * 0.72))
           const reopenThreshold = Math.max(closeThreshold + 0.018, openEar * 0.84)
+          detectedThresholdRef.current = closeThreshold
           if (smoothedEar <= closeThreshold && !eyeWasClosed && now - lastBlinkAt > 250) {
             eyeWasClosed = true
             closedAt = now
@@ -1694,6 +1738,14 @@ function LivenessView({ go, notify }: { go: (view: View) => void; notify: (kind:
 
         <h2 style={{ fontSize: '22px', fontWeight: 700, margin: '8px 0' }}>Look forward, then blink twice naturally</h2>
         <p className="muted" style={{ fontSize: '14px', marginBottom: '20px' }}>Keep eyes open briefly for calibration. Then blink twice within 15 seconds. Remove glare and keep your full face visible.</p>
+        <div className="readiness-grid" aria-label="Device readiness">
+          {[
+            ['Secure connection', readiness.secure],
+            ['Camera supported', readiness.camera],
+            ['Network available', readiness.online],
+            ['Offline answer storage', readiness.storage],
+          ].map(([label, ready]) => <div key={String(label)} className={ready ? 'readiness-item ready' : 'readiness-item blocked'}><Check size={15} /> <span>{label}</span><strong>{ready ? 'Ready' : 'Check'}</strong></div>)}
+        </div>
         
         <div className="blink-progress" style={{ display: 'flex', justifyContent: 'center', gap: '8px', marginBottom: '24px' }}>
           <span className={blinkCount >= 1 ? 'done' : ''} style={{ width: '40px', height: '6px', borderRadius: '3px', background: blinkCount >= 1 ? 'var(--eg-teal)' : 'var(--eg-navy-600)' }} />
@@ -1734,6 +1786,9 @@ function ExamView(props: {
   const autoSaveRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const expirySubmitStarted = useRef(false)
   const monitorVideoRef = useRef<HTMLVideoElement>(null)
+  const serverClockOffsetRef = useRef(0)
+
+  const answerRequestKey = (questionId: string) => `${studentSessionId() || 'session'}:${questionId}:${Date.now()}:${crypto.randomUUID?.() || Math.random().toString(36).slice(2)}`
 
   // Load questions and duration from backend
   useEffect(() => {
@@ -1754,10 +1809,13 @@ function ExamView(props: {
             setExamStatus(exam.status)
             if (exam && exam.duration_minutes) {
               const deadlineKey = `examguard-deadline-${sessionId}`
+              const serverNow = exam.server_now ? Date.parse(exam.server_now) : Date.now()
+              serverClockOffsetRef.current = serverNow - Date.now()
+              const authoritativeDeadline = exam.expires_at ? Date.parse(exam.expires_at) : 0
               const savedDeadline = Number(window.localStorage.getItem(deadlineKey))
-              const deadline = savedDeadline > Date.now() ? savedDeadline : Date.now() + exam.duration_minutes * 60_000
+              const deadline = authoritativeDeadline || (savedDeadline > Date.now() ? savedDeadline : Date.now() + exam.duration_minutes * 60_000)
               window.localStorage.setItem(deadlineKey, String(deadline))
-              setTimeLeft(Math.max(0, Math.ceil((deadline - Date.now()) / 1000)))
+              setTimeLeft(Math.max(0, Math.ceil((deadline - (Date.now() + serverClockOffsetRef.current)) / 1000)))
             }
           })
           .catch(() => {})
@@ -1792,6 +1850,11 @@ function ExamView(props: {
     let missingSince = 0
     let lastMissingEvent = 0
     let lastMultipleEvent = 0
+    let gazeAwaySince = 0
+    let lastGazeEvent = 0
+    let lastVideoTime = -1
+    let frozenSince = 0
+    let interruptionLogged = false
     const sessionId = studentSessionId()
     if (!sessionId) return
 
@@ -1810,9 +1873,25 @@ function ExamView(props: {
           if (!active || !detector || !monitorVideoRef.current) return
           if (monitorVideoRef.current.readyState < 2) return
           const now = performance.now()
+          const videoTime = monitorVideoRef.current.currentTime
+          if (videoTime === lastVideoTime) {
+            if (!frozenSince) frozenSince = Date.now()
+            if (Date.now() - frozenSince > 6_000 && !interruptionLogged) {
+              interruptionLogged = true
+              setPresenceState('unavailable')
+              api.logEvent(sessionId, 'monitoring_interrupted', { reason: 'camera_frames_frozen' }).catch(() => {})
+            }
+          } else {
+            lastVideoTime = videoTime
+            frozenSince = 0
+            interruptionLogged = false
+          }
           let faces: number
+          let landmarks: Array<{ x: number; y: number }> | undefined
           try {
-            faces = detector.detectForVideo(monitorVideoRef.current, now).faceLandmarks.length
+            const detection = detector.detectForVideo(monitorVideoRef.current, now)
+            faces = detection.faceLandmarks.length
+            landmarks = detection.faceLandmarks[0]
           } catch {
             return
           }
@@ -1833,6 +1912,21 @@ function ExamView(props: {
           } else {
             missingSince = 0
             setPresenceState('present')
+            if (landmarks) {
+              const leftEdge = landmarks[234]
+              const rightEdge = landmarks[454]
+              const nose = landmarks[1]
+              const faceSpan = Math.max(0.001, rightEdge.x - leftEdge.x)
+              const normalizedNose = (nose.x - leftEdge.x) / faceSpan
+              const lookingAway = normalizedNose < 0.36 || normalizedNose > 0.64
+              if (lookingAway) {
+                if (!gazeAwaySince) gazeAwaySince = Date.now()
+                if (Date.now() - gazeAwaySince >= 10_000 && Date.now() - lastGazeEvent >= 45_000) {
+                  lastGazeEvent = Date.now()
+                  api.logEvent(sessionId, 'gaze_away', { duration_seconds: Math.round((Date.now() - gazeAwaySince) / 1000) }).catch(() => {})
+                }
+              } else gazeAwaySince = 0
+            }
           }
         }
         sample()
@@ -1930,7 +2024,7 @@ function ExamView(props: {
     setLastSave(Date.now())
     if (sessionId && text.trim()) {
       try {
-        await api.saveAnswer(sessionId, { question_id: current.id, answer_text: text })
+        await api.saveAnswer(sessionId, { question_id: current.id, answer_text: text, idempotency_key: answerRequestKey(current.id) })
         setSaveWarning('')
       } catch {
         setSaveWarning('Offline: answer saved locally and will retry on next save.')
@@ -1973,7 +2067,7 @@ function ExamView(props: {
       const sessionId = studentSessionId()
       if (sessionId) {
         window.localStorage.setItem(`examguard-answers-${sessionId}`, JSON.stringify(updated))
-        api.saveAnswer(sessionId, { question_id: current.id, answer_text: opt, selected_option: opt })
+        api.saveAnswer(sessionId, { question_id: current.id, answer_text: opt, selected_option: opt, idempotency_key: answerRequestKey(current.id) })
           .then(() => setSaveWarning(''))
           .catch(() => setSaveWarning('Offline: answer saved locally and will retry on next save.'))
       }

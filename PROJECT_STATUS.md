@@ -8,6 +8,16 @@ Git remote: `origin` points to repository target; production fixes are committed
 
 ## 2026-06-13 Production Hardening Pass
 
+- Added migration `006_production_integrity_hardening.sql`.
+- Activated papers capture an immutable versioned snapshot.
+- Session deadlines are server-authoritative; expired attempts reject answer writes.
+- Fixed session timestamps that incorrectly reused the 24-hour appeal deadline helper.
+- Answer retries use idempotency keys.
+- Integrity factors persist in Supabase and events use sequence-numbered SHA-256 hash chains.
+- Liveness uses per-student calibration plus face size and centering gates.
+- Preflight checks secure context, camera support, network, and offline storage.
+- Monitoring detects sustained absence, multiple faces, frozen frames, and sustained looking away while raw media stays local.
+- Apply Supabase migration `006` before deploying the matching backend version.
 - Removed production login/demo identity defaults and sample credential exposure.
 - Removed 25-character minimum answer gate; unanswered questions remain visible in submit summary.
 - Added continuous on-device face-presence monitoring during active exams; raw frames never upload.
