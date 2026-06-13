@@ -20,7 +20,6 @@ const en = {
     'Student Name': 'Student Name',
     'Join Code': 'Join Code',
     'Optional Email': 'Optional Email',
-    'Demo credentials': 'Demo credentials',
     'Teacher:': 'Teacher:',
     'Student:': 'Student:',
 
@@ -29,8 +28,6 @@ const en = {
     'Active Students': 'Active Students',
     'Flagged Cases': 'Flagged Cases',
     'Class Avg Integrity': 'Class Avg Integrity',
-    'New teacher? Create your first real exam or load a sample Physics class to explore the workflow.':
-      'New teacher? Create your first real exam or load a sample Physics class to explore the workflow.',
     'Create exam': 'Create exam',
     'Try sample class': 'Try sample class',
     'Open Live Monitor': 'Open Live Monitor',

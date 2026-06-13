@@ -314,7 +314,8 @@ function App() {
 
   useEffect(() => {
     if (auth && auth.role === 'teacher') {
-      const teacherId = window.localStorage.getItem('examguard-user-id') || 'teacher-demo'
+      const teacherId = window.localStorage.getItem('examguard-user-id')
+      if (!teacherId) return
       api.exams(teacherId)
         .then((items) => {
           if (items.length > 0) {
@@ -805,12 +806,14 @@ function DashboardView({ go, notify, onSelectExam, students, selectedExamId }: {
   const [showArchived, setShowArchived] = useState(false)
 
   useEffect(() => {
-    const teacherId = window.localStorage.getItem('examguard-user-id') || 'teacher-demo'
+    const teacherId = window.localStorage.getItem('examguard-user-id')
+    if (!teacherId) { notify('error', 'Teacher session is missing. Sign in again.'); return }
     api.exams(teacherId).then(setExams).catch(() => notify('warning', 'Could not fetch exams from backend.'))
   }, [])
 
   const handleCreateExam = async (payload: { title: string; subject: string; duration_minutes: number; total_marks: number }) => {
-    const teacherId = window.localStorage.getItem('examguard-user-id') || 'teacher-demo'
+    const teacherId = window.localStorage.getItem('examguard-user-id')
+    if (!teacherId) { notify('error', 'Teacher session is missing. Sign in again.'); return }
     try {
       const exam = await api.createExam({ teacher_id: teacherId, ...payload })
       setExams((prev) => [...prev, exam])
@@ -880,7 +883,7 @@ function DashboardView({ go, notify, onSelectExam, students, selectedExamId }: {
       <div className="dashboard-grid">
         {exams.length === 0 ? (
           <Card title="First-run guide" icon={Rocket} className="empty-card">
-            <p className="muted">New teacher? Create your first real exam or load a sample Physics class to explore the workflow.</p>
+            <p className="muted">Create your first exam, upload its syllabus or study material, configure the paper, then review every generated question before activation.</p>
             <div className="checklist">
               <span><Check size={15} /> Create exam shell</span>
               <span><Check size={15} /> Upload syllabus PDF</span>
