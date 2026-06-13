@@ -1,5 +1,8 @@
 {
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
+  "env": {
+    "VITE_API_BASE_URL": "https://examguard-backend-t2pv.onrender.com/api/v1"
+  },
   "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]
 }
