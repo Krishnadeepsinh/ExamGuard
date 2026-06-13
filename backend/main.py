@@ -177,7 +177,7 @@ class LivenessRequest(BaseModel):
 
 class SettingsRequest(BaseModel):
     display_name: str = Field(min_length=3, max_length=80)
-    institute_name: str = Field(min_length=2, max_length=120)
+    institute_name: str | None = Field(default=None, min_length=2, max_length=120)
     email_on_flag: bool = True
 
 
@@ -979,7 +979,7 @@ def log_proctoring_event(session_id: str, payload: ProctoringEventRequest, stude
 
 @app.put("/api/v1/users/{user_id}/settings")
 def save_settings(user_id: str, payload: SettingsRequest, teacher: dict[str, object] = Depends(current_teacher)) -> dict[str, object]:
-    """Save user settings (display name, institute, notifications)."""
+    """Save user display settings."""
     if user_id != teacher["id"]:
         raise HTTPException(status_code=403, detail="You can update only your own settings")
     try:

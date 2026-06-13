@@ -349,6 +349,6 @@ export const api = {
     requestRaw(`/exams/${examId}/reports/pdf`),
 
   // Settings
-  saveSettings: (userId: string, payload: { display_name: string; institute_name: string; email_on_flag?: boolean }) =>
+  saveSettings: (userId: string, payload: { display_name: string; institute_name?: string | null; email_on_flag?: boolean }) =>
     request(`/users/${userId}/settings`, { method: 'PUT', body: JSON.stringify(payload) }),
 }

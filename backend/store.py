@@ -439,7 +439,11 @@ class LocalStore:
         return session
 
     def student_sessions(self, student_id: str) -> list[dict[str, Any]]:
-        return [self.get_session_result(item["id"]) for item in self.sessions.values() if item.get("student_id") == student_id]
+        return [
+            self.get_session_result(item["id"])
+            for item in self.sessions.values()
+            if item.get("student_id") == student_id and item.get("exam_id") in self.exams
+        ]
 
     def save_answer(self, session_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         rows = self.answers.setdefault(session_id, [])
@@ -670,11 +674,12 @@ class LocalStore:
         session["review_status"] = "resolved"
         return session
 
-    def save_settings(self, user_id: str, display_name: str, institute_name: str) -> dict[str, Any]:
+    def save_settings(self, user_id: str, display_name: str, institute_name: str | None = None) -> dict[str, Any]:
         if user_id not in self.users:
             raise KeyError("user not found")
         self.users[user_id]["display_name"] = display_name
-        self.users[user_id]["institute"] = institute_name
+        if institute_name:
+            self.users[user_id]["institute"] = institute_name
         return self.users[user_id]
 
     def require_session(self, session_id: str) -> dict[str, Any]:

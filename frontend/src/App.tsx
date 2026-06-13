@@ -8,7 +8,6 @@ import {
   BarChart3,
   Bell,
   BookOpen,
-  Bot,
   Camera,
   Check,
   ChevronRight,
@@ -443,20 +442,24 @@ function App() {
 
   const loginWithApi = async (payload: { role: AuthRole; email: string; password: string; name: string; joinCode?: string; signup?: boolean }) => {
     if (payload.role === 'student') {
-      const access = await api.studentAccess(payload.name, payload.email, studentDeviceId())
-      window.localStorage.setItem('examguard-access-token', access.token)
-      window.localStorage.setItem('examguard-user-id', access.user.id)
       window.sessionStorage.setItem('examguard-tab-owner', currentTabId())
       window.sessionStorage.removeItem('examguard-session-id')
-      login({ role: 'student', name: access.user.display_name, email: payload.email, userId: access.user.id })
+      const cachedId = window.localStorage.getItem(`examguard-student-id-${studentDeviceId()}-${payload.name.trim().toLowerCase()}`) || ''
+      login({ role: 'student', name: payload.name, email: payload.email, userId: cachedId })
+      api.studentAccess(payload.name, payload.email, studentDeviceId())
+        .then((access) => {
+          window.localStorage.setItem('examguard-access-token', access.token)
+          window.localStorage.setItem('examguard-user-id', access.user.id)
+          window.localStorage.setItem(`examguard-student-id-${studentDeviceId()}-${payload.name.trim().toLowerCase()}`, access.user.id)
+          setAuth((current) => current?.role === 'student' ? { ...current, name: access.user.display_name, userId: access.user.id } : current)
+        })
+        .catch((error) => notify('error', error instanceof Error ? error.message : 'Student portal sync failed. Retry if history does not load.'))
       return
     }
     const demoEmail = import.meta.env.VITE_DEMO_TEACHER_EMAIL ?? 'teacher@demo.examguard.ai'
     const demoPassword = import.meta.env.VITE_DEMO_TEACHER_PASSWORD ?? 'ExamGuard-Demo-2026!'
-    const result = !payload.signup && payload.email === demoEmail && payload.password === demoPassword
+    const result = payload.email === demoEmail && payload.password === demoPassword
       ? await api.demoLogin(payload.email, payload.password)
-      : payload.signup
-      ? await api.signup({ email: payload.email, password: payload.password, role: payload.role, display_name: payload.name })
       : await api.login({ email: payload.email, password: payload.password, role: payload.role, display_name: payload.name })
     window.localStorage.setItem('examguard-user-id', result.user.id)
     window.localStorage.setItem('examguard-access-token', result.token)
@@ -594,11 +597,6 @@ function App() {
             )
           })}
         </nav>
-        <div className="sidebar-card">
-          <Bot size={18} aria-hidden="true" style={{ color: 'var(--eg-indigo)' }} />
-          <strong>10-stage agent graph</strong>
-          <span>Named LangGraph stages coordinate ingestion, generation, scoring, reporting, and review.</span>
-        </div>
         {auth && <div className="sidebar-account">
           <div><small>{auth.role}</small><strong>{auth.name}</strong></div>
           <div className="sidebar-account-actions">
@@ -726,7 +724,6 @@ function AuthPanel({ initialRole, onLogin, notify }: { initialRole: AuthRole; on
   const [studentName, setStudentName] = useState('')
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
-  const [signupMode, setSignupMode] = useState(false)
   const teacherDemo = {
     email: import.meta.env.VITE_DEMO_TEACHER_EMAIL ?? 'teacher@demo.examguard.ai',
     password: import.meta.env.VITE_DEMO_TEACHER_PASSWORD ?? 'ExamGuard-Demo-2026!',
@@ -745,7 +742,6 @@ function AuthPanel({ initialRole, onLogin, notify }: { initialRole: AuthRole; on
   const fillDemo = () => {
     setError('')
     if (role === 'teacher') {
-      setSignupMode(false)
       setEmail(teacherDemo.email)
       setPassword(teacherDemo.password)
       notify('info', 'Demo teacher credentials filled. Select Sign In.')
@@ -766,7 +762,7 @@ function AuthPanel({ initialRole, onLogin, notify }: { initialRole: AuthRole; on
     if (role === 'teacher') {
       if (!isValidEmail(email)) { setError('Enter a valid teacher email address.'); notify('error', 'Enter a valid teacher email address.'); setSubmitting(false); return }
       if (password.trim().length < 6) { setError('Password must be at least 6 characters.'); notify('error', 'Password must be at least 6 characters.'); setSubmitting(false); return }
-      try { await onLogin({ role: 'teacher', name: email.split('@')[0], email, password, signup: signupMode }) }
+      try { await onLogin({ role: 'teacher', name: email.split('@')[0], email, password }) }
       catch (event) { const message = event instanceof Error ? event.message : 'Teacher login failed.'; setError(message); notify('error', message) }
       finally { setSubmitting(false) }
       return
@@ -786,7 +782,7 @@ function AuthPanel({ initialRole, onLogin, notify }: { initialRole: AuthRole; on
         {role === 'teacher' ? 'Teacher Sign In' : 'Student Portal'}
       </h2>
       <p className="muted" style={{ fontSize: '14px', marginBottom: '24px' }}>
-        {role === 'teacher' ? (signupMode ? 'Create a secure teacher account for your institute.' : 'Manage exam papers, configurations, and review flagged session anomalies.') : 'Enter only your name. Add the exam code after the portal opens.'}
+        {role === 'teacher' ? 'Manage exam papers, configurations, and review flagged session anomalies.' : 'Enter only your name. Add the exam code after the portal opens.'}
       </p>
 
       {role === 'teacher' ? (
@@ -797,7 +793,7 @@ function AuthPanel({ initialRole, onLogin, notify }: { initialRole: AuthRole; on
           </div>
           <div>
             <label htmlFor="teacher-password">Password</label>
-            <input id="teacher-password" name="teacher-password" type="password" autoComplete={signupMode ? 'new-password' : 'current-password'} required minLength={6} value={password} onChange={(event) => setPassword(event.target.value)} />
+            <input id="teacher-password" name="teacher-password" type="password" autoComplete="current-password" required minLength={6} value={password} onChange={(event) => setPassword(event.target.value)} />
           </div>
         </div>
       ) : (
@@ -828,11 +824,8 @@ function AuthPanel({ initialRole, onLogin, notify }: { initialRole: AuthRole; on
       </button>}
       
       <button className="primary-btn full" disabled={submitting} onClick={submit}>
-        <Lock size={16} /> {submitting ? 'Authenticating…' : role === 'teacher' ? (signupMode ? 'Create Teacher Account' : 'Sign In') : 'Open Student Portal'}
+        <Lock size={16} /> {submitting ? 'Authenticating…' : role === 'teacher' ? 'Sign In' : 'Open Student Portal'}
       </button>
-      {role === 'teacher' && <button type="button" className="ghost-btn full" style={{ marginTop: '10px' }} onClick={() => setSignupMode(value => !value)}>
-        {signupMode ? 'Already registered? Sign in' : 'New teacher? Create account'}
-      </button>}
 
       {role === 'student' && <p className="hint" style={{ marginTop: '12px' }}>No password, email, or exam code is required on this screen.</p>}
     </div>
@@ -900,7 +893,7 @@ function StudentPortalView({ auth, go, notify }: { auth: AuthUser | null; go: (v
       <Card title="Your Exam History" icon={FileText}>
         {sessions.length === 0 ? <div className="empty-state"><BookOpen size={24} /><strong>No exam attempts yet</strong><span>Enter a join code above when your teacher shares one.</span></div> : sessions.map((session) => (
           <div className="student-history-row" key={session.session_id}>
-            <span><strong>{session.status === 'ended' ? 'Submitted exam' : 'Exam attempt'}</strong><small>{session.grade_released && session.grade ? `${session.grade.earned_marks}/${session.grade.total_marks} (${session.grade.percentage}%)` : session.status === 'ended' ? 'Waiting for teacher release' : 'Not submitted'}</small></span>
+            <span><strong>{session.status === 'ended' ? 'Submitted exam' : 'Exam attempt'}</strong><small>{session.grade_released && session.grade ? `${session.grade.earned_marks}/${session.grade.total_marks} (${session.grade.percentage}%)` : session.status === 'ended' ? 'Result hidden until teacher makes it live' : 'Not submitted'}</small></span>
             <button className="ghost-btn" onClick={() => openAttempt(session.session_id, session.status)}>{session.status === 'ended' ? 'View Status' : 'Resume'}</button>
           </div>
         ))}
@@ -2840,18 +2833,13 @@ function ReportsView({ examId, students, notify, onRefreshStudents }: { examId: 
 
 function SettingsView({ auth, onSaveSettings, notify }: { auth: AuthUser | null; onSaveSettings: (newName: string) => void; notify: (kind: ToastKind, text: string) => void }) {
   const [displayName, setDisplayName] = useState(auth?.name || '')
-  const [instituteName, setInstituteName] = useState('')
-  const [newPassword, setNewPassword] = useState('')
-  const [confirmPassword, setConfirmPassword] = useState('')
-  const strongPassword = newPassword.length >= 8 && /[A-Z]/.test(newPassword) && /\d/.test(newPassword)
 
   const saveSettings = async () => {
     if (displayName.trim().length < 3) { notify('error', 'Display name must be at least 3 characters.'); return }
-    if (instituteName.trim().length < 2) { notify('error', 'Institute name must be at least 2 characters.'); return }
     const userId = window.localStorage.getItem('examguard-user-id')
     if (userId) {
       try {
-        await api.saveSettings(userId, { display_name: displayName, institute_name: instituteName })
+        await api.saveSettings(userId, { display_name: displayName })
         onSaveSettings(displayName)
         notify('success', 'Settings saved to server.')
       } catch {
@@ -2864,16 +2852,6 @@ function SettingsView({ auth, onSaveSettings, notify }: { auth: AuthUser | null;
     }
   }
 
-  const sendReset = async () => {
-    if (!strongPassword) { notify('error', 'Password must be 8+ characters with one uppercase letter and one number.'); return }
-    if (newPassword !== confirmPassword) { notify('error', 'Password confirmation does not match.'); return }
-    try {
-      if (!auth?.email) throw new Error('Signed-in email is unavailable.')
-      await api.resetRequest(auth.email)
-      notify('info', 'Password reset email sent.')
-    } catch (error) { notify('error', error instanceof Error ? error.message : 'Password reset request failed.') }
-  }
-
   return (
     <section className="screen settings-grid">
       <Card title="Account Settings" icon={Settings}>
@@ -2881,10 +2859,6 @@ function SettingsView({ auth, onSaveSettings, notify }: { auth: AuthUser | null;
           <div>
             <label>Display name</label>
             <input required minLength={3} value={displayName} onChange={(event) => setDisplayName(event.target.value)} />
-          </div>
-          <div>
-            <label>Institute Name</label>
-            <input required minLength={3} value={instituteName} onChange={(event) => setInstituteName(event.target.value)} />
           </div>
           <div style={{ marginTop: '8px' }}>
             <label className="switch-container">
@@ -2894,24 +2868,8 @@ function SettingsView({ auth, onSaveSettings, notify }: { auth: AuthUser | null;
             </label>
           </div>
         </div>
-        {(displayName.trim().length < 3 || instituteName.trim().length < 2) && <p className="form-error">Display name and institute name are required.</p>}
+        {displayName.trim().length < 3 && <p className="form-error">Display name is required.</p>}
         <button className="primary-btn" onClick={saveSettings}>Save Settings</button>
-      </Card>
-
-      <Card title="Password reset" icon={Lock}>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', marginBottom: '16px' }}>
-          <div>
-            <label>New Password</label>
-            <input type="password" minLength={8} placeholder="Enter new password" value={newPassword} onChange={(event) => setNewPassword(event.target.value)} />
-          </div>
-          <div>
-            <label>Confirm Password</label>
-            <input type="password" minLength={8} placeholder="Confirm password" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} />
-          </div>
-        </div>
-        <div className={`strength ${strongPassword ? 'strong' : 'weak'}`}><span /><span /><span /><em>{strongPassword ? 'Strong' : 'Needs uppercase + number'}</em></div>
-        {confirmPassword && newPassword !== confirmPassword && <p className="form-error">Passwords do not match.</p>}
-        <button className="ghost-btn" onClick={sendReset}>Send Reset Link</button>
       </Card>
 
       <Card title="Security promises" icon={Shield}>
@@ -2919,7 +2877,7 @@ function SettingsView({ auth, onSaveSettings, notify }: { auth: AuthUser | null;
           <li>Raw video never leaves the browser.</li>
           <li>Audio level tracking only, no voice recording.</li>
           <li>Signed report URLs automatically expire in 7 days.</li>
-          <li>Strict isolation locks student data to their institute.</li>
+          <li>Strict isolation keeps each student result visible only after login.</li>
         </ul>
         <div style={{ borderTop: '1px solid var(--eg-navy-600)', padding: '16px 0 0 0', marginTop: '20px' }}>
           <span className="badge badge-purple" style={{ width: '100%', justifyContent: 'center' }}>
