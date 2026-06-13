@@ -1,4 +1,18 @@
-const API_BASE = import.meta.env.VITE_API_BASE_URL ?? 'http://127.0.0.1:8000/api/v1'
+const configuredApiBase = String(import.meta.env.VITE_API_BASE_URL ?? '').trim().replace(/\/$/, '')
+const localHost = ['localhost', '127.0.0.1'].includes(window.location.hostname)
+const API_BASE = configuredApiBase || (localHost ? 'http://127.0.0.1:8000/api/v1' : '')
+
+function requireApiBase(): string {
+  if (API_BASE) return API_BASE
+  throw new ApiError('Backend URL is not configured for this deployment. Set VITE_API_BASE_URL in Vercel to the Render API URL ending in /api/v1, then redeploy.', 0)
+}
+
+function networkMessage(longOperation: boolean): string {
+  if (!window.navigator.onLine) return 'You are offline. Reconnect and retry; your draft is safe.'
+  if (!API_BASE) return 'Backend URL is not configured for this deployment. Set VITE_API_BASE_URL in Vercel and redeploy.'
+  if (longOperation) return 'The backend did not finish in time. It may be starting or generating the paper; wait a moment and retry.'
+  return `Could not reach the API at ${new URL(API_BASE).origin}. Check Render service health and CORS_ORIGINS, then retry.`
+}
 
 export class ApiError extends Error {
   status: number
@@ -9,11 +23,13 @@ export class ApiError extends Error {
   }
 }
 export const examSocketUrl = (examId: string) => {
+  const apiBase = requireApiBase()
   const token = window.localStorage.getItem('examguard-access-token') ?? ''
-  return `${API_BASE.replace(/^http/, 'ws')}/ws/exams/${examId}?token=${encodeURIComponent(token)}`
+  return `${apiBase.replace(/^http/, 'ws')}/ws/exams/${examId}?token=${encodeURIComponent(token)}`
 }
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const apiBase = requireApiBase()
   const token = window.localStorage.getItem('examguard-access-token')
   const method = options.method ?? 'GET'
   const retryableLongOperation = path.includes('/generate') || path.includes('/materials/upload')
@@ -25,7 +41,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     const longOperation = retryableLongOperation
     const timeout = window.setTimeout(() => controller.abort(), longOperation ? 180_000 : 30_000)
     try {
-      response = await fetch(`${API_BASE}${path}`, {
+      response = await fetch(`${apiBase}${path}`, {
         ...options,
         signal: controller.signal,
         headers: {
@@ -38,15 +54,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     } catch (error) {
       networkError = error
       if (attempt === attempts - 1) {
-        const offline = !window.navigator.onLine
-        throw new ApiError(
-          offline
-            ? 'You are offline. Reconnect and retry; your draft is safe.'
-            : longOperation
-              ? 'The backend did not finish the operation in time. Your draft is safe; retry after a moment.'
-              : 'The backend could not be reached. It may be waking up; retry in a moment.',
-          0,
-        )
+        throw new ApiError(networkMessage(longOperation), 0)
       }
     } finally {
       window.clearTimeout(timeout)
@@ -62,12 +70,13 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 }
 
 async function requestRaw(path: string, options: RequestInit = {}): Promise<Response> {
+  const apiBase = requireApiBase()
   const token = window.localStorage.getItem('examguard-access-token')
   const controller = new AbortController()
   const timeout = window.setTimeout(() => controller.abort(), 60_000)
   let response: Response
   try {
-    response = await fetch(`${API_BASE}${path}`, {
+    response = await fetch(`${apiBase}${path}`, {
       ...options,
       signal: controller.signal,
       headers: {
