@@ -21,7 +21,8 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   let networkError: unknown
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     const controller = new AbortController()
-    const timeout = window.setTimeout(() => controller.abort(), 30_000)
+    const longOperation = path.includes('/generate') || path.includes('/materials/upload')
+    const timeout = window.setTimeout(() => controller.abort(), longOperation ? 120_000 : 30_000)
     try {
       response = await fetch(`${API_BASE}${path}`, {
         ...options,
@@ -35,7 +36,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
       if (response.ok || response.status < 500 || attempt === attempts - 1) break
     } catch (error) {
       networkError = error
-      if (attempt === attempts - 1) throw new ApiError('Backend is temporarily unreachable. Check your connection and retry.', 0)
+      if (attempt === attempts - 1) throw new ApiError(longOperation ? 'The operation timed out. Your file and draft are safe; retry once.' : 'Backend is temporarily unreachable. Check your connection and retry.', 0)
     } finally {
       window.clearTimeout(timeout)
     }
@@ -86,6 +87,7 @@ export type ApiExam = {
   status: string
   paper_config?: Record<string, unknown>
   activated_at?: string | null
+  scheduled_start_at?: string | null
   ended_at?: string | null
   expires_at?: string | null
   server_now?: string
@@ -139,6 +141,8 @@ export type ApiSession = {
   events_count?: number
   joined_at?: string
   grade?: { earned_marks: number; total_marks: number; percentage: number }
+  student_access_token?: string
+  locked_for_review?: boolean
 }
 
 export type ApiAnswer = {
@@ -204,6 +208,9 @@ export const api = {
   activateExam: (examId: string) =>
     request<ApiExam>(`/exams/${examId}/activate`, { method: 'POST' }),
 
+  scheduleExam: (examId: string, scheduledStartAt: string) =>
+    request<ApiExam>(`/exams/${examId}/schedule`, { method: 'POST', body: JSON.stringify({ scheduled_start_at: scheduledStartAt }) }),
+
   pauseExam: (examId: string) =>
     request<ApiExam>(`/exams/${examId}/pause`, { method: 'POST' }),
 
@@ -262,6 +269,8 @@ export const api = {
 
   sessionResult: (sessionId: string) =>
     request<{ session_id: string; student_name: string; status: string; integrity: Record<string, any>; review_status: string; grade_released: boolean; answers_count: number; answers: ApiAnswer[]; grade?: { earned_marks: number; total_marks: number; percentage: number } }>(`/sessions/${sessionId}/result`),
+
+  myStudentSessions: () => request<Array<{ session_id: string; student_name: string; status: string; review_status: string; grade_released: boolean; grade?: { earned_marks: number; total_marks: number; percentage: number } }>>('/students/me/sessions'),
 
   // Appeals & Review
   submitAppeal: (sessionId: string, response: string) =>

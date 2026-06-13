@@ -266,3 +266,16 @@ Deployment follow-up:
 - Paste evidence records question ID, character count, bulk-paste flag, and fullscreen state; clipboard content and screenshots are not stored.
 - Added mobile account name and logout controls for teacher and student.
 - Backend test suite: `17 passed`; frontend production build passes; ESLint has zero errors.
+
+## 2026-06-13 Exam Lifecycle And Student Access Hardening
+
+- Fixed production Supabase integrity reads by normalizing database session rows before returning status.
+- Draft/generated papers now reject student joins; only live (`active`) exams accept a join code.
+- Added reviewed-paper scheduling and automatic activation when the scheduled time is reached.
+- Added explicit Go Live Now and Schedule controls after complete paper review.
+- Added destructive delete confirmation naming the exam and affected data.
+- Increased upload/generation request timeout to 120 seconds and converted generation/storage failures into actionable API messages.
+- Added signed student browser access tokens and a My Results path that does not require re-entering an exam code.
+- Added deterministic attempt locking only after repeated, independent critical signals; one tab change, focus loss, or ordinary paste cannot lock a student.
+- Added `007_exam_scheduling.sql`; it must be applied before deploying this batch.
+- Backend test suite: `27 passed`; Python compilation and frontend production build pass; ESLint has zero errors (34 existing warnings).

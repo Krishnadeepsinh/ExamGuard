@@ -457,6 +457,15 @@ class SupabaseStore:
         snapshot = {"version": version, "config": current.get("paper_config") or {}, "questions": questions, "captured_at": utc_now()}
         return self.normalize_exam(self.rest("PATCH", "exams", {"status": "active", "activated_at": utc_now(), "paper_version": version, "paper_snapshot": snapshot}, query=f"?id=eq.{exam_id}")[0])
 
+    def schedule_exam(self, exam_id: str, scheduled_start_at: str) -> dict[str, Any]:
+        questions = self.rest("GET", "questions", query=f"?exam_id=eq.{exam_id}&select=id&limit=1")
+        if not questions:
+            raise ValueError("Generate and review questions before scheduling the exam.")
+        current = self.get_exam(exam_id)
+        if current.get("status") not in {"draft", "scheduled"}:
+            raise ValueError("Only a draft paper can be scheduled.")
+        return self.normalize_exam(self.rest("PATCH", "exams", {"status": "scheduled", "scheduled_start_at": scheduled_start_at}, query=f"?id=eq.{exam_id}")[0])
+
     def end_exam(self, exam_id: str) -> dict[str, Any]:
         ended_at = utc_now()
         exam = self.rest("PATCH", "exams", {"status": "ended", "ended_at": ended_at}, query=f"?id=eq.{exam_id}")[0]
@@ -467,7 +476,11 @@ class SupabaseStore:
         exams = self.rest("GET", "exams", query=f"?join_code=eq.{join_code}")
         if not exams:
             raise KeyError("Invalid join code.")
-        if exams[0]["status"] not in {"active", "generated"}:
+        if exams[0]["status"] == "scheduled" and exams[0].get("scheduled_start_at"):
+            scheduled = datetime.fromisoformat(str(exams[0]["scheduled_start_at"]).replace("Z", "+00:00"))
+            if scheduled <= datetime.now(timezone.utc):
+                exams[0] = self.activate_exam(str(exams[0]["id"]))
+        if exams[0]["status"] != "active":
             raise PermissionError(f"Exam is {exams[0]['status']} and is not accepting students.")
         student_email = email or f"{student_name.lower().replace(' ', '.')}@student.local"
         encoded_email = parse.quote(student_email, safe="")
@@ -495,6 +508,10 @@ class SupabaseStore:
         })[0]
         return self.normalize_session(session, student_name)
 
+    def student_sessions(self, student_id: str) -> list[dict[str, Any]]:
+        rows = self.rest("GET", "exam_sessions", query=f"?student_id=eq.{student_id}&order=created_at.desc")
+        return [self.get_session_result(str(row["id"])) for row in rows]
+
     def normalize_session(self, session: dict[str, Any], student_name: str | None = None) -> dict[str, Any]:
         if student_name is None:
             user = self.rest("GET", "users", query=f"?id=eq.{session['student_id']}")
@@ -516,6 +533,7 @@ class SupabaseStore:
             },
             "review_status": session.get("review_status"),
             "grade_released": session.get("grade_released", False),
+            "locked_for_review": session.get("locked_for_review", False),
             "expires_at": session.get("expires_at"),
         }
 
@@ -635,11 +653,14 @@ class SupabaseStore:
         }
         baseline_tier = int(session.get("baseline_tier") or 3)
         result = compute_integrity_score(factors, baseline_tier=baseline_tier)
-        if has_critical_pattern(event_types):
+        critical_pattern = has_critical_pattern(event_types)
+        if critical_pattern:
             result = {**result, "score": min(float(result["score"]), 45.0), "status": "FLAGGED"}
         patch: dict[str, Any] = {"integrity_score": result["score"], "integrity_state": result["status"], "integrity_ci": result["ci"], "integrity_factors": factors}
         if result["status"] == "FLAGGED":
             patch["review_status"] = "awaiting_response"
+        if critical_pattern:
+            patch["locked_for_review"] = True
         self.update_session(session_id, patch)
         return {**created, "integrity": result}
 

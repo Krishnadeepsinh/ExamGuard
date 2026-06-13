@@ -340,6 +340,16 @@ class LocalStore:
         exam["activated_at"] = utc_now()
         return exam
 
+    def schedule_exam(self, exam_id: str, scheduled_start_at: str) -> dict[str, Any]:
+        exam = self.exams.get(exam_id)
+        if not exam:
+            raise KeyError("exam not found")
+        if not self.questions.get(exam_id):
+            raise ValueError("Generate and review questions before scheduling the exam.")
+        exam["status"] = "scheduled"
+        exam["scheduled_start_at"] = scheduled_start_at
+        return exam
+
     def end_exam(self, exam_id: str) -> dict[str, Any]:
         exam = self.exams.get(exam_id)
         if not exam:
@@ -356,7 +366,9 @@ class LocalStore:
         exam = next((item for item in self.exams.values() if item["join_code"] == join_code), None)
         if not exam:
             raise KeyError("Invalid join code.")
-        if exam["status"] not in {"active", "generated"}:
+        if exam["status"] == "scheduled" and exam.get("scheduled_start_at") and datetime.fromisoformat(str(exam["scheduled_start_at"]).replace("Z", "+00:00")) <= datetime.now(timezone.utc):
+            self.activate_exam(exam["id"])
+        if exam["status"] != "active":
             raise PermissionError(f"Exam is {exam['status']} and is not accepting students.")
         student_email = email or f"{student_name.lower().replace(' ', '.')}@student.local"
         user = next((item for item in self.users.values() if item["email"] == student_email and item["role"] == "student"), None)
@@ -381,11 +393,15 @@ class LocalStore:
             "integrity": integrity,
             "review_status": "none",
             "grade_released": False,
+            "locked_for_review": False,
             "joined_at": utc_now(),
         }
         self.sessions[session_id] = session
         self.answers[session_id] = []
         return session
+
+    def student_sessions(self, student_id: str) -> list[dict[str, Any]]:
+        return [self.get_session_result(item["id"]) for item in self.sessions.values() if item.get("student_id") == student_id]
 
     def save_answer(self, session_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         rows = self.answers.setdefault(session_id, [])
@@ -533,12 +549,15 @@ class LocalStore:
         }
         baseline_tier = int(prior.get("baseline_tier", 3)) if isinstance(prior, dict) else 3
         result = compute_integrity_score(factors, baseline_tier=baseline_tier)
-        if has_critical_pattern(events):
+        critical_pattern = has_critical_pattern(events)
+        if critical_pattern:
             result = {**result, "score": min(float(result["score"]), 45.0), "status": "FLAGGED"}
         session = self.sessions[session_id]
         session["integrity"] = result
         if result["status"] == "FLAGGED":
             session["review_status"] = "awaiting_response"
+        if critical_pattern:
+            session["locked_for_review"] = True
         return {**event, "integrity": result}
 
     def normalize_session(self, session: dict[str, Any]) -> dict[str, Any]:

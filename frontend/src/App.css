@@ -2633,3 +2633,10 @@ input[type="range"]::-moz-range-thumb:hover {
 @media (max-width: 520px) {
   .readiness-grid { grid-template-columns: 1fr; }
 }
+.activation-actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 14px; }
+.schedule-control { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.schedule-control input { min-height: 44px; }
+@media (max-width: 640px) {
+  .activation-actions, .schedule-control { align-items: stretch; flex-direction: column; width: 100%; }
+  .activation-actions button, .schedule-control input { width: 100%; }
+}

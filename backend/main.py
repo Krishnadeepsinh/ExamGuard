@@ -83,6 +83,10 @@ class ExamCreateRequest(BaseModel):
     total_marks: int = Field(ge=10, le=300)
 
 
+class ExamScheduleRequest(BaseModel):
+    scheduled_start_at: datetime
+
+
 class SectionConfig(BaseModel):
     id: str
     type: Literal["MCQ", "Short Answer", "Long Answer", "Fill Blank", "True/False", "Essay"]
@@ -192,6 +196,29 @@ def issue_demo_token(user: dict[str, object]) -> str:
     return f"demo.{payload}.{signature}"
 
 
+def issue_student_token(student_id: str, email: str) -> str:
+    expires = int((datetime.now(timezone.utc) + timedelta(days=30)).timestamp())
+    payload = base64.urlsafe_b64encode(json.dumps({"sub": student_id, "email": email, "role": "student", "exp": expires}, separators=(",", ":")).encode()).decode().rstrip("=")
+    signature = hmac.new(demo_signing_secret(), payload.encode(), hashlib.sha256).hexdigest()
+    return f"student.{payload}.{signature}"
+
+
+def verify_student_token(token: str) -> dict[str, object] | None:
+    if not token.startswith("student."):
+        return None
+    try:
+        _, payload, signature = token.split(".", 2)
+        expected = hmac.new(demo_signing_secret(), payload.encode(), hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(signature, expected):
+            return None
+        decoded = json.loads(base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4)))
+        if decoded.get("role") != "student" or int(decoded["exp"]) <= int(datetime.now(timezone.utc).timestamp()):
+            return None
+        return {"id": decoded["sub"], "email": decoded["email"], "role": "student"}
+    except (ValueError, KeyError, json.JSONDecodeError):
+        return None
+
+
 def verify_demo_token(token: str) -> dict[str, object] | None:
     if not settings.demo_access_enabled or not token.startswith("demo."):
         return None
@@ -230,6 +257,17 @@ def current_teacher(authorization: str | None = Header(default=None)) -> dict[st
         raise HTTPException(status_code=401, detail=str(exc)) from exc
     if user.get("role") != "teacher":
         raise HTTPException(status_code=403, detail="Teacher role is required")
+    return user
+
+
+def current_user(authorization: str | None = Header(default=None)) -> dict[str, object]:
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Authentication is required")
+    token = authorization.removeprefix("Bearer ").strip()
+    try:
+        user = verify_student_token(token) or verify_demo_token(token) or store.verify_token(token)
+    except PermissionError as exc:
+        raise HTTPException(status_code=401, detail=str(exc)) from exc
     return user
 
 
@@ -426,6 +464,8 @@ def generate_paper(request: Request, exam_id: str, teacher: dict[str, object] = 
         return result
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
 @app.post("/api/v1/exams/{exam_id}/activate")
@@ -435,6 +475,17 @@ def activate_exam(exam_id: str, teacher: dict[str, object] = Depends(current_tea
         return store.activate_exam(exam_id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="exam not found") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.post("/api/v1/exams/{exam_id}/schedule")
+def schedule_exam(exam_id: str, payload: ExamScheduleRequest, teacher: dict[str, object] = Depends(current_teacher)) -> dict[str, object]:
+    require_owned_exam(exam_id, teacher)
+    if payload.scheduled_start_at <= datetime.now(timezone.utc):
+        raise HTTPException(status_code=422, detail="Scheduled start must be in the future")
+    try:
+        return store.schedule_exam(exam_id, payload.scheduled_start_at.isoformat())
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
@@ -449,6 +500,8 @@ def pause_exam(exam_id: str, teacher: dict[str, object] = Depends(current_teache
         raise HTTPException(status_code=404, detail="exam not found") from exc
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
 @app.post("/api/v1/exams/{exam_id}/resume")
@@ -638,7 +691,7 @@ def live_snapshot(exam_id: str, teacher: dict[str, object] = Depends(current_tea
 async def exam_live_socket(websocket: WebSocket, exam_id: str, token: str = "") -> None:
     """Push authoritative monitor snapshots; Redis keeps events across workers."""
     try:
-        teacher = store.verify_token(token)
+        teacher = verify_demo_token(token) or store.verify_token(token)
         require_owned_exam(exam_id, teacher)
     except (PermissionError, HTTPException):
         await websocket.close(code=1008)
@@ -713,11 +766,19 @@ def join_session(request: Request, payload: JoinRequest) -> dict[str, object]:
         session = store.join_session(payload.join_code.upper(), payload.student_name, str(payload.email) if payload.email else None)
         redis_hot_state.set_json(f"session:{session['id']}:state", session, ttl_seconds=10800)
         redis_hot_state.push_event(f"exam:{session['exam_id']}:events", {"type": "student_joined", "session_id": session["id"], "student_name": session["student_name"]}, ttl_seconds=10800)
+        session["student_access_token"] = issue_student_token(str(session["student_id"]), str(payload.email or ""))
         return session
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=exc.args[0] if exc.args else "Invalid join code") from exc
     except PermissionError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.get("/api/v1/students/me/sessions")
+def student_sessions(user: dict[str, object] = Depends(current_user)) -> list[dict[str, object]]:
+    if user.get("role") != "student":
+        raise HTTPException(status_code=403, detail="Student role is required")
+    return store.student_sessions(str(user["id"]))
 
 
 @app.post("/api/v1/sessions/{session_id}/consent")
@@ -779,6 +840,8 @@ def save_answer(request: Request, session_id: str, payload: AnswerRequest) -> di
         raise HTTPException(status_code=403, detail="consent and liveness are required before answering")
     if session.get("status") != "active":
         raise HTTPException(status_code=409, detail="session is not active")
+    if session.get("locked_for_review"):
+        raise HTTPException(status_code=423, detail="This attempt is paused after repeated independent integrity signals. Saved answers are preserved for teacher review.")
     exam = lookup_exam(str(session["exam_id"]))
     if session_expired(session, exam):
         store.update_session(session_id, {"status": "ended", "ended_at": now_iso()})
@@ -803,7 +866,11 @@ def end_session(session_id: str) -> dict[str, object]:
 
 @app.get("/api/v1/sessions/{session_id}/integrity")
 def session_integrity(session_id: str) -> dict[str, object]:
-    return require_session(session_id)["integrity"]
+    raw_session = require_session(session_id)
+    session = store.normalize_session(raw_session)
+    integrity = dict(session.get("integrity") or {})
+    integrity["locked_for_review"] = bool(session.get("locked_for_review", False))
+    return integrity
 
 
 @app.get("/api/v1/sessions/{session_id}/result")

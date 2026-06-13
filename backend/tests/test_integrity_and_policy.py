@@ -131,6 +131,16 @@ class StoreBehaviorTests(unittest.TestCase):
         self.assertEqual(second["previous_hash"], first["event_hash"])
         self.assertEqual(len(second["event_hash"]), 64)
 
+    def test_only_repeated_independent_signals_lock_attempt(self) -> None:
+        self.store.exams["exam-physics"]["status"] = "active"
+        session = self.store.join_session("PHY001", "Lock Student", "lock@student.ai")
+        self.store.log_integrity_event(session["id"], "tab_hidden", {})
+        self.assertFalse(self.store.sessions[session["id"]].get("locked_for_review", False))
+        self.store.log_integrity_event(session["id"], "tab_hidden", {})
+        self.store.log_integrity_event(session["id"], "tab_hidden", {})
+        self.store.log_integrity_event(session["id"], "paste_detected", {"bulk_paste": True})
+        self.assertTrue(self.store.sessions[session["id"]]["locked_for_review"])
+
     def test_generation_requires_uploaded_material(self) -> None:
         exam = self.store.create_exam("teacher-demo", {
             "title": "No Material Exam", "subject": "SQL", "duration_minutes": 60, "total_marks": 10,
@@ -146,6 +156,20 @@ class StoreBehaviorTests(unittest.TestCase):
         self.store.questions[exam["id"]] = []
         with self.assertRaisesRegex(ValueError, "generate questions"):
             self.store.activate_exam(exam["id"])
+
+    def test_draft_exam_rejects_student_join(self) -> None:
+        exam = self.store.create_exam("teacher-demo", {
+            "title": "Private Draft", "subject": "SQL", "duration_minutes": 60, "total_marks": 20,
+        })
+        with self.assertRaises(PermissionError):
+            self.store.join_session(exam["join_code"], "Draft Student", "draft@example.com")
+
+    def test_scheduling_requires_generated_questions(self) -> None:
+        exam = self.store.create_exam("teacher-demo", {
+            "title": "Scheduled Draft", "subject": "SQL", "duration_minutes": 60, "total_marks": 20,
+        })
+        with self.assertRaisesRegex(ValueError, "Generate and review"):
+            self.store.schedule_exam(exam["id"], "2030-01-01T10:00:00+00:00")
 
     def test_syllabus_and_material_are_kept_as_distinct_sources(self) -> None:
         exam = self.store.create_exam("teacher-demo", {

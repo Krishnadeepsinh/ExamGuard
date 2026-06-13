@@ -430,9 +430,18 @@ function App() {
 
   const loginWithApi = async (payload: { role: AuthRole; email: string; password: string; name: string; joinCode?: string; signup?: boolean }) => {
     if (payload.role === 'student') {
-      if (!payload.joinCode) throw new Error('Exam join code is required.')
+      if (!payload.joinCode) {
+        const sessions = await api.myStudentSessions()
+        if (!sessions.length) throw new Error('No exam history was found for this student account.')
+        window.sessionStorage.setItem('examguard-session-id', sessions[0].session_id)
+        login({ role: 'student', name: sessions[0].student_name || payload.name, email: payload.email })
+        setView('complete')
+        window.history.replaceState(null, '', '#complete')
+        return
+      }
       const session = await api.joinSession({ join_code: payload.joinCode, student_name: payload.name, email: payload.email || undefined })
       window.sessionStorage.setItem('examguard-session-id', session.id)
+      if (session.student_access_token) window.localStorage.setItem('examguard-access-token', session.student_access_token)
       window.sessionStorage.setItem('examguard-tab-owner', currentTabId())
       window.localStorage.setItem('examguard-exam-id', session.exam_id)
       login({ role: 'student', name: session.student_name, email: payload.email || `${payload.name.toLowerCase().replace(/\s+/g, '.')}@student.ai` })
@@ -708,6 +717,7 @@ function AuthPanel({ initialRole, onLogin, notify }: { initialRole: AuthRole; on
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [signupMode, setSignupMode] = useState(false)
+  const [studentAccessMode, setStudentAccessMode] = useState<'join' | 'results'>('join')
   const teacherDemo = {
     email: import.meta.env.VITE_DEMO_TEACHER_EMAIL ?? 'teacher@demo.examguard.ai',
     password: import.meta.env.VITE_DEMO_TEACHER_PASSWORD ?? 'ExamGuard-Demo-2026!',
@@ -756,10 +766,11 @@ function AuthPanel({ initialRole, onLogin, notify }: { initialRole: AuthRole; on
       finally { setSubmitting(false) }
       return
     }
-    if (!/^[A-Z0-9]{6}$/.test(joinCode.trim().toUpperCase())) { setError('Join code must be 6 letters or numbers.'); notify('error', 'Join code must be 6 letters or numbers.'); setSubmitting(false); return }
+    if (studentAccessMode === 'join' && !/^[A-Z0-9]{6}$/.test(joinCode.trim().toUpperCase())) { setError('Join code must be 6 letters or numbers.'); notify('error', 'Join code must be 6 letters or numbers.'); setSubmitting(false); return }
     if (studentName.trim().length < 3) { setError('Student name must be at least 3 characters.'); notify('error', 'Student name is required before joining.'); setSubmitting(false); return }
     if (email.trim() && !isValidEmail(email)) { setError('Optional student email must be valid if provided.'); notify('error', 'Optional student email must be valid if provided.'); setSubmitting(false); return }
-    try { await onLogin({ role: 'student', name: studentName.trim(), email: email || `${studentName.toLowerCase().replace(/\s+/g, '.')}@student.ai`, password, joinCode }) }
+    if (studentAccessMode === 'results' && !window.localStorage.getItem('examguard-access-token')) { setError('Use this browser after joining an exam, or sign in with a verified student account.'); setSubmitting(false); return }
+    try { await onLogin({ role: 'student', name: studentName.trim(), email: email || `${studentName.toLowerCase().replace(/\s+/g, '.')}@student.ai`, password, joinCode: studentAccessMode === 'join' ? joinCode : undefined }) }
     catch (event) { const message = event instanceof Error ? event.message : 'Student join failed.'; setError(message); notify('error', message) }
     finally { setSubmitting(false) }
   }
@@ -770,10 +781,10 @@ function AuthPanel({ initialRole, onLogin, notify }: { initialRole: AuthRole; on
       <span className="badge badge-purple" style={{ marginBottom: '12px' }}><Shield size={14} /> Secure Access Portal</span>
       <h2 style={{ fontSize: '24px', fontWeight: 700, margin: '8px 0 16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
         <Shield size={24} style={{ color: 'var(--eg-indigo)' }} />
-        {role === 'teacher' ? 'Teacher Sign In' : 'Student Join Session'}
+        {role === 'teacher' ? 'Teacher Sign In' : studentAccessMode === 'join' ? 'Student Join Session' : 'Student Results'}
       </h2>
       <p className="muted" style={{ fontSize: '14px', marginBottom: '24px' }}>
-        {role === 'teacher' ? (signupMode ? 'Create a secure teacher account for your institute.' : 'Manage exam papers, configurations, and review flagged session anomalies.') : 'Join your active exam. Complete verification consent to begin.'}
+        {role === 'teacher' ? (signupMode ? 'Create a secure teacher account for your institute.' : 'Manage exam papers, configurations, and review flagged session anomalies.') : studentAccessMode === 'join' ? 'Join a live exam. Draft and scheduled papers remain private.' : 'Open your own released results without entering an exam code.'}
       </p>
 
       {role === 'teacher' ? (
@@ -789,14 +800,18 @@ function AuthPanel({ initialRole, onLogin, notify }: { initialRole: AuthRole; on
         </div>
       ) : (
         <div className="login-form" style={{ display: 'flex', flexDirection: 'column', gap: '16px', marginBottom: '20px' }}>
+          <div className="segmented-control" aria-label="Student access mode">
+            <button type="button" className={studentAccessMode === 'join' ? 'active' : ''} onClick={() => setStudentAccessMode('join')}>Join Exam</button>
+            <button type="button" className={studentAccessMode === 'results' ? 'active' : ''} onClick={() => setStudentAccessMode('results')}>My Results</button>
+          </div>
           <div>
             <label htmlFor="student-name">Student Name</label>
             <input id="student-name" name="student-name" autoComplete="name" required minLength={3} placeholder="Enter your full name…" value={studentName} onChange={(event) => setStudentName(event.target.value)} />
           </div>
-          <div>
+          {studentAccessMode === 'join' && <div>
             <label htmlFor="join-code">Join Code</label>
             <input id="join-code" name="join-code" required maxLength={6} placeholder="Example: A7K9P2" autoComplete="off" spellCheck={false} value={joinCode} onChange={(event) => setJoinCode(event.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''))} />
-          </div>
+          </div>}
           <div>
             <label htmlFor="student-email">Optional Email</label>
             <input id="student-email" name="student-email" type="email" autoComplete="email" spellCheck={false} placeholder="name@example.com" value={email} onChange={(event) => setEmail(event.target.value)} />
@@ -812,7 +827,7 @@ function AuthPanel({ initialRole, onLogin, notify }: { initialRole: AuthRole; on
       </button>}
       
       <button className="primary-btn full" disabled={submitting} onClick={submit}>
-        <Lock size={16} /> {submitting ? 'Authenticating…' : role === 'teacher' ? (signupMode ? 'Create Teacher Account' : 'Sign In') : 'Join Session'}
+        <Lock size={16} /> {submitting ? 'Authenticating…' : role === 'teacher' ? (signupMode ? 'Create Teacher Account' : 'Sign In') : studentAccessMode === 'join' ? 'Join Session' : 'View My Results'}
       </button>
       {role === 'teacher' && <button type="button" className="ghost-btn full" style={{ marginTop: '10px' }} onClick={() => setSignupMode(value => !value)}>
         {signupMode ? 'Already registered? Sign in' : 'New teacher? Create account'}
@@ -865,6 +880,8 @@ function DashboardView({ go, notify, onSelectExam, students, selectedExamId }: {
   }
 
   const handleDeleteExam = async (examId: string) => {
+    const exam = exams.find((item) => item.id === examId)
+    if (!window.confirm(`Delete "${exam?.title || 'this exam'}"? This permanently removes its paper, materials, sessions, and reports.`)) return
     try {
       await api.deleteExam(examId)
       setExams((prev) => prev.filter((e) => e.id !== examId))
@@ -950,7 +967,7 @@ function DashboardView({ go, notify, onSelectExam, students, selectedExamId }: {
                 <button aria-label="Copy join code" onClick={() => { navigator.clipboard?.writeText(exam.join_code); notify('success', 'Join code copied.') }}><Copy size={16} /></button>
               </div>
               <div className="inline-actions" style={{ marginTop: '8px' }}>
-                <button className="primary-btn" onClick={() => { onSelectExam(exam.id); go('live') }}>Open Live Monitor</button>
+                <button className="primary-btn" onClick={() => { onSelectExam(exam.id); go(exam.status === 'active' || exam.status === 'paused' ? 'live' : 'config') }}>{exam.status === 'active' || exam.status === 'paused' ? 'Open Live Monitor' : 'Prepare Paper'}</button>
                 <button className="ghost-btn" onClick={() => { onSelectExam(exam.id); go('config') }}>Configure</button>
                 <button className="ghost-btn" onClick={() => handleCloneExam(exam.id)} title="Clone Exam"><Copy size={14} /></button>
                 <button className="ghost-btn" onClick={() => handleDeleteExam(exam.id)} title="Delete Exam" style={{ color: 'var(--eg-red)' }}><X size={14} /></button>
@@ -1072,6 +1089,7 @@ function ConfigView({ examId, notify }: { examId: string; notify: (kind: ToastKi
   const [generating, setGenerating] = useState(false)
   const [generationError, setGenerationError] = useState('')
   const [activated, setActivated] = useState(false)
+  const [scheduledAt, setScheduledAt] = useState('')
 
   const [availableChapters, setAvailableChapters] = useState<string[]>([])
   const [chapterTopicsMap, setChapterTopicsMap] = useState<Record<string, string[]>>({})
@@ -1252,6 +1270,17 @@ function ConfigView({ examId, notify }: { examId: string; notify: (kind: ToastKi
     }
   }
 
+  const scheduleGeneratedExam = async () => {
+    if (!scheduledAt) { notify('error', 'Choose a future date and time.'); return }
+    try {
+      const scheduled = await api.scheduleExam(examId, new Date(scheduledAt).toISOString())
+      setActivated(false)
+      notify('success', `Exam scheduled for ${new Date(scheduled.scheduled_start_at || scheduledAt).toLocaleString()}. Students cannot join before then.`)
+    } catch (event) {
+      notify('error', event instanceof Error ? event.message : 'Could not schedule exam.')
+    }
+  }
+
   const questionsPerPage = 8
   const questionPageCount = Math.max(1, Math.ceil(generatedQuestions.length / questionsPerPage))
   const visibleGeneratedQuestions = generatedQuestions.slice(questionPage * questionsPerPage, (questionPage + 1) * questionsPerPage)
@@ -1350,9 +1379,14 @@ function ConfigView({ examId, notify }: { examId: string; notify: (kind: ToastKi
               </div>
               <p className="hint">Review every page before activation. Students never receive answer keys or source chunk IDs.</p>
               <label className="paper-review-confirm"><input type="checkbox" checked={paperReviewed} onChange={(event) => setPaperReviewed(event.target.checked)} /> I reviewed the complete paper and answer keys.</label>
-              <button className="primary-btn" disabled={activated || !paperReviewed} onClick={activateGeneratedExam}>
-                {activated ? 'Exam Active' : 'Activate for Students'}
-              </button>
+              <div className="activation-actions">
+                <button className="primary-btn" disabled={activated || !paperReviewed} onClick={activateGeneratedExam}>{activated ? 'Exam Live' : 'Go Live Now'}</button>
+                <div className="schedule-control">
+                  <input aria-label="Scheduled exam start" type="datetime-local" min={new Date(Date.now() + 60_000).toISOString().slice(0, 16)} value={scheduledAt} onChange={(event) => setScheduledAt(event.target.value)} />
+                  <button className="ghost-btn" disabled={!paperReviewed || !scheduledAt} onClick={scheduleGeneratedExam}><Clock size={16} /> Schedule</button>
+                </div>
+              </div>
+              <p className="hint">Draft and scheduled exams reject student joins. The join code opens only when the exam is live.</p>
             </div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', padding: '20px', background: 'var(--eg-navy-700)', borderRadius: '8px', borderLeft: '4px solid var(--eg-navy-600)', position: 'relative', overflow: 'hidden' }}>
