@@ -579,6 +579,12 @@ def exam_students(exam_id: str, teacher: dict[str, object] = Depends(current_tea
     return [session for session in store.sessions.values() if session["exam_id"] == exam_id]
 
 
+@app.post("/api/v1/exams/{exam_id}/results/release")
+def release_exam_results(exam_id: str, teacher: dict[str, object] = Depends(current_teacher)) -> dict[str, int]:
+    require_owned_exam(exam_id, teacher)
+    return store.release_exam_results(exam_id)
+
+
 @app.get("/api/v1/exams/{exam_id}/materials")
 def exam_materials(exam_id: str, teacher: dict[str, object] = Depends(current_teacher)) -> list[dict[str, object]]:
     require_owned_exam(exam_id, teacher)
@@ -912,6 +918,7 @@ def session_integrity(session_id: str, student: dict[str, object] = Depends(curr
     integrity = dict(session.get("integrity") or {})
     integrity["locked_for_review"] = bool(session.get("locked_for_review", False))
     integrity["warning_count"] = store.session_warning_count(session_id) if hasattr(store, "session_warning_count") else 0
+    integrity["event_summary"] = store.session_event_summary(session_id) if hasattr(store, "session_event_summary") else {}
     return integrity
 
 

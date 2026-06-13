@@ -216,6 +216,8 @@ function mapSessionToStudent(session: ApiSession) {
     gradeReleased: session.grade_released,
     grade: session.grade,
     sessionStatus: session.status,
+    eventSummary: session.event_summary || {},
+    warningCount: session.integrity_warning_count || 0,
     rawSession: session
   }
 }
@@ -1702,6 +1704,15 @@ function LiveMonitorView(props: {
             <span><small>Progress</small><strong>{props.selected.progress || 0}%</strong></span>
             <span><small>Consent</small><strong>{props.selected.consent ? 'Recorded' : 'Pending'}</strong></span>
             <span><small>Events</small><strong>{props.selected.events || 0}</strong></span>
+            <span><small>Warnings</small><strong>{props.selected.warningCount || 0}/4</strong></span>
+          </div>
+          <div className="exam-evidence-strip teacher-evidence-strip">
+            <span>Tabs <strong>{(props.selected.eventSummary?.tab_hidden || 0) + (props.selected.eventSummary?.tab_switch || 0)}</strong></span>
+            <span>Focus <strong>{props.selected.eventSummary?.window_blur || 0}</strong></span>
+            <span>Face absent <strong>{props.selected.eventSummary?.face_missing || 0}</strong></span>
+            <span>Multiple faces <strong>{props.selected.eventSummary?.multiple_faces || 0}</strong></span>
+            <span>Large pastes <strong>{props.selected.eventSummary?.paste_detected || 0}</strong></span>
+            <span>Fullscreen <strong>{props.selected.eventSummary?.fullscreen_exit || 0}</strong></span>
           </div>
           <div className="event-feed">
             {props.selected.events > 0 ? <AlertFeedItem name={props.selected.name} event={`${props.selected.events} structured integrity event(s) recorded`} severity="info" /> : <p className="muted">No integrity events recorded for this session.</p>}
@@ -1978,6 +1989,7 @@ function ExamView(props: {
   const [integrityStatus, setIntegrityStatus] = useState<IntegrityStatus>('CLEAN')
   const [integrityWarnings, setIntegrityWarnings] = useState(0)
   const [integrityLocked, setIntegrityLocked] = useState(false)
+  const [eventSummary, setEventSummary] = useState<Record<string, number>>({})
   const [lastSave, setLastSave] = useState<number>(Date.now())
   const [saveWarning, setSaveWarning] = useState('')
   const [submitOpen, setSubmitOpen] = useState(false)
@@ -2032,6 +2044,7 @@ function ExamView(props: {
           const warningCount = Number(integrity.warning_count || 0)
           setIntegrityStatus(next)
           setIntegrityWarnings(warningCount)
+          setEventSummary((integrity.event_summary as Record<string, number>) || {})
           setIntegrityLocked(Boolean(integrity.locked_for_review))
           lastWarningCountRef.current = warningCount
           integrityLockedRef.current = Boolean(integrity.locked_for_review)
@@ -2109,14 +2122,14 @@ function ExamView(props: {
           if (faces === 0) {
             setPresenceState('missing')
             if (!missingSince) missingSince = Date.now()
-            if (Date.now() - missingSince >= 8_000 && Date.now() - lastMissingEvent >= 30_000) {
+            if (Date.now() - missingSince >= 4_000 && Date.now() - lastMissingEvent >= 20_000) {
               lastMissingEvent = Date.now()
               api.logEvent(sessionId, 'face_missing', { duration_seconds: Math.round((Date.now() - missingSince) / 1000) }).catch(() => {})
             }
           } else if (faces > 1) {
             missingSince = 0
             setPresenceState('multiple')
-            if (Date.now() - lastMultipleEvent >= 30_000) {
+            if (Date.now() - lastMultipleEvent >= 15_000) {
               lastMultipleEvent = Date.now()
               api.logEvent(sessionId, 'multiple_faces', { face_count: faces }).catch(() => {})
             }
@@ -2175,11 +2188,12 @@ function ExamView(props: {
           const locked = Boolean(integrity.locked_for_review)
           setIntegrityStatus(next)
           setIntegrityWarnings(warningCount)
+          setEventSummary((integrity.event_summary as Record<string, number>) || {})
           setIntegrityLocked(locked)
           if (warningCount > lastWarningCountRef.current && !locked) {
             props.notify('warning', warningCount >= 2
-              ? 'Final integrity warning (2 of 2). Correct the exam environment and continue.'
-              : 'Integrity warning (1 of 2). Return focus and keep one face visible.')
+              ? `Integrity warning ${warningCount} of 4. Further corroborated violations may pause the exam.`
+              : 'Integrity warning 1 of 4. Return focus and keep one face visible.')
           }
           if (locked && !integrityLockedRef.current) {
             props.notify('error', 'Exam paused for teacher review. Your saved answers are preserved.')
@@ -2358,14 +2372,23 @@ function ExamView(props: {
           <Timer size={20} /> {timerReady ? formatTime(timeLeft) : '--:--'}
         </span>
         <span className="save-state"><Check size={16} /> Saved {secondsSinceSave}s ago</span>
-        <span className={`badge ${integrityStatus === 'CLEAN' ? 'badge-green' : integrityStatus === 'WATCH' ? 'badge-amber' : 'badge-red'}`} title="Integrity status is informational during the exam. Teacher review remains final."><Shield size={14} /> {integrityStatus} · warnings {integrityWarnings}/2</span>
+        <span className={`badge ${integrityStatus === 'CLEAN' ? 'badge-green' : integrityStatus === 'WATCH' ? 'badge-amber' : 'badge-red'}`} title="Integrity status is informational during the exam. Teacher review remains final."><Shield size={14} /> {integrityStatus} · warnings {integrityWarnings}/4</span>
+      </div>
+
+      <div className="exam-evidence-strip" aria-label="Recorded integrity events">
+        <span>Tab changes <strong>{(eventSummary.tab_hidden || 0) + (eventSummary.tab_switch || 0)}</strong></span>
+        <span>Focus losses <strong>{eventSummary.window_blur || 0}</strong></span>
+        <span>Fullscreen exits <strong>{eventSummary.fullscreen_exit || 0}</strong></span>
+        <span>Face absent <strong>{eventSummary.face_missing || 0}</strong></span>
+        <span>Multiple faces <strong>{eventSummary.multiple_faces || 0}</strong></span>
+        <span>Large pastes <strong>{eventSummary.paste_detected || 0}</strong></span>
       </div>
 
       {(integrityStatus !== 'CLEAN' || presenceState === 'missing' || presenceState === 'multiple' || presenceState === 'unavailable') && <div className="student-integrity-warning" role="alert" aria-live="assertive">
         <AlertTriangle size={18} />
         <div>
           <strong>{presenceState === 'multiple' ? 'Only one person should be visible' : presenceState === 'missing' ? 'Return your face to camera view' : presenceState === 'unavailable' ? 'Camera monitoring is unavailable' : 'Integrity notice'}</strong>
-          <span>{integrityStatus === 'FLAGGED' ? 'Multiple signals were recorded for teacher review. This is not a cheating decision, and your exam continues.' : 'Correct the exam environment and continue. Your teacher reviews recorded signals in context.'}</span>
+          <span>{integrityStatus === 'FLAGGED' ? 'Multiple corroborated signals were recorded for teacher review. This is not a cheating decision.' : `Warning ${integrityWarnings}/4. Correct the environment now. Repeated independent evidence can pause and restrict the exam.`}</span>
         </div>
       </div>}
 
@@ -2753,6 +2776,16 @@ function ReportsView({ examId, students, notify }: { examId: string; students: a
     }
   }
 
+  const releaseCleanResults = async () => {
+    if (!window.confirm('Publish marks for all completed, non-flagged students? Flagged attempts will remain held for review.')) return
+    try {
+      const result = await api.releaseExamResults(examId)
+      notify('success', `${result.released} result(s) published. ${result.held_for_review} flagged result(s) remain held.`)
+    } catch (event) {
+      notify('error', event instanceof Error ? event.message : 'Results could not be published.')
+    }
+  }
+
   const avgScore = summary ? summary.average_integrity : (students.length > 0 ? Math.round(students.reduce((sum, s) => sum + s.score, 0) / students.length) : 0)
   const totalStudentsStr = summary ? String(summary.total_students) : String(students.length)
   const appealsCountStr = summary ? String(summary.appeals_open) : String(students.filter(s => s.reviewStatus === 'appeal_submitted').length)
@@ -2770,6 +2803,7 @@ function ReportsView({ examId, students, notify }: { examId: string; students: a
         <div className="report-actions" style={{ display: 'flex', gap: '12px', marginBottom: '20px' }}>
           <button className="primary-btn" onClick={downloadClassPdf}><Download size={16} /> Download Class PDF</button>
           <button className="ghost-btn" onClick={downloadCsv}><FileText size={16} /> Export CSV</button>
+          <button className="primary-btn" onClick={releaseCleanResults}><Eye size={16} /> Make Clean Results Live</button>
         </div>
         
         <div className="report-list" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>

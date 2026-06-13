@@ -170,6 +170,7 @@ export type ApiSession = {
   grade_released: boolean
   answers_count?: number
   events_count?: number
+  event_summary?: Record<string, number>
   joined_at?: string
   grade?: { earned_marks: number; total_marks: number; percentage: number }
   student_access_token?: string
@@ -258,6 +259,9 @@ export const api = {
 
   examStudents: (examId: string) =>
     request<ApiSession[]>(`/exams/${examId}/students`),
+
+  releaseExamResults: (examId: string) =>
+    request<{ released: number; held_for_review: number }>(`/exams/${examId}/results/release`, { method: 'POST' }),
 
   // Materials
   materials: (examId: string) => request<ApiMaterial[]>(`/exams/${examId}/materials`),
