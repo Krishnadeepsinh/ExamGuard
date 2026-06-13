@@ -210,6 +210,52 @@ main {
   align-items: center;
 }
 
+.mobile-account-actions {
+  display: none;
+  align-items: center;
+  gap: 8px;
+}
+
+.mobile-account-actions span {
+  max-width: 90px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--eg-text);
+}
+
+.review-summary-strip {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 20px;
+}
+
+.review-summary-strip span {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 10px;
+  border: 1px solid var(--eg-navy-600);
+  border-radius: 8px;
+  background: var(--eg-navy-800);
+}
+
+.review-summary-strip small { color: var(--eg-text-muted); }
+.review-summary-strip strong { font-size: 13px; overflow-wrap: anywhere; }
+
+.result-score {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.result-score strong { font: 700 34px/1 JetBrains Mono, monospace; color: var(--eg-emerald); }
+.result-score span { font: 700 22px/1 JetBrains Mono, monospace; color: var(--eg-text); }
+
 .auth-pill {
   min-height: 38px;
   display: flex;
@@ -1596,7 +1642,7 @@ label {
 
 .report-row {
   display: grid;
-  grid-template-columns: 1fr 90px 140px 42px;
+  grid-template-columns: minmax(150px, 1fr) 90px 140px minmax(150px, 1fr) 80px;
   align-items: center;
   gap: 16px;
   background: var(--eg-navy-800);
@@ -1614,6 +1660,8 @@ label {
   font-weight: 600;
   font-size: 14px;
 }
+
+.report-row span:first-child small { display: block; margin-top: 3px; color: var(--eg-text-muted); font-weight: 500; }
 
 .report-row span:nth-child(3) {
   font-family: 'JetBrains Mono', monospace;
@@ -1881,6 +1929,11 @@ label {
     display: none;
   }
 
+  .mobile-account-actions {
+    display: flex;
+    margin-left: auto;
+  }
+
   .hero-band {
     grid-template-columns: 1fr;
     padding: 32px;
@@ -1939,6 +1992,10 @@ label {
   .review-columns,
   .paper-controls {
     grid-template-columns: 1fr;
+  }
+
+  .review-summary-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .section-row {

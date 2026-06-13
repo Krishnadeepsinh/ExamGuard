@@ -7,10 +7,16 @@ from backend.agents.orchestrator_agent import compute_integrity_score
 from backend.agents.review_agent import expire_appeal_without_response
 from backend.agents.paper_config_agent import validate_paper_config
 from backend.agents.graph import run_workflow
+from backend.agents.evaluation_agent import grade_objective, grade_subjective
 from backend.store import LocalStore
 
 
 class IntegrityPolicyTests(unittest.TestCase):
+    def test_objective_and_subjective_grading_are_bounded(self) -> None:
+        self.assertEqual(grade_objective("SELECT", "SELECT", 2)["score"], 2)
+        subjective = grade_subjective("A transaction uses commit and rollback for atomic changes", "commit rollback atomic transaction", 5)
+        self.assertGreater(subjective["score"], 0)
+        self.assertLessEqual(subjective["score"], 5)
     def test_threshold_boundaries(self) -> None:
         self.assertEqual(status_for_score(85.01).value, "CLEAN")
         self.assertEqual(status_for_score(85).value, "WATCH")
@@ -144,6 +150,21 @@ class StoreBehaviorTests(unittest.TestCase):
         updated = self.store.sessions[session["id"]]["integrity"]
         self.assertEqual(updated["status"], "FLAGGED")
         self.assertLess(updated["score"], 50)
+
+    def test_grade_is_hidden_until_teacher_releases_result(self) -> None:
+        self.store.exams["exam-physics"]["status"] = "active"
+        self.store.questions["exam-physics"] = [{
+            "id": "grade-q1", "exam_id": "exam-physics", "type": "MCQ", "correct_answer": "Correct",
+            "marks": 2, "text": "Choose", "options": ["Correct", "Wrong", "Other", "None"],
+        }]
+        session = self.store.join_session("PHY001", "Grade Student", "grade@student.ai")
+        self.store.save_answer(session["id"], {"question_id": "grade-q1", "answer_text": "Correct", "selected_option": "Correct"})
+        self.store.evaluate_session(session["id"])
+        self.assertIsNone(self.store.get_session_result(session["id"])["grade"])
+        self.store.teacher_decision(session["id"], "clear", "Reviewed and approved")
+        result = self.store.get_session_result(session["id"])
+        self.assertEqual(result["grade"]["earned_marks"], 2)
+        self.assertTrue(result["grade_released"])
 
 
 if __name__ == "__main__":

@@ -15,6 +15,7 @@ from uuid import uuid4
 
 from backend.agents.material_ingestion_agent import chunk_text, detect_chapter, chunk_text_with_chapters, embed_text, rank_chunks
 from backend.agents.llm_router import generate_grounded_questions, gemini_router
+from backend.agents.evaluation_agent import grade_objective, grade_subjective
 from backend.agents.orchestrator_agent import compute_integrity_score
 from backend.agents.paper_config_agent import generate_join_code, validate_paper_config
 from backend.agents.proctoring_agent import behavioral_score, has_critical_pattern, impact_for
@@ -573,6 +574,22 @@ class SupabaseStore:
         created = self.rest("PATCH", "answers", row, query=f"?id=eq.{existing[0]['id']}") if existing else self.rest("POST", "answers", row)
         return created[0]
 
+    def evaluate_session(self, session_id: str) -> dict[str, Any]:
+        questions = {item["id"]: item for item in self.session_questions(session_id)}
+        answers = self.rest("GET", "answers", query=f"?session_id=eq.{session_id}") or []
+        total = sum(float(item.get("marks", 0)) for item in questions.values())
+        earned = 0.0
+        for answer in answers:
+            question = questions.get(answer["question_id"])
+            if not question:
+                continue
+            response = str(answer.get("selected_option") or answer.get("answer_text") or "")
+            grader = grade_objective if question.get("type") in {"MCQ", "True/False", "Fill Blank"} else grade_subjective
+            result = grader(response, str(question.get("correct_answer") or ""), int(question.get("marks", 0)))
+            self.rest("PATCH", "answers", {"eval_score": result["score"], "eval_reasoning": result["reasoning"]}, query=f"?id=eq.{answer['id']}")
+            earned += float(result["score"])
+        return {"earned_marks": round(earned, 2), "total_marks": round(total, 2), "percentage": round(earned / total * 100, 2) if total else 0}
+
     def exam_students(self, exam_id: str) -> list[dict[str, Any]]:
         rows = self.rest(
             "GET",
@@ -580,18 +597,22 @@ class SupabaseStore:
             query=(
                 f"?exam_id=eq.{exam_id}"
                 "&select=*,users!exam_sessions_student_id_fkey(display_name),"
-                "answers(count),integrity_events(count),"
+                "answers(eval_score),integrity_events(count),"
                 "integrity_appeals(student_response,submitted_at,deadline_at)"
             ),
         )
         result = []
+        exam = self.get_exam(exam_id)
         for row in rows:
             user = row.pop("users", None) or {}
             answers = row.pop("answers", None) or []
             events = row.pop("integrity_events", None) or []
             appeals = row.pop("integrity_appeals", None) or []
             session = self.normalize_session(row, user.get("display_name") or "Student")
-            session["answers_count"] = int(answers[0].get("count", 0)) if answers else 0
+            session["answers_count"] = len(answers)
+            earned = round(sum(float(answer.get("eval_score") or 0) for answer in answers), 2)
+            total = float(exam.get("total_marks") or 0)
+            session["grade"] = {"earned_marks": earned, "total_marks": total, "percentage": round(earned / total * 100, 2) if total else 0}
             session["events_count"] = int(events[0].get("count", 0)) if events else 0
             session["joined_at"] = row.get("started_at") or row.get("created_at")
             if appeals:
@@ -688,6 +709,9 @@ class SupabaseStore:
         session_row = self.require_session(session_id)
         session = self.normalize_session(session_row)
         answers = self.rest("GET", "answers", query=f"?session_id=eq.{session_id}") or []
+        earned = round(sum(float(answer.get("eval_score") or 0) for answer in answers), 2)
+        questions = self.session_questions(session_id)
+        total = round(sum(float(question.get("marks") or 0) for question in questions), 2)
         return {
             "session_id": session_id,
             "student_name": session.get("student_name", ""),
@@ -697,6 +721,7 @@ class SupabaseStore:
             "grade_released": session.get("grade_released", False),
             "answers_count": len(answers),
             "answers": answers,
+            "grade": ({"earned_marks": earned, "total_marks": total, "percentage": round(earned / total * 100, 2) if total else 0} if session.get("grade_released") else None),
         }
 
     def pause_exam(self, exam_id: str) -> dict[str, Any]:

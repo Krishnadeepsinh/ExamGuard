@@ -15,6 +15,7 @@ from uuid import uuid4
 
 from backend.agents.material_ingestion_agent import chunk_text, detect_chapter, chunk_text_with_chapters, embed_text, rank_chunks
 from backend.agents.llm_router import generate_grounded_questions, gemini_router
+from backend.agents.evaluation_agent import grade_objective, grade_subjective
 from backend.agents.orchestrator_agent import compute_integrity_score
 from backend.agents.paper_config_agent import generate_join_code, validate_paper_config
 from backend.agents.proctoring_agent import behavioral_score, has_critical_pattern, impact_for
@@ -417,6 +418,24 @@ class LocalStore:
         rows.append(answer)
         return answer
 
+    def evaluate_session(self, session_id: str) -> dict[str, Any]:
+        session = self.require_session(session_id)
+        questions = {item["id"]: item for item in self.questions.get(session["exam_id"], [])}
+        total = sum(float(item.get("marks", 0)) for item in questions.values())
+        earned = 0.0
+        for answer in self.answers.get(session_id, []):
+            question = questions.get(answer["question_id"])
+            if not question:
+                continue
+            response = str(answer.get("selected_option") or answer.get("answer_text") or "")
+            grader = grade_objective if question.get("type") in {"MCQ", "True/False", "Fill Blank"} else grade_subjective
+            result = grader(response, str(question.get("correct_answer") or ""), int(question.get("marks", 0)))
+            answer["eval_score"] = result["score"]
+            answer["eval_reasoning"] = result["reasoning"]
+            earned += float(result["score"])
+        session["grade"] = {"earned_marks": round(earned, 2), "total_marks": round(total, 2), "percentage": round(earned / total * 100, 2) if total else 0}
+        return session["grade"]
+
     def generate_report_pdf(self, session_id: str) -> bytes:
         session = self.sessions[session_id]
         questions = self.questions.get(session["exam_id"], [])
@@ -476,6 +495,7 @@ class LocalStore:
             "grade_released": session.get("grade_released", False),
             "answers_count": len(answers),
             "answers": answers,
+            "grade": session.get("grade") if session.get("grade_released") else None,
         }
 
     def pause_exam(self, exam_id: str) -> dict[str, Any]:

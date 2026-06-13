@@ -229,3 +229,16 @@ Deployment follow-up:
 - Added deterministic critical-pattern escalation for repeated tab hiding plus multiple paste/fullscreen/phone vectors.
 - Production simulation: clean student scored `91.4 CLEAN`; risk student escalated to `45 FLAGGED` after critical multi-vector behavior.
 - Backend test suite: `15 passed`; frontend production build passed.
+
+## 2026-06-13 Review, Grading, And Class Reports
+
+- Teacher review now identifies selected exam, student, AI marks, integrity status, and release state in one summary.
+- Review queue includes completed CLEAN students as well as WARN/FLAGGED sessions.
+- Removed fake hardcoded anomaly claims; UI shows actual structured event counts only.
+- Added deterministic objective grading and transparent marking-guide coverage fallback for subjective answers.
+- Grades remain hidden from students until teacher clears or confirms review and releases result.
+- Student result page polls for teacher decision and displays marks/percentage after release.
+- Added one exam-level PDF and CSV containing every student, marks, integrity, cheat-review state, and release status.
+- Paste evidence records question ID, character count, bulk-paste flag, and fullscreen state; clipboard content and screenshots are not stored.
+- Added mobile account name and logout controls for teacher and student.
+- Backend test suite: `17 passed`; frontend production build passes; ESLint has zero errors.

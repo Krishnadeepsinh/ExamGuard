@@ -108,6 +108,7 @@ export type ApiSession = {
   answers_count?: number
   events_count?: number
   joined_at?: string
+  grade?: { earned_marks: number; total_marks: number; percentage: number }
 }
 
 export type ApiAnswer = {
@@ -227,7 +228,7 @@ export const api = {
     request<Record<string, unknown>>(`/sessions/${sessionId}/integrity`),
 
   sessionResult: (sessionId: string) =>
-    request<{ session_id: string; student_name: string; status: string; integrity: Record<string, unknown>; review_status: string; grade_released: boolean; answers_count: number; answers: ApiAnswer[] }>(`/sessions/${sessionId}/result`),
+    request<{ session_id: string; student_name: string; status: string; integrity: Record<string, any>; review_status: string; grade_released: boolean; answers_count: number; answers: ApiAnswer[]; grade?: { earned_marks: number; total_marks: number; percentage: number } }>(`/sessions/${sessionId}/result`),
 
   // Appeals & Review
   submitAppeal: (sessionId: string, response: string) =>
@@ -255,6 +256,9 @@ export const api = {
 
   downloadReportsCsv: (examId: string) =>
     requestRaw(`/exams/${examId}/reports/csv`),
+
+  downloadExamReportPdf: (examId: string) =>
+    requestRaw(`/exams/${examId}/reports/pdf`),
 
   // Settings
   saveSettings: (userId: string, payload: { display_name: string; institute_name: string; email_on_flag?: boolean }) =>

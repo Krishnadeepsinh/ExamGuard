@@ -436,15 +436,18 @@ def exam_reports_csv(exam_id: str, teacher: dict[str, object] = Depends(current_
     sessions = owned_exam_sessions(exam_id, teacher)
     output = io.StringIO()
     writer = csv.writer(output)
-    writer.writerow(["student_name", "student_id", "integrity_score", "integrity_status", "status", "review_status", "grade_released"])
+    writer.writerow(["student_name", "student_id", "marks_earned", "total_marks", "percentage", "integrity_score", "integrity_status", "cheat_review", "result_released"])
     for s in sessions:
         integrity = s.get("integrity", {})
+        grade = s.get("grade", {}) or {}
         writer.writerow([
             s.get("student_name", ""),
             s.get("student_id", ""),
+            grade.get("earned_marks", ""),
+            grade.get("total_marks", ""),
+            grade.get("percentage", ""),
             integrity.get("score", ""),
             integrity.get("status", ""),
-            s.get("status", ""),
             s.get("review_status", ""),
             s.get("grade_released", False),
         ])
@@ -454,6 +457,47 @@ def exam_reports_csv(exam_id: str, teacher: dict[str, object] = Depends(current_
         media_type="text/csv",
         headers={"Content-Disposition": f"attachment; filename=examguard_{exam_id}_report.csv"},
     )
+
+
+@app.get("/api/v1/exams/{exam_id}/reports/pdf")
+def exam_reports_pdf(exam_id: str, teacher: dict[str, object] = Depends(current_teacher)) -> Response:
+    """Generate one compact PDF containing every student result for an exam."""
+    from reportlab.lib.pagesizes import A4
+    from reportlab.pdfgen import canvas
+
+    exam = require_owned_exam(exam_id, teacher)
+    sessions = owned_exam_sessions(exam_id, teacher)
+    output = io.BytesIO()
+    pdf = canvas.Canvas(output, pagesize=A4)
+    width, height = A4
+
+    def header() -> float:
+        pdf.setFont("Helvetica-Bold", 16)
+        pdf.drawString(42, height - 42, f"ExamGuard Class Report - {exam.get('title', 'Exam')}")
+        pdf.setFont("Helvetica", 9)
+        pdf.drawString(42, height - 58, f"Subject: {exam.get('subject', '')}  |  Students: {len(sessions)}  |  Total marks: {exam.get('total_marks', '')}")
+        pdf.line(42, height - 68, width - 42, height - 68)
+        return height - 88
+
+    y = header()
+    for index, session in enumerate(sessions, 1):
+        if y < 80:
+            pdf.showPage()
+            y = header()
+        integrity = session.get("integrity", {}) or {}
+        grade = session.get("grade", {}) or {}
+        pdf.setFont("Helvetica-Bold", 10)
+        pdf.drawString(42, y, f"{index}. {session.get('student_name', 'Student')}")
+        pdf.setFont("Helvetica", 9)
+        marks = f"{grade.get('earned_marks', 'Pending')}/{grade.get('total_marks', exam.get('total_marks', ''))}"
+        pdf.drawString(210, y, f"Marks: {marks}")
+        pdf.drawString(315, y, f"Integrity: {integrity.get('score', '')} {integrity.get('status', '')}")
+        pdf.drawString(465, y, "Released" if session.get("grade_released") else "Held")
+        pdf.setFont("Helvetica", 8)
+        pdf.drawString(58, y - 14, f"Review: {session.get('review_status', 'pending')}  |  Events: {session.get('events_count', 0)}  |  Answers: {session.get('answers_count', 0)}")
+        y -= 34
+    pdf.save()
+    return Response(output.getvalue(), media_type="application/pdf", headers={"Content-Disposition": f"attachment; filename=examguard_{exam_id}_class_report.pdf"})
 
 
 @app.get("/api/v1/exams/{exam_id}/reports/summary")
@@ -648,6 +692,8 @@ def save_answer(request: Request, session_id: str, payload: AnswerRequest) -> di
 @app.post("/api/v1/sessions/{session_id}/end")
 def end_session(session_id: str) -> dict[str, object]:
     session = require_session(session_id)
+    if hasattr(store, "evaluate_session"):
+        store.evaluate_session(session_id)
     updated = store.update_session(session_id, {"status": "ended", "ended_at": store.appeal_deadline()})
     return store.normalize_session(updated)
 

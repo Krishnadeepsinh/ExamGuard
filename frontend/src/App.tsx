@@ -202,6 +202,8 @@ function mapSessionToStudent(session: ApiSession) {
     appealResponse: (session as any).appeal?.response || '',
     reviewStatus: session.review_status,
     gradeReleased: session.grade_released,
+    grade: session.grade,
+    sessionStatus: session.status,
     rawSession: session
   }
 }
@@ -277,8 +279,10 @@ function App() {
     const ownerId = currentTabId()
     const lockKey = `examguard-session-owner-${sessionId}`
     const navigationType = (performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming | undefined)?.type
-    let existing: { ownerId?: string; updatedAt?: number } | null = null
-    try { existing = JSON.parse(window.localStorage.getItem(lockKey) || 'null') } catch { existing = null }
+    const existing = (() => {
+      try { return JSON.parse(window.localStorage.getItem(lockKey) || 'null') as { ownerId?: string; updatedAt?: number } | null }
+      catch { return null }
+    })()
     const activeLock = existing?.ownerId && Date.now() - Number(existing.updatedAt || 0) < 3000
     const reclaimingReload = activeLock && existing?.ownerId === ownerId && navigationType === 'reload'
     if (activeLock && !reclaimingReload) {
@@ -288,7 +292,7 @@ function App() {
       setAuth(null)
       setView('landing')
       window.history.replaceState(null, '', '#landing')
-      notify('warning', 'This copied tab was reset. Join as a different student here.')
+      setToast({ kind: 'warning', text: 'This copied tab was reset. Join as a different student here.' })
       return
     }
     const heartbeat = () => window.localStorage.setItem(lockKey, JSON.stringify({ ownerId, updatedAt: Date.now() }))
@@ -511,6 +515,7 @@ function App() {
     complete: <CompleteView notify={notify} />,
     review: (
       <ReviewView
+        examId={selectedExamId}
         students={studentsList}
         selected={selectedStudent}
         setSelected={setSelectedStudent}
@@ -595,6 +600,12 @@ function App() {
               </button>
             )}
           </div>
+          {auth && (
+            <div className="mobile-account-actions">
+              <span title={`${auth.role}: ${auth.name}`}>{auth.name.split(' ')[0]}</span>
+              <button className="icon-btn" aria-label="Logout" title="Logout" onClick={logout}><Lock size={18} /></button>
+            </div>
+          )}
         </header>
         {content}
       </main>
@@ -2018,7 +2029,12 @@ function ExamView(props: {
               value={props.answer}
               disabled={examStatus === 'paused'}
               onChange={(event) => props.setAnswer(event.target.value)}
-              onPaste={() => { logEvent('paste_detected'); props.notify('warning', 'Paste detected and sent as a structured event.') }}
+              onPaste={(event) => {
+                const pasted = event.clipboardData.getData('text')
+                const sessionId = studentSessionId()
+                if (sessionId) api.logEvent(sessionId, 'paste_detected', { question_id: current.id, character_count: pasted.length, bulk_paste: pasted.length >= 80, fullscreen: Boolean(document.fullscreenElement) }).catch(() => {})
+                props.notify('warning', `Paste detected (${pasted.length} characters) and logged for review.`)
+              }}
               placeholder="Type your response here..."
               style={{
                 background: '#F8FAFC',
@@ -2101,13 +2117,11 @@ function CompleteView({ notify }: { notify: (kind: ToastKind, text: string) => v
 
   useEffect(() => {
     const sessionId = studentSessionId()
-    if (sessionId) {
-      api.sessionResult(sessionId)
-        .then((res) => {
-          setSessionData(res)
-        })
-        .catch(() => {})
-    }
+    if (!sessionId) return
+    const refresh = () => api.sessionResult(sessionId).then(setSessionData).catch(() => {})
+    refresh()
+    const timer = window.setInterval(refresh, 5000)
+    return () => window.clearInterval(timer)
   }, [])
 
   const submitAppeal = async () => {
@@ -2145,9 +2159,9 @@ function CompleteView({ notify }: { notify: (kind: ToastKind, text: string) => v
 
   return (
     <section className="screen complete-layout" style={{ maxWidth: '680px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '24px' }}>
-      <div style={{ background: 'var(--eg-amber)', color: 'var(--eg-navy)', padding: '16px 24px', borderRadius: '12px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '12px' }}>
-        <AlertTriangle size={20} />
-        <span>Your exam is completed and under review. Final grade release pending.</span>
+      <div style={{ background: sessionData.grade_released ? 'var(--eg-emerald)' : 'var(--eg-amber)', color: 'var(--eg-navy)', padding: '16px 24px', borderRadius: '12px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '12px' }}>
+        {sessionData.grade_released ? <Check size={20} /> : <AlertTriangle size={20} />}
+        <span>{sessionData.grade_released ? 'Teacher approved your result. Final marks are now available.' : 'Your exam is AI-checked and waiting for teacher approval.'}</span>
       </div>
 
       <Card title="Submission received" icon={Check}>
@@ -2155,9 +2169,16 @@ function CompleteView({ notify }: { notify: (kind: ToastKind, text: string) => v
         <div className="status-tracker" style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', borderTop: '1px solid var(--eg-navy-600)', paddingTop: '16px', marginTop: '12px' }}>
           <span className="done" style={{ color: 'var(--eg-emerald)', fontWeight: 600 }}>Submitted</span>
           <span className={submitted || sessionData?.review_status === 'appeal_submitted' ? 'done' : 'active'} style={{ color: 'var(--eg-amber)', fontWeight: 600 }}>Under Review</span>
-          <span style={{ color: 'var(--eg-text-faint)' }}>Grade Released</span>
+          <span className={sessionData.grade_released ? 'done' : ''} style={{ color: sessionData.grade_released ? 'var(--eg-emerald)' : 'var(--eg-text-faint)' }}>Grade Released</span>
         </div>
       </Card>
+
+      {sessionData.grade_released && sessionData.grade && (
+        <Card title="Final Result" icon={GraduationCap}>
+          <div className="result-score"><strong>{sessionData.grade.earned_marks}/{sessionData.grade.total_marks}</strong><span>{sessionData.grade.percentage}%</span></div>
+          <p className="muted">AI evaluated answers against correct answers and marking guides. Teacher reviewed integrity evidence and released this result.</p>
+        </Card>
+      )}
 
       <Card title="Your integrity summary" icon={Shield}>
         <IntegrityScoreCard student={studentObj} />
@@ -2178,28 +2199,37 @@ function CompleteView({ notify }: { notify: (kind: ToastKind, text: string) => v
   )
 }
 
-function ReviewView({ students, selected, setSelected, notify }: { students: any[]; selected: any; setSelected: (s: any) => void; notify: (kind: ToastKind, text: string) => void }) {
+function ReviewView({ examId, students, selected, setSelected, notify }: { examId: string; students: any[]; selected: any; setSelected: (s: any) => void; notify: (kind: ToastKind, text: string) => void }) {
   const [teacherNote, setTeacherNote] = useState('')
+  const [exam, setExam] = useState<ApiExam | null>(null)
+
+  useEffect(() => { api.getExam(examId).then(setExam).catch(() => setExam(null)) }, [examId])
 
   const saveDecision = async (decision: 'clear' | 'confirm_flag') => {
     if (!selected || !selected.id) { notify('error', 'No student session selected.'); return }
     if (teacherNote.trim().length < 12) { notify('error', 'Add a teacher note before saving the decision.'); return }
     try {
       await api.teacherDecision(selected.id, decision, teacherNote)
+      setSelected({ ...selected, gradeReleased: true, reviewStatus: 'decided' })
       notify(decision === 'clear' ? 'success' : 'warning', decision === 'clear' ? 'Decision saved: student cleared, grade released.' : 'Decision saved: flag confirmed, grade released with note.')
     } catch (e) {
       notify('error', e instanceof Error ? e.message : 'Failed to save decision.')
     }
   }
 
-  const reviewStudentsList = students.filter((student) => student.status !== 'CLEAN')
+  const reviewStudentsList = students.filter((student) => student.sessionStatus === 'ended' || student.status !== 'CLEAN')
+
+  useEffect(() => {
+    if (!reviewStudentsList.length) return
+    if (!selected || !reviewStudentsList.some((student) => student.id === selected.id)) setSelected(reviewStudentsList[0])
+  }, [students, selected, setSelected])
 
   return (
     <section className="screen review-layout">
-      <Card title="Flagged Queue" icon={Flag}>
+      <Card title={exam ? `${exam.title} - Student Results` : 'Student Results'} icon={Flag}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '500px', overflowY: 'auto' }}>
           {reviewStudentsList.length === 0 ? (
-            <p className="muted">No student sessions currently flagged for review.</p>
+            <p className="muted">No completed student sessions are ready for review.</p>
           ) : (
             reviewStudentsList.map((student) => (
               <button className={`queue-item ${selected?.id === student.id ? 'active' : ''}`} key={student.id || student.name} onClick={() => setSelected(student)}>
@@ -2208,7 +2238,8 @@ function ReviewView({ students, selected, setSelected, notify }: { students: any
                   <StatusBadge status={student.status} />
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', width: '100%', color: 'var(--eg-text-muted)' }}>
-                  <span>Score: {student.score}</span>
+                  <span>Integrity: {student.score}</span>
+                  {student.grade && <span>{student.grade.earned_marks}/{student.grade.total_marks} marks</span>}
                   <span>{student.reviewStatus === 'appeal_submitted' ? 'Appeal Filed' : student.reviewStatus === 'expired_no_response' || student.reviewStatus === 'awaiting_teacher_decision' ? 'No response · decision required' : 'Awaiting response'}</span>
                 </div>
               </button>
@@ -2217,17 +2248,24 @@ function ReviewView({ students, selected, setSelected, notify }: { students: any
         </div>
       </Card>
 
-      <Card title="Side-by-side review" icon={UserCheck} className="wide-card">
+      <Card title="Student Result and Integrity Review" icon={UserCheck} className="wide-card">
         {selected ? (
           <div className="review-columns">
             <div>
+              <div className="review-summary-strip">
+                <span><small>Exam</small><strong>{exam?.title || 'Loading...'}</strong></span>
+                <span><small>Student</small><strong>{selected.name}</strong></span>
+                <span><small>AI Marks</small><strong>{selected.grade ? `${selected.grade.earned_marks}/${selected.grade.total_marks}` : 'Pending'}</strong></span>
+                <span><small>Result</small><strong>{selected.gradeReleased ? 'Released' : 'Teacher approval needed'}</strong></span>
+              </div>
               <h3>Integrity Report</h3>
               <IntegrityScoreCard student={selected} />
               
               <h3 style={{ marginTop: '24px' }}>Anomalies Feed</h3>
               <div className="event-feed">
-                <AlertFeedItem name={selected.name} event="style distance exceeded Tier 1 threshold" severity="danger" />
-                <AlertFeedItem name={selected.name} event="tab visibility switch" severity="warning" />
+                {selected.events > 0 ? (
+                  <AlertFeedItem name={selected.name} event={`${selected.events} structured browser event(s) recorded. Review integrity factors before deciding.`} severity={selected.status === 'FLAGGED' ? 'danger' : 'warning'} />
+                ) : <p className="muted">No browser anomalies recorded for this session.</p>}
               </div>
             </div>
             
@@ -2265,11 +2303,13 @@ function ReviewView({ students, selected, setSelected, notify }: { students: any
 
 function ReportsView({ examId, students, notify }: { examId: string; students: any[]; notify: (kind: ToastKind, text: string) => void }) {
   const [summary, setSummary] = useState<any>(null)
+  const [exam, setExam] = useState<ApiExam | null>(null)
 
   useEffect(() => {
     api.examSummary(examId)
       .then(setSummary)
       .catch(() => {})
+    api.getExam(examId).then(setExam).catch(() => setExam(null))
   }, [examId])
 
   const downloadCsv = async () => {
@@ -2283,14 +2323,14 @@ function ReportsView({ examId, students, notify }: { examId: string; students: a
     } catch (event) { notify('error', event instanceof Error ? event.message : 'CSV export failed.') }
   }
 
-  const downloadPdf = async (sessionId: string, studentName: string) => {
+  const downloadClassPdf = async () => {
     try {
-      const resp = await api.downloadReportPdf(sessionId)
+      const resp = await api.downloadExamReportPdf(examId)
       const blob = await resp.blob()
       const url = URL.createObjectURL(blob)
-      const a = document.createElement('a'); a.href = url; a.download = `examguard_${studentName.replace(/\s+/g, '_')}_report.pdf`; a.click()
+      const a = document.createElement('a'); a.href = url; a.download = `examguard_${examId}_class_report.pdf`; a.click()
       URL.revokeObjectURL(url)
-      notify('success', `PDF report for ${studentName} downloaded.`)
+      notify('success', 'Complete exam report PDF downloaded.')
     } catch (e) {
       notify('error', e instanceof Error ? e.message : 'PDF download failed.')
     }
@@ -2309,20 +2349,20 @@ function ReportsView({ examId, students, notify }: { examId: string; students: a
         <Metric label="Export Formats" value="PDF + CSV" icon={Download} compact />
       </div>
       
-      <Card title="Reports and exports" icon={Download}>
+      <Card title={exam ? `${exam.title} - Complete Class Report` : 'Complete Class Report'} icon={Download}>
         <div className="report-actions" style={{ display: 'flex', gap: '12px', marginBottom: '20px' }}>
+          <button className="primary-btn" onClick={downloadClassPdf}><Download size={16} /> Download Class PDF</button>
           <button className="ghost-btn" onClick={downloadCsv}><FileText size={16} /> Export CSV</button>
         </div>
         
         <div className="report-list" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
           {students.length === 0 ? <div className="empty-state"><FileText size={24} /><strong>No reports yet</strong><span>Reports appear after students submit the exam.</span></div> : students.map((student) => (
             <div className="report-row" key={student.id || student.name}>
-              <span>{student.name}</span>
+              <span><strong>{student.name}</strong><small>{student.sessionStatus || 'joined'}</small></span>
               <StatusBadge status={student.status} />
-              <span>Score: {student.score} {student.ci ? `+/-${student.ci}` : ''}</span>
-              <button aria-label={`Download PDF for ${student.name}`} onClick={() => downloadPdf(student.id, student.name)} style={{ display: 'grid', placeItems: 'center' }}>
-                <Download size={16} />
-              </button>
+              <span>{student.grade ? `${student.grade.earned_marks}/${student.grade.total_marks} (${student.grade.percentage}%)` : 'Marks pending'}</span>
+              <span>{student.status === 'FLAGGED' ? 'Cheat review required' : student.status === 'WARN' ? 'Review suggested' : 'No critical cheat pattern'}</span>
+              <span>{student.gradeReleased ? 'Released' : 'Held'}</span>
             </div>
           ))}
         </div>
