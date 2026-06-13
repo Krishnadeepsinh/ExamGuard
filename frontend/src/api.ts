@@ -294,13 +294,13 @@ export const api = {
     request<ApiQuestion[]>(`/sessions/${sessionId}/questions`),
 
   sessionExam: (sessionId: string) =>
-    request<Pick<ApiExam, 'id' | 'title' | 'subject' | 'duration_minutes' | 'total_marks' | 'status' | 'expires_at' | 'server_now'>>(`/sessions/${sessionId}/exam`),
+    request<Pick<ApiExam, 'id' | 'title' | 'subject' | 'duration_minutes' | 'total_marks' | 'status' | 'expires_at' | 'server_now'> & { session_status: string; remaining_seconds: number | null }>(`/sessions/${sessionId}/exam`),
 
   saveAnswer: (sessionId: string, payload: { question_id: string; answer_text: string; selected_option?: string; time_spent_seconds?: number; idempotency_key?: string }) =>
     request<ApiAnswer>(`/sessions/${sessionId}/answers`, { method: 'POST', body: JSON.stringify(payload) }),
 
-  endSession: (sessionId: string) =>
-    request<ApiSession>(`/sessions/${sessionId}/end`, { method: 'POST' }),
+  endSession: (sessionId: string, reason: 'manual' | 'expired' | 'teacher_ended' = 'manual') =>
+    request<ApiSession>(`/sessions/${sessionId}/end?reason=${reason}`, { method: 'POST' }),
 
   sessionIntegrity: (sessionId: string) =>
     request<Record<string, unknown>>(`/sessions/${sessionId}/integrity`),

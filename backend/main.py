@@ -852,6 +852,16 @@ def session_exam(session_id: str, student: dict[str, object] = Depends(current_s
     exam = lookup_exam(str(session["exam_id"]))
     result = {key: exam.get(key) for key in ("id", "title", "subject", "duration_minutes", "total_marks", "status")}
     result["expires_at"] = session.get("expires_at")
+    result["session_status"] = session.get("status")
+    expiry = session.get("expires_at")
+    if expiry:
+        try:
+            deadline = datetime.fromisoformat(str(expiry).replace("Z", "+00:00"))
+            result["remaining_seconds"] = max(0, int((deadline - datetime.now(timezone.utc)).total_seconds()))
+        except ValueError:
+            result["remaining_seconds"] = None
+    else:
+        result["remaining_seconds"] = None
     result["server_now"] = now_iso()
     return result
 
@@ -879,10 +889,15 @@ def save_answer(request: Request, session_id: str, payload: AnswerRequest, stude
 
 
 @app.post("/api/v1/sessions/{session_id}/end")
-def end_session(session_id: str, student: dict[str, object] = Depends(current_student)) -> dict[str, object]:
+def end_session(session_id: str, reason: str = "manual", student: dict[str, object] = Depends(current_student)) -> dict[str, object]:
     session = require_student_session(session_id, student)
     if session.get("status") == "ended":
         return store.normalize_session(session)
+    exam = lookup_exam(str(session["exam_id"]))
+    if reason == "expired" and not session_expired(session, exam):
+        raise HTTPException(status_code=409, detail="The exam timer has not expired. Your attempt remains active.")
+    if reason not in {"manual", "expired", "teacher_ended"}:
+        raise HTTPException(status_code=422, detail="Invalid submission reason")
     if hasattr(store, "evaluate_session"):
         store.evaluate_session(session_id)
     run_workflow("finish", {"session_id": session_id})
