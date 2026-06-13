@@ -704,6 +704,33 @@ function AuthPanel({ initialRole, onLogin, notify }: { initialRole: AuthRole; on
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [signupMode, setSignupMode] = useState(false)
+  const teacherDemo = {
+    email: import.meta.env.VITE_DEMO_TEACHER_EMAIL ?? '',
+    password: import.meta.env.VITE_DEMO_TEACHER_PASSWORD ?? '',
+  }
+  const studentDemo = {
+    name: import.meta.env.VITE_DEMO_STUDENT_NAME ?? '',
+    email: import.meta.env.VITE_DEMO_STUDENT_EMAIL ?? '',
+    joinCode: import.meta.env.VITE_DEMO_JOIN_CODE ?? '',
+  }
+  const demoReady = role === 'teacher'
+    ? Boolean(teacherDemo.email && teacherDemo.password)
+    : Boolean(studentDemo.name && studentDemo.joinCode)
+
+  const fillDemo = () => {
+    setError('')
+    if (role === 'teacher') {
+      setSignupMode(false)
+      setEmail(teacherDemo.email)
+      setPassword(teacherDemo.password)
+      notify('info', 'Demo teacher credentials filled. Select Sign In.')
+    } else {
+      setStudentName(studentDemo.name)
+      setEmail(studentDemo.email)
+      setJoinCode(studentDemo.joinCode.toUpperCase())
+      notify('info', 'Demo student session filled. Select Join Session.')
+    }
+  }
 
   useEffect(() => {
     setRole(initialRole)
@@ -774,6 +801,11 @@ function AuthPanel({ initialRole, onLogin, notify }: { initialRole: AuthRole; on
       )}
 
       {error && <p className="form-error" role="alert" style={{ marginBottom: '16px' }}>{error}</p>}
+
+      {demoReady && <button type="button" className="demo-fill-btn" onClick={fillDemo}>
+        <PlayCircle size={16} aria-hidden="true" /> Fill Demo {role === 'teacher' ? 'Teacher' : 'Student'}
+        <span>Demo environment only</span>
+      </button>}
       
       <button className="primary-btn full" disabled={submitting} onClick={submit}>
         <Lock size={16} /> {submitting ? 'Authenticating…' : role === 'teacher' ? (signupMode ? 'Create Teacher Account' : 'Sign In') : 'Join Session'}

@@ -1,5 +1,19 @@
 # React + TypeScript + Vite
 
+## Demo Autofill
+
+The login screen can expose clearly marked demo-only autofill buttons through Vercel environment variables:
+
+```env
+VITE_DEMO_TEACHER_EMAIL=teacher@demo.examguard.ai
+VITE_DEMO_TEACHER_PASSWORD=<public-demo-password>
+VITE_DEMO_STUDENT_NAME=Demo Student
+VITE_DEMO_STUDENT_EMAIL=student@demo.examguard.ai
+VITE_DEMO_JOIN_CODE=<active-six-character-code>
+```
+
+`VITE_*` values are public browser configuration. Use a dedicated disposable demo account only. Never place Supabase service-role, Gemini, or Redis secrets in these variables.
+
 This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
 
 Currently, two official plugins are available:
