@@ -555,6 +555,26 @@ class SupabaseStore:
         events = [{"type": row["event_type"], "metadata": row.get("event_data") or {}} for row in rows]
         return integrity_warning_count(events)
 
+    def session_event_summary(self, session_id: str) -> dict[str, int]:
+        rows = self.rest("GET", "integrity_events", query=f"?session_id=eq.{session_id}&select=event_type") or []
+        summary: dict[str, int] = {}
+        for row in rows:
+            event_type = str(row.get("event_type") or "unknown")
+            summary[event_type] = summary.get(event_type, 0) + 1
+        return summary
+
+    def release_exam_results(self, exam_id: str) -> dict[str, int]:
+        sessions = self.rest("GET", "exam_sessions", query=f"?exam_id=eq.{exam_id}&status=eq.ended&select=id,integrity_state,locked_for_review") or []
+        released = 0
+        held = 0
+        for session in sessions:
+            if session.get("locked_for_review") or session.get("integrity_state") == "FLAGGED":
+                held += 1
+                continue
+            self.update_session(str(session["id"]), {"grade_released": True, "review_status": "released_clean"})
+            released += 1
+        return {"released": released, "held_for_review": held}
+
     def require_session(self, session_id: str) -> dict[str, Any]:
         rows = self.rest("GET", "exam_sessions", query=f"?id=eq.{session_id}")
         if not rows:
@@ -630,6 +650,8 @@ class SupabaseStore:
             total = float(exam.get("total_marks") or 0)
             session["grade"] = {"earned_marks": earned, "total_marks": total, "percentage": round(earned / total * 100, 2) if total else 0}
             session["events_count"] = int(events[0].get("count", 0)) if events else 0
+            session["event_summary"] = self.session_event_summary(str(session["id"]))
+            session["integrity_warning_count"] = self.session_warning_count(str(session["id"]))
             session["joined_at"] = row.get("started_at") or row.get("created_at")
             if appeals:
                 appeal = appeals[0] if isinstance(appeals, list) else appeals
@@ -675,7 +697,7 @@ class SupabaseStore:
         baseline_tier = int(session.get("baseline_tier") or 3)
         result = compute_integrity_score(factors, baseline_tier=baseline_tier)
         warning_count = integrity_warning_count(event_types)
-        critical_pattern = has_critical_pattern(event_types) and integrity_warning_count(event_types[:-1]) >= 2
+        critical_pattern = has_critical_pattern(event_types) and integrity_warning_count(event_types[:-1]) >= 4
         if critical_pattern:
             result = {**result, "score": min(float(result["score"]), 45.0), "status": "FLAGGED"}
         patch: dict[str, Any] = {"integrity_score": result["score"], "integrity_state": result["status"], "integrity_ci": result["ci"], "integrity_factors": factors}

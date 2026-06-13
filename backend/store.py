@@ -593,7 +593,7 @@ class LocalStore:
         baseline_tier = int(prior.get("baseline_tier", 3)) if isinstance(prior, dict) else 3
         result = compute_integrity_score(factors, baseline_tier=baseline_tier)
         warning_count = integrity_warning_count(events)
-        critical_pattern = has_critical_pattern(events) and integrity_warning_count(events[:-1]) >= 2
+        critical_pattern = has_critical_pattern(events) and integrity_warning_count(events[:-1]) >= 4
         if critical_pattern:
             result = {**result, "score": min(float(result["score"]), 45.0), "status": "FLAGGED"}
         session = self.sessions[session_id]
@@ -611,8 +611,40 @@ class LocalStore:
     def session_warning_count(self, session_id: str) -> int:
         return integrity_warning_count(self.integrity_events.get(session_id, []))
 
+    def session_event_summary(self, session_id: str) -> dict[str, int]:
+        summary: dict[str, int] = {}
+        for event in self.integrity_events.get(session_id, []):
+            event_type = str(event.get("type") or "unknown")
+            summary[event_type] = summary.get(event_type, 0) + 1
+        return summary
+
+    def release_exam_results(self, exam_id: str) -> dict[str, int]:
+        released = 0
+        held = 0
+        for session in self.sessions.values():
+            if session.get("exam_id") != exam_id or session.get("status") != "ended":
+                continue
+            if session.get("locked_for_review") or session.get("integrity", {}).get("status") == "FLAGGED":
+                held += 1
+                continue
+            if "grade" not in session:
+                self.evaluate_session(str(session["id"]))
+            session["grade_released"] = True
+            session["review_status"] = "released_clean"
+            released += 1
+        return {"released": released, "held_for_review": held}
+
     def exam_students(self, exam_id: str) -> list[dict[str, Any]]:
-        return [session for session in self.sessions.values() if session["exam_id"] == exam_id]
+        result = []
+        for session in self.sessions.values():
+            if session["exam_id"] != exam_id:
+                continue
+            item = dict(session)
+            item["events_count"] = len(self.integrity_events.get(str(session["id"]), []))
+            item["event_summary"] = self.session_event_summary(str(session["id"]))
+            item["integrity_warning_count"] = self.session_warning_count(str(session["id"]))
+            result.append(item)
+        return result
 
     def session_questions(self, session_id: str) -> list[dict[str, Any]]:
         session = self.require_session(session_id)

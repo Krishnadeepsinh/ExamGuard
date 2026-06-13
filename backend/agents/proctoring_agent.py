@@ -49,11 +49,17 @@ def _signal_category(event: dict[str, object]) -> str | None:
 
 
 def integrity_warning_count(events: list[dict[str, object]]) -> int:
-    """Return 0-2 warnings from meaningful evidence, ignoring weak one-off noise."""
+    """Return 0-4 graduated warnings while ignoring weak one-off noise."""
     categorized = [category for event in events if (category := _signal_category(event)) is not None]
     if not categorized:
         return 0
-    if len(set(categorized)) >= 2 or len(categorized) >= 3:
+    categories = len(set(categorized))
+    meaningful = len(categorized)
+    if categories >= 3 and meaningful >= 6:
+        return 4
+    if categories >= 2 and meaningful >= 4:
+        return 3
+    if categories >= 2 or meaningful >= 3:
         return 2
     return 1
 
@@ -68,4 +74,4 @@ def has_critical_pattern(events: list[dict[str, object]]) -> bool:
         for event in events
     )
     repeated_category = any(categorized.count(category) >= 2 for category in categories)
-    return len(categories) >= 3 and len(categorized) >= 5 and has_strong_evidence and repeated_category
+    return len(categories) >= 3 and len(categorized) >= 7 and has_strong_evidence and repeated_category

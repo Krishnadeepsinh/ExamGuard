@@ -141,6 +141,9 @@ class StoreBehaviorTests(unittest.TestCase):
         self.store.log_integrity_event(session["id"], "paste_detected", {"bulk_paste": True})
         self.assertFalse(self.store.sessions[session["id"]].get("locked_for_review", False))
         self.store.log_integrity_event(session["id"], "multiple_faces", {"face_count": 2})
+        self.store.log_integrity_event(session["id"], "paste_detected", {"bulk_paste": True})
+        self.assertFalse(self.store.sessions[session["id"]].get("locked_for_review", False))
+        self.store.log_integrity_event(session["id"], "multiple_faces", {"face_count": 2})
         self.assertTrue(self.store.sessions[session["id"]]["locked_for_review"])
 
     def test_accidental_focus_loss_warns_but_never_locks(self) -> None:
@@ -307,11 +310,23 @@ class StoreBehaviorTests(unittest.TestCase):
         for event, metadata in (
             ("tab_hidden", {}), ("tab_hidden", {}), ("tab_hidden", {}),
             ("paste_detected", {"bulk_paste": True}), ("multiple_faces", {"face_count": 2}),
+            ("paste_detected", {"bulk_paste": True}), ("multiple_faces", {"face_count": 2}),
         ):
             self.store.log_integrity_event(session["id"], event, metadata)
         updated = self.store.sessions[session["id"]]["integrity"]
         self.assertEqual(updated["status"], "FLAGGED")
         self.assertLess(updated["score"], 50)
+
+    def test_clean_completed_results_can_be_published_in_bulk(self) -> None:
+        self.store.exams["exam-physics"]["status"] = "active"
+        clean = self.store.join_session("PHY001", "Clean Result", "clean-result@student.ai")
+        flagged = self.store.join_session("PHY001", "Held Result", "held-result@student.ai")
+        self.store.update_session(clean["id"], {"status": "ended", "grade": {"earned_marks": 5, "total_marks": 10, "percentage": 50}})
+        self.store.update_session(flagged["id"], {"status": "ended", "locked_for_review": True})
+        result = self.store.release_exam_results("exam-physics")
+        self.assertEqual(result, {"released": 1, "held_for_review": 1})
+        self.assertTrue(self.store.sessions[clean["id"]]["grade_released"])
+        self.assertFalse(self.store.sessions[flagged["id"]]["grade_released"])
 
     def test_grade_is_hidden_until_teacher_releases_result(self) -> None:
         self.store.exams["exam-physics"]["status"] = "active"

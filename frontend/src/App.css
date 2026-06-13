@@ -1828,6 +1828,28 @@ tbody tr:last-child { border-bottom: 0 !important; }
   font-weight: 500;
 }
 
+.exam-evidence-strip {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(6, minmax(110px, 1fr));
+  gap: 8px;
+}
+
+.exam-evidence-strip span {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 9px 12px;
+  border: 1px solid var(--eg-navy-600);
+  border-radius: 8px;
+  background: var(--eg-navy-800);
+  color: var(--eg-text-muted);
+  font-size: 12px;
+}
+
+.exam-evidence-strip strong { color: var(--eg-text); }
+.teacher-evidence-strip { grid-template-columns: repeat(2, 1fr); margin-top: 14px; }
+
 .timer-critical {
   color: var(--eg-red) !important;
   font-weight: 700 !important;
@@ -2409,9 +2431,28 @@ tbody tr:last-child { border-bottom: 0 !important; }
   .summary-grid {
     grid-template-columns: repeat(2, 1fr);
   }
+
+  .exam-evidence-strip { grid-template-columns: repeat(3, 1fr); }
+
+  .presence-monitor {
+    position: sticky !important;
+    bottom: 12px !important;
+    right: auto !important;
+    grid-column: 1 / -1;
+    justify-self: end;
+    margin-top: 4px;
+  }
 }
 
 @media (max-width: 640px) {
+  .exam-header { align-items: flex-start; flex-wrap: wrap; gap: 10px; padding: 14px; }
+  .exam-evidence-strip { grid-template-columns: repeat(2, 1fr); }
+  .question-area { padding: 20px !important; }
+  .question-area .inline-actions { flex-direction: column; }
+  .question-area .inline-actions > div { margin-left: 0 !important; width: 100%; }
+  .question-area .inline-actions button { flex: 1; }
+  .presence-monitor { width: 96px !important; height: 72px !important; }
+  .report-actions { flex-direction: column; }
   .monitor-command-bar,.monitor-toolbar { align-items: stretch; flex-direction: column; }
   .monitor-overview { grid-template-columns: 1fr; }
   .monitor-kpis { grid-template-columns: 1fr 1fr; }
