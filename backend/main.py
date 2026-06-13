@@ -659,12 +659,16 @@ def save_liveness(session_id: str, payload: LivenessRequest) -> dict[str, object
     return normalized
 
 
+def student_safe_question(question: dict[str, object]) -> dict[str, object]:
+    return {key: value for key, value in question.items() if key not in {"correct_answer", "source_chunk_ids"}}
+
+
 @app.get("/api/v1/sessions/{session_id}/questions")
 def session_questions(session_id: str) -> list[dict[str, object]]:
     session = require_session(session_id)
     if not _get_session_field(session, "liveness"):
         raise HTTPException(status_code=422, detail="liveness is required before questions")
-    return store.session_questions(session_id)
+    return [student_safe_question(question) for question in store.session_questions(session_id)]
 
 
 @app.get("/api/v1/sessions/{session_id}/exam")

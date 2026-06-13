@@ -9,6 +9,7 @@ from backend.agents.paper_config_agent import validate_paper_config
 from backend.agents.graph import run_workflow
 from backend.agents.evaluation_agent import grade_objective, grade_subjective
 from backend.store import LocalStore
+from backend.main import student_safe_question
 
 
 class IntegrityPolicyTests(unittest.TestCase):
@@ -165,6 +166,11 @@ class StoreBehaviorTests(unittest.TestCase):
         result = self.store.get_session_result(session["id"])
         self.assertEqual(result["grade"]["earned_marks"], 2)
         self.assertTrue(result["grade_released"])
+
+    def test_student_question_endpoint_never_exposes_answer_key(self) -> None:
+        result = student_safe_question({"id": "q1", "text": "Question", "correct_answer": "Secret", "source_chunk_ids": ["chunk-1"]})
+        self.assertNotIn("correct_answer", result)
+        self.assertNotIn("source_chunk_ids", result)
 
 
 if __name__ == "__main__":
