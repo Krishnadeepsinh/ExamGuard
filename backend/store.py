@@ -630,7 +630,7 @@ class LocalStore:
             if "grade" not in session:
                 self.evaluate_session(str(session["id"]))
             session["grade_released"] = True
-            session["review_status"] = "released_clean"
+            session["review_status"] = "decided"
             released += 1
         return {"released": released, "held_for_review": held}
 
