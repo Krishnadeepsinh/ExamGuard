@@ -522,7 +522,7 @@ class SupabaseStore:
         return self.normalize_session(session, student_name)
 
     def student_sessions(self, student_id: str) -> list[dict[str, Any]]:
-        rows = self.rest("GET", "exam_sessions", query=f"?student_id=eq.{student_id}&order=created_at.desc")
+        rows = self.rest("GET", "exam_sessions", query=f"?student_id=eq.{student_id}&order=created_at.desc&select=id,exams!inner(id)")
         return [self.get_session_result(str(row["id"])) for row in rows]
 
     def normalize_session(self, session: dict[str, Any], student_name: str | None = None) -> dict[str, Any]:
@@ -827,11 +827,11 @@ class SupabaseStore:
         })
         return self.normalize_session(updated)
 
-    def save_settings(self, user_id: str, display_name: str, institute_name: str) -> dict[str, Any]:
-        updated = self.rest("PATCH", "users", {
-            "display_name": display_name,
-            "institute_name": institute_name,
-        }, query=f"?id=eq.{user_id}")
+    def save_settings(self, user_id: str, display_name: str, institute_name: str | None = None) -> dict[str, Any]:
+        patch: dict[str, Any] = {"display_name": display_name}
+        if institute_name:
+            patch["institute_name"] = institute_name
+        updated = self.rest("PATCH", "users", patch, query=f"?id=eq.{user_id}")
         if not updated:
             raise KeyError("user not found")
         return updated[0]
