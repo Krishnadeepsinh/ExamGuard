@@ -79,11 +79,11 @@ export type ApiQuestion = {
   type: string
   text: string
   options: string[]
-  correct_answer: string
+  correct_answer?: string
   marks: number
   bloom_level: string
   chapter_tag: string
-  source_chunk_ids: (string | number)[]
+  source_chunk_ids?: (string | number)[]
   groundedness: number
   teacher_modified: boolean
 }

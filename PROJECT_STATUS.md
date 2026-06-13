@@ -1,10 +1,24 @@
 # ExamGuard AI v6 Project Status
 
-Last updated: 2026-06-12
+Last updated: 2026-06-13
 
 Repository target: `https://github.com/Krishnadeepsinh/ExamGuard.git`
 
-Local git remote status: initialized with `origin` pointing to the repository target. No commit or push has been performed yet.
+Git remote: `origin` points to repository target; production fixes are committed and pushed through `96d3719` before this current hardening pass.
+
+## 2026-06-13 Production Hardening Pass
+
+- Removed production login/demo identity defaults and sample credential exposure.
+- Removed 25-character minimum answer gate; unanswered questions remain visible in submit summary.
+- Added continuous on-device face-presence monitoring during active exams; raw frames never upload.
+- Added debounced `face_missing`, `multiple_faces`, and `monitoring_interrupted` evidence events.
+- Isolated blur, right-click, small paste, or one tab event cannot auto-flag a student.
+- Added server-side proctoring event allowlist.
+- Replaced fabricated integrity factor values with neutral unmeasured values and Tier 3 first-exam handling.
+- Added strict generated-question validation and one Gemini repair retry.
+- Removed placeholder paper generation; failed quality checks preserve existing paper and return a retryable error.
+- Updated reports to avoid unsupported claims of continuous proof, zero hallucinations, or automatic guilt.
+- Added focus-visible styling, reduced-motion support, safer form autocomplete, and live presence status.
 
 ## 2026-06-11 Production Completion Pass
 

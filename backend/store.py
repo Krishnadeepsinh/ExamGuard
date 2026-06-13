@@ -37,40 +37,6 @@ class LocalStore:
         self.answers: dict[str, list[dict[str, Any]]] = {}
         self.reports: dict[str, bytes] = {}
         self.integrity_events: dict[str, list[dict[str, Any]]] = {}
-        self.seed()
-
-    def seed(self) -> None:
-        teacher = {
-            "id": "teacher-demo",
-            "email": "teacher@demo.examguard.ai",
-            "display_name": "Rajan Kumar",
-            "role": "teacher",
-            "institute": "ExamGuard Demo Institute",
-            "baseline_answer_count": 42,
-        }
-        self.users[teacher["id"]] = teacher
-        exam_id = "exam-physics"
-        self.exams[exam_id] = {
-            "id": exam_id,
-            "teacher_id": teacher["id"],
-            "title": "Physics XI - Electromagnetism",
-            "subject": "Physics",
-            "duration_minutes": 80,
-            "total_marks": 80,
-            "join_code": "PHY001",
-            "status": "draft",
-            "paper_config": {},
-            "activated_at": None,
-            "ended_at": None,
-            "created_at": utc_now(),
-        }
-        sample_text = (
-            "Chapter 12 Electromagnetic Induction explains magnetic flux, induced EMF, Faraday law, "
-            "Lenz law, and applications. Chapter 13 Alternating Current explains AC voltage, RMS value, "
-            "reactance, resonance, and transformers. Chapter 14 Electromagnetic Waves explains displacement "
-            "current, wave propagation, spectrum, and practical uses. "
-        ) * 70
-        self.add_material(exam_id, "NCERT Physics Ch 12-14.txt", sample_text.encode("utf-8"))
 
     def login(self, email: str, password: str, role: str, display_name: str | None = None, signup: bool = False) -> dict[str, Any]:
         existing = next((user for user in self.users.values() if user["email"] == email and user["role"] == role), None)
@@ -253,7 +219,6 @@ class LocalStore:
             raise ValueError("Upload syllabus or study material before generating questions.")
         
         questions: list[dict[str, Any]] = []
-        fallback_count = 0
         chunks = [chunk for material in materials for chunk in material.get("chunks", [])]
         for section_index, section in enumerate(config["sections"]):
             chapter_tag = section.get("chapter_tag")
@@ -279,9 +244,11 @@ class LocalStore:
                         section.get("level") or config["overall_level"], section["bloom"],
                         section["marks_each"], matching[batch_start:batch_start + 8] or matching[:8],
                     ))
-                except (RuntimeError, ValueError):
-                    fallback_count += batch_count
-                    generated_items.extend({} for _ in range(batch_count))
+                except (RuntimeError, ValueError) as exc:
+                    raise RuntimeError(
+                        f"Question generation failed quality checks for section {section['id']}. "
+                        "No placeholder paper was saved; retry generation."
+                    ) from exc
 
             for index in range(section["count"]):
                 if matching:
@@ -304,10 +271,9 @@ class LocalStore:
                     scope_label = "Complete Syllabus"
                     
                 generated = generated_items[index] if index < len(generated_items) else {}
-                source_excerpt = " ".join(str(source.get("chunk_text", "")).split()[:24])
-                if not generated and source_excerpt:
-                    generated = self.source_fallback(section["type"], source_excerpt)
-                question_text = str(generated.get("text") or self.question_text(section["type"], scope_label, section.get("level") or config["overall_level"]))
+                if not generated:
+                    raise RuntimeError(f"Question generation returned an empty item for section {section['id']}.")
+                question_text = str(generated["text"])
                 options = generated.get("options") if isinstance(generated.get("options"), list) else []
                 questions.append(
                     {
@@ -318,8 +284,8 @@ class LocalStore:
                         "question_index": index,
                         "type": section["type"],
                         "text": question_text,
-                        "options": options if section["type"] == "MCQ" and len(options) == 4 else (["Source-based answer", "Unsupported answer 1", "Unsupported answer 2", "Unsupported answer 3"] if section["type"] == "MCQ" else []),
-                        "correct_answer": str(generated.get("correct_answer") or ("Source-based answer" if section["type"] == "MCQ" else "Answer must cite the concept.")),
+                        "options": options,
+                        "correct_answer": str(generated["correct_answer"]),
                         "marks": section["marks_each"],
                         "bloom_level": section["bloom"],
                         "chapter_tag": chapter_tag,
@@ -333,25 +299,7 @@ class LocalStore:
                 )
         self.questions[exam_id] = questions
         exam["status"] = "generated"
-        return {"status": "generated", "count": len(questions), "questions": questions, "llm": gemini_router.status(), "fallback_count": fallback_count}
-
-    def question_text(self, question_type: str, chapter: str, level: str) -> str:
-        if question_type == "MCQ":
-            return f"Which option best explains the central concept in {chapter}?"
-        if question_type == "Fill Blank":
-            return f"Complete the key {chapter} concept: _____."
-        if question_type == "True/False":
-            return f"True or False: Apply the core principle from {chapter} to the stated case."
-        return f"Explain and apply a key concept from {chapter} at {level.lower()} level."
-
-    def source_fallback(self, question_type: str, excerpt: str) -> dict[str, Any]:
-        if question_type == "MCQ":
-            return {"text": "Which option correctly describes this concept?", "options": [excerpt, "The concept always produces the opposite result.", "The concept has no practical application.", "The concept is unrelated to the subject."], "correct_answer": excerpt}
-        if question_type == "True/False":
-            return {"text": f'True or False: {excerpt}', "options": [], "correct_answer": "True"}
-        if question_type == "Fill Blank":
-            return {"text": f'Complete the concept: "{excerpt[:80]} _____"', "options": [], "correct_answer": excerpt}
-        return {"text": f'Explain the concept and its significance: "{excerpt}"', "options": [], "correct_answer": excerpt}
+        return {"status": "generated", "count": len(questions), "questions": questions, "llm": gemini_router.status(), "fallback_count": 0}
 
     def activate_exam(self, exam_id: str) -> dict[str, Any]:
         exam = self.exams.get(exam_id)
@@ -387,8 +335,10 @@ class LocalStore:
             user = {"id": f"student-{uuid4().hex[:10]}", "email": student_email, "display_name": student_name, "role": "student", "institute": "", "baseline_answer_count": 0}
             self.users[user["id"]] = user
         session_id = f"sess-{uuid4().hex[:10]}"
-        factors = {"behavioral": 92, "perplexity": 84, "stylometric": 89, "answer_quality": 91, "time_anomaly": 76}
-        integrity = compute_integrity_score(factors, baseline_tier=1)
+        # New students start Tier 3. Unmeasured signals remain neutral; they are
+        # never replaced with invented scores or treated as evidence.
+        factors = {"behavioral": 100, "perplexity": 100, "stylometric": 100, "answer_quality": 100, "time_anomaly": 100}
+        integrity = compute_integrity_score(factors, baseline_tier=3)
         session = {
             "id": session_id,
             "student_id": user["id"],
@@ -529,12 +479,21 @@ class LocalStore:
         return session
 
     def log_integrity_event(self, session_id: str, event_type: str, metadata: dict[str, Any]) -> dict[str, Any]:
-        event = {"type": event_type, "metadata": metadata, "score_impact": impact_for(event_type), "occurred_at": utc_now()}
+        event = {"type": event_type, "metadata": metadata, "score_impact": impact_for(event_type, metadata), "occurred_at": utc_now()}
         events = self.integrity_events.setdefault(session_id, [])
         events.append(event)
         behavioral = behavioral_score(events)
-        factors = {"behavioral": behavioral, "perplexity": 84, "stylometric": 89, "answer_quality": 91, "time_anomaly": 76}
-        result = compute_integrity_score(factors, baseline_tier=1)
+        prior = self.sessions[session_id].get("integrity", {})
+        prior_factors = prior.get("factors", {}) if isinstance(prior, dict) else {}
+        factors = {
+            "behavioral": behavioral,
+            "perplexity": float(prior_factors.get("perplexity", 100)),
+            "stylometric": float(prior_factors.get("stylometric", 100)),
+            "answer_quality": float(prior_factors.get("answer_quality", 100)),
+            "time_anomaly": float(prior_factors.get("time_anomaly", 100)),
+        }
+        baseline_tier = int(prior.get("baseline_tier", 3)) if isinstance(prior, dict) else 3
+        result = compute_integrity_score(factors, baseline_tier=baseline_tier)
         if has_critical_pattern(events):
             result = {**result, "score": min(float(result["score"]), 45.0), "status": "FLAGGED"}
         session = self.sessions[session_id]
@@ -647,8 +606,8 @@ def build_pdf_report(session: dict[str, Any], questions: list[dict[str, Any]], a
     pdf.drawString(70, 460, "This score aggregates multi-factor analysis across telemetry events, answer quality,")
     pdf.drawString(70, 445, "stylometric analysis, and timing patterns.")
     
-    pdf.drawString(50, 360, "This document certifies that the student's exam environment was monitored continuously.")
-    pdf.drawString(50, 345, "AI proctoring scores are generated deterministically via local validation algorithms.")
+    pdf.drawString(50, 360, "This report summarizes structured signals received during the student's exam session.")
+    pdf.drawString(50, 345, "Signals indicate review priority only; a teacher makes the final integrity decision.")
     
     # Footer on every page
     pdf.setFont("Helvetica", 8)
@@ -665,12 +624,16 @@ def build_pdf_report(session: dict[str, Any], questions: list[dict[str, Any]], a
     pdf.setLineWidth(1)
     pdf.line(50, 765, 545, 765)
     
+    recorded_factors = session.get("integrity", {}).get("factors", {}) if isinstance(session.get("integrity"), dict) else {}
+    def factor_value(name: str) -> str:
+        value = recorded_factors.get(name)
+        return f"{round(float(value))} / 100" if value is not None else "Not measured"
     factors = [
-        ("Behavioral Consistency", "Analyzes mouse telemetry, tab switching, and focus loss events.", "92 / 100"),
-        ("Stylometric Similarity", "Compares text input keystroke patterns against user baseline.", "89 / 100"),
-        ("Answer Quality / Relevancy", "Evaluates LLM response quality, alignment, and correctness.", "91 / 100"),
-        ("Perplexity / Entropy Score", "Detects machine-generated sentences and copy-paste syntax.", "84 / 100"),
-        ("Time-on-Question Anomalies", "Identifies abnormal speed-solving or idle times per question.", "76 / 100"),
+        ("Behavioral Consistency", "Structured tab, focus, paste, fullscreen, and face-presence events.", factor_value("behavioral")),
+        ("Stylometric Similarity", "Available only after a sufficient student writing baseline exists.", factor_value("stylometric")),
+        ("Answer Integrity Signal", "Optional text-integrity signal; academic correctness is graded separately.", factor_value("answer_quality")),
+        ("Perplexity / Entropy Score", "Available only when the configured detector produces a valid result.", factor_value("perplexity")),
+        ("Time-on-Question Anomalies", "Uses recorded question timing when sufficient timing data exists.", factor_value("time_anomaly")),
     ]
     
     y = 700
@@ -710,8 +673,8 @@ def build_pdf_report(session: dict[str, Any], questions: list[dict[str, Any]], a
     
     pdf.setFont("Helvetica", 10)
     pdf.setFillColorRGB(0.2, 0.2, 0.2)
-    pdf.drawString(50, 735, "All questions generated are locked to verified text chunks from uploaded material.")
-    pdf.drawString(50, 720, "This ensures zero hallucinations and strictly curriculum-mapped testing.")
+    pdf.drawString(50, 735, "Questions are generated from retrieved chunks of teacher-provided syllabus and material.")
+    pdf.drawString(50, 720, "Quality validation rejects malformed output; teachers review papers before activation.")
     
     # Draw table header
     y = 680

@@ -71,7 +71,6 @@ const en = {
     'Sections do not match selected paper type.': 'Sections do not match selected paper type.',
     'Some sections exceed available chapter coverage.': 'Some sections exceed available chapter coverage.',
     'Generate Paper': 'Generate Paper',
-    'Simulate LLM fallback': 'Simulate LLM fallback',
 
     // Live monitor
     'Live connection active (polling mode)': 'Live connection active (polling mode)',

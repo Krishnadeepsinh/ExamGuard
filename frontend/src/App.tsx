@@ -556,9 +556,16 @@ function App() {
         </nav>
         <div className="sidebar-card">
           <Bot size={18} aria-hidden="true" style={{ color: 'var(--eg-indigo)' }} />
-          <strong>10-agent workflow</strong>
-          <span>Creates, monitors, scores, and reviews exams.</span>
+          <strong>10-stage agent graph</strong>
+          <span>Named LangGraph stages coordinate ingestion, generation, scoring, reporting, and review.</span>
         </div>
+        {auth && <div className="sidebar-account">
+          <div><small>{auth.role}</small><strong>{auth.name}</strong></div>
+          <div className="sidebar-account-actions">
+            <button className="icon-btn" aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`} onClick={() => setTheme((current) => current === 'dark' ? 'light' : 'dark')}>{theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}</button>
+            <button className="ghost-btn" onClick={logout}><Lock size={16} /> Logout</button>
+          </div>
+        </div>}
       </aside>
 
       <main style={{ background: 'var(--eg-navy)', minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
@@ -602,8 +609,8 @@ function App() {
           </div>
           {auth && (
             <div className="mobile-account-actions">
-              <span title={`${auth.role}: ${auth.name}`}>{auth.name.split(' ')[0]}</span>
-              <button className="icon-btn" aria-label="Logout" title="Logout" onClick={logout}><Lock size={18} /></button>
+              <button className="icon-btn" aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`} onClick={() => setTheme((current) => current === 'dark' ? 'light' : 'dark')}>{theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}</button>
+              <button className="mobile-logout-btn" aria-label="Logout" title="Logout" onClick={logout}><Lock size={16} /><span>Logout</span></button>
             </div>
           )}
         </header>
@@ -701,9 +708,9 @@ function LandingView({ notify, onLogin }: { notify: (kind: ToastKind, text: stri
 
 function AuthPanel({ initialRole, onLogin, notify }: { initialRole: AuthRole; onLogin: (payload: LoginPayload & { signup?: boolean }) => Promise<void>; notify: (kind: ToastKind, text: string) => void }) {
   const [role, setRole] = useState<AuthRole>(initialRole)
-  const [email, setEmail] = useState('teacher@demo.examguard.ai')
-  const [password, setPassword] = useState('demo123')
-  const [studentName, setStudentName] = useState('Arjun Sharma')
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [studentName, setStudentName] = useState('')
   const [joinCode, setJoinCode] = useState('')
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
@@ -712,15 +719,10 @@ function AuthPanel({ initialRole, onLogin, notify }: { initialRole: AuthRole; on
   useEffect(() => {
     setRole(initialRole)
     setError('')
-    if (initialRole === 'teacher') {
-      setEmail('teacher@demo.examguard.ai')
-      setPassword('demo123')
-    } else {
-      setEmail('arjun@student.ai')
-      setPassword('demo123')
-      setStudentName('Arjun Sharma')
-      setJoinCode('')
-    }
+    setEmail('')
+    setPassword('')
+    setStudentName('')
+    setJoinCode('')
   }, [initialRole])
 
   const submit = async () => {
@@ -768,28 +770,16 @@ function AuthPanel({ initialRole, onLogin, notify }: { initialRole: AuthRole; on
       ) : (
         <div className="login-form" style={{ display: 'flex', flexDirection: 'column', gap: '16px', marginBottom: '20px' }}>
           <div>
-            <label>Demo Student</label>
-            <div className="inline-actions" style={{ gap: '8px', flexWrap: 'wrap' }}>
-              {[
-                ['Arjun Sharma', 'arjun@student.ai'],
-                ['Priya Patel', 'priya@student.ai'],
-                ['Rahul Mehta', 'rahul@student.ai'],
-              ].map(([name, demoEmail]) => (
-                <button key={demoEmail} type="button" className="ghost-btn" style={{ minHeight: '36px' }} onClick={() => { setStudentName(name); setEmail(demoEmail) }}>{name.split(' ')[0]}</button>
-              ))}
-            </div>
-          </div>
-          <div>
             <label>Student Name</label>
-            <input required minLength={3} value={studentName} onChange={(event) => setStudentName(event.target.value)} />
+            <input name="student-name" autoComplete="name" required minLength={3} placeholder="Enter your full name…" value={studentName} onChange={(event) => setStudentName(event.target.value)} />
           </div>
           <div>
             <label>Join Code</label>
-            <input required maxLength={6} placeholder="Enter 6-character exam code" autoComplete="off" value={joinCode} onChange={(event) => setJoinCode(event.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''))} />
+            <input name="join-code" required maxLength={6} placeholder="Example: A7K9P2" autoComplete="off" spellCheck={false} value={joinCode} onChange={(event) => setJoinCode(event.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''))} />
           </div>
           <div>
             <label>Optional Email</label>
-            <input type="email" value={email} onChange={(event) => setEmail(event.target.value)} />
+            <input name="student-email" type="email" autoComplete="email" spellCheck={false} placeholder="name@example.com" value={email} onChange={(event) => setEmail(event.target.value)} />
           </div>
         </div>
       )}
@@ -803,14 +793,7 @@ function AuthPanel({ initialRole, onLogin, notify }: { initialRole: AuthRole; on
         {signupMode ? 'Already registered? Sign in' : 'New teacher? Create account'}
       </button>}
 
-      <details style={{ marginTop: '16px', fontSize: '13px', color: 'var(--eg-text-muted)', cursor: 'pointer' }}>
-        <summary style={{ fontWeight: 600, color: 'var(--eg-indigo-hover)', outline: 'none' }}>Demo credentials</summary>
-        <div className="demo-credentials" style={{ marginTop: '10px' }}>
-          {role === 'teacher' ? (
-            <><strong>Teacher:</strong> teacher@demo.examguard.ai / demo123</>
-          ) : <span>Use code shown by teacher after exam activation.</span>}
-        </div>
-      </details>
+      {role === 'student' && <p className="hint" style={{ marginTop: '12px' }}>Use the 6-character code provided by your teacher.</p>}
     </div>
   )
 }
@@ -905,7 +888,6 @@ function DashboardView({ go, notify, onSelectExam, students, selectedExamId }: {
             </div>
             <div className="inline-actions" style={{ marginTop: '16px' }}>
               <button className="primary-btn" onClick={() => setShowCreateModal(true)}>Create exam</button>
-              <button className="ghost-btn" onClick={() => notify('info', 'Sample Physics class loaded. Fixed seed code PHY001.')}>Try sample class</button>
             </div>
           </Card>
         ) : null}
@@ -1002,7 +984,7 @@ function CreateExamModal({ onClose, onCreate }: { onClose: () => void; onCreate:
         <div className="login-form" style={{ display: 'flex', flexDirection: 'column', gap: '14px', marginBottom: '24px' }}>
           <div>
             <label>Exam Title</label>
-            <input required minLength={3} value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. Physics XI - Electromagnetism" />
+            <input name="exam-title" autoComplete="off" required minLength={3} value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Example: Semester 1 Final Exam" />
           </div>
           <div>
             <label>Subject</label>
@@ -1039,6 +1021,8 @@ function ConfigView({ examId, notify }: { examId: string; notify: (kind: ToastKi
   const [sections, setSections] = useState<PaperSection[]>(sectionsForMode('Mixed', 80))
   const [generated, setGenerated] = useState(false)
   const [generatedQuestions, setGeneratedQuestions] = useState<ApiQuestion[]>([])
+  const [questionPage, setQuestionPage] = useState(0)
+  const [paperReviewed, setPaperReviewed] = useState(false)
   const [loading, setLoading] = useState(true)
   const [generating, setGenerating] = useState(false)
   const [generationError, setGenerationError] = useState('')
@@ -1201,6 +1185,8 @@ function ConfigView({ examId, notify }: { examId: string; notify: (kind: ToastKi
       await api.savePaperConfig(examId, payload)
       const result = await api.generatePaper(examId)
       setGeneratedQuestions(result.questions)
+      setQuestionPage(0)
+      setPaperReviewed(false)
       setGenerated(true)
       notify('success', `Paper generated successfully. ${result.count}/${result.count} questions created.`)
     } catch (event) {
@@ -1220,6 +1206,10 @@ function ConfigView({ examId, notify }: { examId: string; notify: (kind: ToastKi
       notify('error', event instanceof Error ? event.message : 'Could not activate exam.')
     }
   }
+
+  const questionsPerPage = 8
+  const questionPageCount = Math.max(1, Math.ceil(generatedQuestions.length / questionsPerPage))
+  const visibleGeneratedQuestions = generatedQuestions.slice(questionPage * questionsPerPage, (questionPage + 1) * questionsPerPage)
 
   return (
     <section className="screen config-layout">
@@ -1294,24 +1284,28 @@ function ConfigView({ examId, notify }: { examId: string; notify: (kind: ToastKi
 
         <ProgressStream generating={generating} generatedCount={generatedQuestions.length} sections={sections} error={generationError} onRetry={validateAndGenerate} />
 
-        <Card title="Generated question preview" icon={FileText}>
+        <Card title="Review complete generated paper" icon={FileText}>
           {generated && generatedQuestions.length > 0 ? (
             <div className="question-preview">
               <span className="badge badge-green">{generatedQuestions.length} questions generated</span>
-              <h3>{generatedQuestions[0].text}</h3>
-              <p>Source: {uploadedMaterial}, {generatedQuestions[0].chapter_tag}. Bloom: {generatedQuestions[0].bloom_level}. Marks: {generatedQuestions[0].marks}.</p>
-              <textarea aria-label="Generated question preview" value={generatedQuestions[0].text} readOnly />
               <div className="generated-question-list" aria-label="Generated questions">
-                {generatedQuestions.slice(0, 8).map((question, index) => (
+                {visibleGeneratedQuestions.map((question, index) => (
                   <div key={question.id} className="generated-question-row">
-                    <strong>{index + 1}.</strong>
-                    <span>{question.text}</span>
-                    <small>{question.type} · {question.marks} marks</small>
+                    <strong>{questionPage * questionsPerPage + index + 1}.</strong>
+                    <div><span>{question.text}</span>{question.options?.length ? <ol className="question-options-preview">{question.options.map((option) => <li key={option}>{option}</li>)}</ol> : null}</div>
+                    <details className="question-answer-key"><summary>Answer key</summary><p>{question.correct_answer || 'Not provided'}</p></details>
+                    <small>{question.type} · {question.marks} marks<br />{question.chapter_tag} · {question.bloom_level}</small>
                   </div>
                 ))}
-                {generatedQuestions.length > 8 && <p className="muted">+ {generatedQuestions.length - 8} more questions generated</p>}
               </div>
-              <button className="primary-btn" disabled={activated} onClick={activateGeneratedExam}>
+              <div className="question-pagination" aria-label="Generated paper pages">
+                <button className="ghost-btn" disabled={questionPage === 0} onClick={() => setQuestionPage((page) => Math.max(0, page - 1))}>Previous</button>
+                <span>Page {questionPage + 1} of {questionPageCount} · Questions {questionPage * questionsPerPage + 1}-{Math.min((questionPage + 1) * questionsPerPage, generatedQuestions.length)} of {generatedQuestions.length}</span>
+                <button className="ghost-btn" disabled={questionPage >= questionPageCount - 1} onClick={() => setQuestionPage((page) => Math.min(questionPageCount - 1, page + 1))}>Next</button>
+              </div>
+              <p className="hint">Review every page before activation. Students never receive answer keys or source chunk IDs.</p>
+              <label className="paper-review-confirm"><input type="checkbox" checked={paperReviewed} onChange={(event) => setPaperReviewed(event.target.checked)} /> I reviewed the complete paper and answer keys.</label>
+              <button className="primary-btn" disabled={activated || !paperReviewed} onClick={activateGeneratedExam}>
                 {activated ? 'Exam Active' : 'Activate for Students'}
               </button>
             </div>
@@ -1354,7 +1348,6 @@ function ConfigView({ examId, notify }: { examId: string; notify: (kind: ToastKi
           <button className="primary-btn full" style={{ height: '48px', marginTop: '20px', fontSize: '15px' }} disabled={!canGenerate || loading} onClick={validateAndGenerate}>
             {generating ? 'Generating paper...' : 'Generate Paper'}
           </button>
-          <button className="ghost-btn full" style={{ marginTop: '10px' }} onClick={() => notify('warning', 'Gemini is temporarily unavailable. Generation is paused; retry when the API recovers.')}>Test Gemini unavailable state</button>
         </Card>
 
         <Card title="Coverage validation" icon={Check}>
@@ -1543,7 +1536,7 @@ function ConsentView({ consentScrolled, setConsentScrolled, go, notify }: { cons
           const target = event.currentTarget
           setConsentScrolled(target.scrollTop + target.clientHeight >= target.scrollHeight - 8)
         }}>
-          <ConsentItem icon={Camera} title="Webcam liveness" text="Used for the two-blink identity-presence check. Raw video stays local and stops before question answering." />
+          <ConsentItem icon={Camera} title="Webcam presence monitoring" text="Used for the two-blink check and local face-presence monitoring during the exam. Raw frames never leave this device; only events such as prolonged absence or multiple faces are sent." />
           <ConsentItem icon={Mic} title="Microphone level (optional)" text="Only RMS audio level is measured. Audio is never recorded. If permission is denied, audio is marked unavailable and no integrity penalty is applied." />
           <ConsentItem icon={FileText} title="Answer analysis" text="Answer text is checked for AI-writing and evaluated against source material." />
           <ConsentItem icon={Activity} title="Tab activity" text="Browser visibility changes are counted. No screen recording." />
@@ -1726,15 +1719,18 @@ function ExamView(props: {
   const [questionError, setQuestionError] = useState('')
   const [questionsLoading, setQuestionsLoading] = useState(true)
   const [answers, setAnswers] = useState<Record<string, string>>({})
-  const [timeLeft, setTimeLeft] = useState(80 * 60) // 80 minutes default
+  const [timeLeft, setTimeLeft] = useState(0)
   const [examStatus, setExamStatus] = useState('active')
   const [integrityStatus, setIntegrityStatus] = useState<IntegrityStatus>('CLEAN')
   const [lastSave, setLastSave] = useState<number>(Date.now())
   const [saveWarning, setSaveWarning] = useState('')
   const [submitOpen, setSubmitOpen] = useState(false)
+  const [presenceState, setPresenceState] = useState<'starting' | 'present' | 'missing' | 'multiple' | 'unavailable'>('starting')
+  const lastIntegrityStatusRef = useRef<IntegrityStatus>('CLEAN')
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const autoSaveRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const expirySubmitStarted = useRef(false)
+  const monitorVideoRef = useRef<HTMLVideoElement>(null)
 
   // Load questions and duration from backend
   useEffect(() => {
@@ -1764,7 +1760,16 @@ function ExamView(props: {
           .catch(() => {})
       }
       api.sessionIntegrity(sessionId)
-        .then((integrity) => setIntegrityStatus((integrity.status as IntegrityStatus) || 'CLEAN'))
+        .then((integrity) => {
+          const next = (integrity.status as IntegrityStatus) || 'CLEAN'
+          setIntegrityStatus(next)
+          if (next !== lastIntegrityStatusRef.current && next !== 'CLEAN') {
+            props.notify('warning', next === 'FLAGGED'
+              ? 'Several integrity signals need teacher review. Exam continues; no final decision has been made.'
+              : 'Exam environment warning: return focus to the exam and keep one face visible.')
+          }
+          lastIntegrityStatusRef.current = next
+        })
         .catch(() => {})
     }
     // Restore saved answers from localStorage
@@ -1772,6 +1777,75 @@ function ExamView(props: {
       const saved = window.localStorage.getItem(`examguard-answers-${sessionId}`)
       if (saved) setAnswers(JSON.parse(saved))
     } catch { /* ignore */ }
+  }, [])
+
+  // Continuous, privacy-preserving presence monitoring. Frames stay in-browser;
+  // backend receives only debounced structured events after sustained anomalies.
+  useEffect(() => {
+    let active = true
+    let stream: MediaStream | null = null
+    let detector: FaceLandmarker | null = null
+    let timer: number | undefined
+    let missingSince = 0
+    let lastMissingEvent = 0
+    let lastMultipleEvent = 0
+    const sessionId = studentSessionId()
+    if (!sessionId) return
+
+    const start = async () => {
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: 320, height: 240, frameRate: { ideal: 12, max: 15 } }, audio: false })
+        if (!active || !monitorVideoRef.current) return
+        monitorVideoRef.current.srcObject = stream
+        await monitorVideoRef.current.play()
+        const vision = await FilesetResolver.forVisionTasks('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm')
+        detector = await FaceLandmarker.createFromOptions(vision, {
+          baseOptions: { modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/latest/face_landmarker.task', delegate: 'CPU' },
+          runningMode: 'VIDEO', numFaces: 2,
+        })
+        const sample = () => {
+          if (!active || !detector || !monitorVideoRef.current) return
+          if (monitorVideoRef.current.readyState < 2) return
+          const now = performance.now()
+          let faces: number
+          try {
+            faces = detector.detectForVideo(monitorVideoRef.current, now).faceLandmarks.length
+          } catch {
+            return
+          }
+          if (faces === 0) {
+            setPresenceState('missing')
+            if (!missingSince) missingSince = Date.now()
+            if (Date.now() - missingSince >= 8_000 && Date.now() - lastMissingEvent >= 30_000) {
+              lastMissingEvent = Date.now()
+              api.logEvent(sessionId, 'face_missing', { duration_seconds: Math.round((Date.now() - missingSince) / 1000) }).catch(() => {})
+            }
+          } else if (faces > 1) {
+            missingSince = 0
+            setPresenceState('multiple')
+            if (Date.now() - lastMultipleEvent >= 30_000) {
+              lastMultipleEvent = Date.now()
+              api.logEvent(sessionId, 'multiple_faces', { face_count: faces }).catch(() => {})
+            }
+          } else {
+            missingSince = 0
+            setPresenceState('present')
+          }
+        }
+        sample()
+        timer = window.setInterval(sample, 1000)
+      } catch {
+        setPresenceState('unavailable')
+        api.logEvent(sessionId, 'monitoring_interrupted', { reason: 'camera_or_detector_unavailable' }).catch(() => {})
+      }
+    }
+    void start()
+    return () => {
+      active = false
+      if (timer) window.clearInterval(timer)
+      detector?.close()
+      stream?.getTracks().forEach((track) => track.stop())
+    }
   }, [])
 
   useEffect(() => {
@@ -1787,7 +1861,16 @@ function ExamView(props: {
         }
       }).catch(() => {})
       api.sessionIntegrity(sessionId)
-        .then((integrity) => setIntegrityStatus((integrity.status as IntegrityStatus) || 'CLEAN'))
+        .then((integrity) => {
+          const next = (integrity.status as IntegrityStatus) || 'CLEAN'
+          setIntegrityStatus(next)
+          if (next !== lastIntegrityStatusRef.current && next !== 'CLEAN') {
+            props.notify('warning', next === 'FLAGGED'
+              ? 'Several integrity signals need teacher review. Exam continues; no final decision has been made.'
+              : 'Exam environment warning: return focus to the exam and keep one face visible.')
+          }
+          lastIntegrityStatusRef.current = next
+        })
         .catch(() => {})
     }, 5000)
     return () => window.clearInterval(poll)
@@ -1895,7 +1978,6 @@ function ExamView(props: {
     })
   }
 
-  const answerValid = props.answer.trim().length >= 25
   const requestSubmit = () => {
     saveCurrentAnswer()
     setSubmitOpen(true)
@@ -1936,7 +2018,7 @@ function ExamView(props: {
   }, [])
 
   return (
-    <section className="screen exam-layout" onContextMenu={(event) => { event.preventDefault(); logEvent('right_click'); props.notify('warning', 'Right click prevented and logged as a structured event.') }}>
+    <section className="screen exam-layout">
       <div className="exam-header" aria-live="assertive">
         <strong>{examTitle}</strong>
         <span className={timeLeft < 300 ? 'timer-critical' : ''} style={{ fontSize: '20px', fontFamily: 'JetBrains Mono, monospace' }}>
@@ -1946,9 +2028,17 @@ function ExamView(props: {
         <span className={`badge ${integrityStatus === 'CLEAN' ? 'badge-green' : integrityStatus === 'WATCH' ? 'badge-amber' : 'badge-red'}`} title="Integrity status is informational during the exam. Teacher review remains final."><Shield size={14} /> {integrityStatus} · exam continues</span>
       </div>
 
+      {(integrityStatus !== 'CLEAN' || presenceState === 'missing' || presenceState === 'multiple' || presenceState === 'unavailable') && <div className="student-integrity-warning" role="alert" aria-live="assertive">
+        <AlertTriangle size={18} />
+        <div>
+          <strong>{presenceState === 'multiple' ? 'Only one person should be visible' : presenceState === 'missing' ? 'Return your face to camera view' : presenceState === 'unavailable' ? 'Camera monitoring is unavailable' : 'Integrity notice'}</strong>
+          <span>{integrityStatus === 'FLAGGED' ? 'Multiple signals were recorded for teacher review. This is not a cheating decision, and your exam continues.' : 'Correct the exam environment and continue. Your teacher reviews recorded signals in context.'}</span>
+        </div>
+      </div>}
+
       {examStatus === 'paused' && <div className="connection-card" role="status"><PauseCircle size={16} /> Exam paused by teacher. Timer and answering are temporarily frozen.</div>}
 
-      {questionsLoading ? <div className="empty-state">Loading generated paper...</div> : questionError ? <div className="empty-state"><AlertTriangle size={24} /><strong>Paper could not load</strong><span>{questionError}</span><button className="ghost-btn" onClick={() => window.location.reload()}>Retry</button></div> : null}
+      {questionsLoading ? <div className="empty-state" role="status">Loading generated paper…</div> : questionError ? <div className="empty-state"><AlertTriangle size={24} /><strong>Paper could not load</strong><span>{questionError}</span><button className="ghost-btn" onClick={() => window.location.reload()}>Retry</button></div> : null}
 
       {!questionsLoading && !questionError && <aside className="question-palette" aria-label="Question navigation palette">
         <div className="palette-summary">Answered {answeredCount}/{totalQ}</div>
@@ -2004,7 +2094,7 @@ function ExamView(props: {
                     fontSize: '14px',
                     fontWeight: 500,
                     cursor: 'pointer',
-                    transition: 'all 150ms ease'
+                    transition: 'background-color 150ms ease, border-color 150ms ease, color 150ms ease'
                   }}
                 >
                   <input
@@ -2025,7 +2115,6 @@ function ExamView(props: {
           <div style={{ position: 'relative', width: '100%', marginBottom: '16px' }}>
             <textarea
               aria-label="Answer text"
-              minLength={25}
               value={props.answer}
               disabled={examStatus === 'paused'}
               onChange={(event) => props.setAnswer(event.target.value)}
@@ -2035,7 +2124,7 @@ function ExamView(props: {
                 if (sessionId) api.logEvent(sessionId, 'paste_detected', { question_id: current.id, character_count: pasted.length, bulk_paste: pasted.length >= 80, fullscreen: Boolean(document.fullscreenElement) }).catch(() => {})
                 props.notify('warning', `Paste detected (${pasted.length} characters) and logged for review.`)
               }}
-              placeholder="Type your response here..."
+              placeholder="Type your response here…"
               style={{
                 background: '#F8FAFC',
                 borderColor: '#E2E8F0',
@@ -2054,8 +2143,6 @@ function ExamView(props: {
           </div>
         )}
 
-        {current?.type !== 'MCQ' && !answerValid && <p className="form-error" role="alert" style={{ marginBottom: '16px' }}>Answer needs at least 25 characters before final submit.</p>}
-        
         <div className="inline-actions" style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
           <button disabled={examStatus === 'paused'} className={props.marked ? 'warning-btn' : 'ghost-btn'} style={{ borderColor: '#E2E8F0', color: props.marked ? 'var(--eg-amber)' : '#475569' }} onClick={() => props.setMarked(!props.marked)}>
             <Flag size={16} /> {props.marked ? 'Marked for Review' : 'Mark for Review'}
@@ -2071,8 +2158,7 @@ function ExamView(props: {
         </div>
       </article>}
 
-      {/* Webcam PiP minimal corner element */}
-      <div style={{
+      <div className={`presence-monitor presence-${presenceState}`} aria-live="polite" title="Camera frames stay on this device. Only sustained presence events are recorded." style={{
         position: 'fixed',
         bottom: '24px',
         right: '24px',
@@ -2089,10 +2175,8 @@ function ExamView(props: {
         overflow: 'hidden',
         boxShadow: 'var(--shadow-elevated)'
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%', height: '100%', position: 'relative' }}>
-          <Camera size={20} style={{ color: 'rgba(255, 255, 255, 0.6)' }} />
-          <span style={{ fontSize: '9px', color: 'rgba(255, 255, 255, 0.6)', marginLeft: '4px', fontFamily: 'monospace' }}>Liveness passed</span>
-        </div>
+        <video ref={monitorVideoRef} muted playsInline aria-label="Local presence camera preview" style={{ width: '100%', height: '100%', objectFit: 'cover', transform: 'scaleX(-1)' }} />
+        <span className="presence-label">{presenceState === 'present' ? 'Presence active' : presenceState === 'missing' ? 'Face not visible' : presenceState === 'multiple' ? 'Multiple faces' : presenceState === 'unavailable' ? 'Monitor unavailable' : 'Starting monitor…'}</span>
       </div>
 
       {submitOpen && (
@@ -2376,8 +2460,8 @@ function ReportsView({ examId, students, notify }: { examId: string; students: a
 }
 
 function SettingsView({ auth, onSaveSettings, notify }: { auth: AuthUser | null; onSaveSettings: (newName: string) => void; notify: (kind: ToastKind, text: string) => void }) {
-  const [displayName, setDisplayName] = useState(auth?.name || 'Rajan Kumar')
-  const [instituteName, setInstituteName] = useState('IIT Coaching Delhi')
+  const [displayName, setDisplayName] = useState(auth?.name || '')
+  const [instituteName, setInstituteName] = useState('')
   const [newPassword, setNewPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const strongPassword = newPassword.length >= 8 && /[A-Z]/.test(newPassword) && /\d/.test(newPassword)
@@ -2436,7 +2520,6 @@ function SettingsView({ auth, onSaveSettings, notify }: { auth: AuthUser | null;
       </Card>
 
       <Card title="Password reset" icon={Lock}>
-        <p className="muted" style={{ fontSize: '12px', marginTop: 0 }}>The sample password <code>demo123</code> is for the local demo environment only and is never used as a production password.</p>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', marginBottom: '16px' }}>
           <div>
             <label>New Password</label>
@@ -2578,7 +2661,7 @@ function StudentTile({ student, selected, onClick }: { student: any; selected: b
         overflow: 'hidden'
       }}
     >
-      {/* Simulated Webcam Viewport */}
+      {/* Privacy-safe presence state; raw camera frames are not shown to teachers. */}
       <div style={{
         position: 'relative',
         width: '100%',

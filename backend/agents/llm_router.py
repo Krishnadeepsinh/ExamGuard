@@ -129,6 +129,34 @@ def parse_question_json(raw: str) -> list[dict[str, Any]]:
     return [item for item in data if isinstance(item, dict) and str(item.get("text", "")).strip()]
 
 
+def question_quality_errors(question: dict[str, Any], question_type: str) -> list[str]:
+    """Reject malformed, source-leaking, or low-value generated questions."""
+    errors: list[str] = []
+    text = str(question.get("text", "")).strip()
+    answer = str(question.get("correct_answer", "")).strip()
+    options = question.get("options") or []
+    lowered = text.lower()
+    banned = ("according to the material", "according to the source", "uploaded material", "source 1", "the passage")
+    if len(text) < 18 or not text.endswith(("?", ".")):
+        errors.append("question text is incomplete")
+    if any(phrase in lowered for phrase in banned):
+        errors.append("question refers to source material")
+    if not answer:
+        errors.append("answer or marking guide is missing")
+    if question_type == "MCQ":
+        if not isinstance(options, list) or len(options) != 4:
+            errors.append("MCQ must contain exactly four options")
+        elif len({str(option).strip().casefold() for option in options}) != 4:
+            errors.append("MCQ options must be distinct")
+        elif answer not in options:
+            errors.append("MCQ answer must exactly match one option")
+    elif question_type == "Fill Blank" and "_____" not in text:
+        errors.append("fill-blank question needs one blank")
+    elif question_type == "True/False" and answer.casefold() not in {"true", "false"}:
+        errors.append("true/false answer must be True or False")
+    return errors
+
+
 gemini_router = GeminiRouter()
 
 
@@ -163,7 +191,21 @@ For subjective questions, correct_answer is a concise marking guide grounded in 
 SOURCE MATERIAL:
 {excerpts}
 """
-    questions = parse_question_json(gemini_router.generate(prompt))
-    if len(questions) != count:
-        raise ValueError(f"Gemini returned {len(questions)} questions; expected {count}")
-    return questions
+    last_errors: list[str] = []
+    for attempt in range(2):
+        retry_note = "" if attempt == 0 else f"\nPrevious response failed validation: {'; '.join(last_errors)}. Repair every issue."
+        questions = parse_question_json(gemini_router.generate(prompt + retry_note))
+        last_errors = []
+        if len(questions) != count:
+            last_errors.append(f"returned {len(questions)} questions; expected {count}")
+        normalized_texts: set[str] = set()
+        for index, question in enumerate(questions):
+            errors = question_quality_errors(question, question_type)
+            normalized = " ".join(str(question.get("text", "")).casefold().split())
+            if normalized in normalized_texts:
+                errors.append("duplicate question")
+            normalized_texts.add(normalized)
+            last_errors.extend(f"question {index + 1}: {error}" for error in errors)
+        if not last_errors:
+            return questions
+    raise ValueError("Gemini question quality validation failed: " + "; ".join(last_errors[:8]))

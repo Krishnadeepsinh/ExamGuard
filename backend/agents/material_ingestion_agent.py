@@ -93,7 +93,7 @@ def chunk_text_with_chapters(text: str, source_page: int = 1, approx_tokens: int
             headings.append((match.start(), tag))
 
     if not headings:
-        headings.append((0, "Chapter 12: Electromagnetic Induction"))
+        headings.append((0, "Complete source"))
 
     headings.sort(key=lambda x: x[0])
 

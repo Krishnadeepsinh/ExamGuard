@@ -1,7 +1,6 @@
-"""Working local FastAPI app for ExamGuard AI v6.
+"""ExamGuard AI v6 FastAPI application.
 
-This implements the real API contract with an in-memory store. It is suitable
-for local demos and frontend integration while Supabase/Redis/Gemini are wired.
+Uses Supabase in production and an isolated in-memory store for local tests.
 """
 
 from __future__ import annotations
@@ -127,6 +126,18 @@ class DecisionRequest(BaseModel):
 class ProctoringEventRequest(BaseModel):
     event_type: str
     metadata: dict[str, object] = Field(default_factory=dict)
+
+    @field_validator("event_type")
+    @classmethod
+    def validate_event_type(cls, value: str) -> str:
+        allowed = {
+            "tab_switch", "tab_hidden", "window_blur", "fullscreen_exit",
+            "gaze_away", "paste_detected", "right_click", "phone_detected",
+            "audio_spike", "face_missing", "multiple_faces", "monitoring_interrupted",
+        }
+        if value not in allowed:
+            raise ValueError("unsupported proctoring event type")
+        return value
 
 
 class LivenessRequest(BaseModel):
@@ -338,7 +349,9 @@ def generate_paper(request: Request, exam_id: str, teacher: dict[str, object] = 
     if not exam.get("paper_config"):
         raise HTTPException(status_code=422, detail="paper config must be saved before generation")
     try:
-        return store.generate_questions(exam_id)
+        result = store.generate_questions(exam_id)
+        result["agent_trace"] = run_workflow("generate", {"exam_id": exam_id, "question_count": result.get("count", 0)}).get("completed_agents", [])
+        return result
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
@@ -689,6 +702,7 @@ def save_answer(request: Request, session_id: str, payload: AnswerRequest) -> di
     if not payload.answer_text and not payload.selected_option:
         raise HTTPException(status_code=422, detail="answer text or selected option is required")
     answer = store.save_answer(session_id, payload.model_dump())
+    run_workflow("answer", {"session_id": session_id, "question_id": payload.question_id})
     redis_hot_state.push_event(f"exam:{session['exam_id']}:events", {"type": "answer_saved", "session_id": session_id, "question_id": payload.question_id}, ttl_seconds=10800)
     return answer
 
@@ -698,6 +712,7 @@ def end_session(session_id: str) -> dict[str, object]:
     session = require_session(session_id)
     if hasattr(store, "evaluate_session"):
         store.evaluate_session(session_id)
+    run_workflow("finish", {"session_id": session_id})
     updated = store.update_session(session_id, {"status": "ended", "ended_at": store.appeal_deadline()})
     return store.normalize_session(updated)
 

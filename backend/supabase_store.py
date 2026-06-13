@@ -53,44 +53,6 @@ class SupabaseStore:
             detail = exc.read().decode("utf-8", errors="ignore")
             raise RuntimeError(detail or exc.reason) from exc
 
-    def ensure_demo_seed(self) -> None:
-        admin_payload = json.dumps({
-            "email": "teacher@demo.examguard.ai", "password": "demo123", "email_confirm": True,
-            "user_metadata": {"role": "teacher", "display_name": "Rajan Kumar"},
-        }).encode("utf-8")
-        admin_request = request.Request(
-            f"{self.url}/auth/v1/admin/users", data=admin_payload, method="POST",
-            headers={"apikey": self.key, "Authorization": f"Bearer {self.key}", "Content-Type": "application/json"},
-        )
-        try:
-            with request.urlopen(admin_request, timeout=20):
-                pass
-        except error.HTTPError as exc:
-            if exc.code not in {400, 422}:
-                raise
-        existing_teachers = self.rest("GET", "users", query="?email=eq.teacher%40demo.examguard.ai&role=eq.teacher")
-        teacher = existing_teachers[0] if existing_teachers else self.rest("POST", "users", {
-            "email": "teacher@demo.examguard.ai", "display_name": "Rajan Kumar", "role": "teacher",
-            "institute_name": "Demo Institute", "baseline_answer_count": 0,
-        })[0]
-        existing = self.rest("GET", "exams", query=f"?teacher_id=eq.{teacher['id']}&join_code=eq.PHY001")
-        if existing:
-            return
-        exam = self.create_exam(teacher["id"], {
-            "title": "Physics XI - Electromagnetism",
-            "subject": "Physics",
-            "duration_minutes": 80,
-            "total_marks": 80,
-        })
-        self.rest("PATCH", "exams", {"join_code": "PHY001"}, query=f"?id=eq.{exam['id']}")
-        sample_text = (
-            "Chapter 12 Electromagnetic Induction explains magnetic flux, induced EMF, Faraday law, "
-            "Lenz law, and applications. Chapter 13 Alternating Current explains AC voltage, RMS value, "
-            "reactance, resonance, and transformers. Chapter 14 Electromagnetic Waves explains displacement "
-            "current, wave propagation, spectrum, and practical uses. "
-        ) * 70
-        self.add_material(exam["id"], "NCERT Physics Ch 12-14.txt", sample_text.encode("utf-8"))
-
     def auth_request(self, path: str, payload: dict[str, Any]) -> dict[str, Any]:
         req = request.Request(
             f"{self.url}/auth/v1/{path}", data=json.dumps(payload).encode("utf-8"), method="POST",
@@ -360,7 +322,6 @@ class SupabaseStore:
         if not chunks:
             raise ValueError("Uploaded material has no usable chunks. Re-upload a readable PDF, DOCX, or TXT file.")
         questions: list[dict[str, Any]] = []
-        fallback_count = 0
         for section_index, section in enumerate(config["sections"]):
             chapter_tag = section.get("chapter_tag")
             topic_tag = section.get("topic_tag")
@@ -385,9 +346,11 @@ class SupabaseStore:
                         section.get("level") or config["overall_level"], section["bloom"],
                         section["marks_each"], matching[batch_start:batch_start + 8] or matching[:8],
                     ))
-                except (RuntimeError, ValueError, json.JSONDecodeError):
-                    fallback_count += batch_count
-                    generated_items.extend({} for _ in range(batch_count))
+                except (RuntimeError, ValueError, json.JSONDecodeError) as exc:
+                    raise RuntimeError(
+                        f"Question generation failed quality checks for section {section['id']}. "
+                        "No placeholder paper was saved; retry generation."
+                    ) from exc
 
             for index in range(section["count"]):
                 if matching:
@@ -406,9 +369,8 @@ class SupabaseStore:
                     scope_label = "Complete Syllabus"
                     
                 generated = generated_items[index] if index < len(generated_items) else {}
-                source_excerpt = " ".join(str(source.get("chunk_text", "")).split()[:24])
-                if not generated and source_excerpt:
-                    generated = self.source_fallback(section["type"], source_excerpt)
+                if not generated:
+                    raise RuntimeError(f"Question generation returned an empty item for section {section['id']}.")
                 source_number = generated.get("source_number", 1)
                 try:
                     source_number = max(1, min(int(source_number), len(matching)))
@@ -423,10 +385,10 @@ class SupabaseStore:
                     "section_label": section["id"],
                     "section_index": section_index,
                     "question_index": index,
-                    "question_text": str(generated.get("text") or self.question_text(section["type"], scope_label, section.get("level") or config["overall_level"])),
+                    "question_text": str(generated["text"]),
                     "question_type": section["type"],
-                    "options": options if section["type"] == "MCQ" and len(options) == 4 else (["Source-based answer", "Unsupported answer 1", "Unsupported answer 2", "Unsupported answer 3"] if section["type"] == "MCQ" else []),
-                    "correct_answer": str(generated.get("correct_answer") or ("Source-based answer" if section["type"] == "MCQ" else "Answer must cite the concept.")),
+                    "options": options,
+                    "correct_answer": str(generated["correct_answer"]),
                     "marks": section["marks_each"],
                     "blooms_level": section["bloom"],
                     "chapter_tag": chapter_tag,
@@ -445,26 +407,8 @@ class SupabaseStore:
         return {
             "status": "generated", "count": len(created),
             "questions": [self.normalize_question(item) for item in created],
-            "llm": gemini_router.status(), "fallback_count": fallback_count,
+            "llm": gemini_router.status(), "fallback_count": 0,
         }
-
-    def question_text(self, question_type: str, chapter: str, level: str) -> str:
-        if question_type == "MCQ":
-            return f"Which option best explains the central concept in {chapter}?"
-        if question_type == "Fill Blank":
-            return f"Complete the key {chapter} concept: _____."
-        if question_type == "True/False":
-            return f"True or False: Apply the core principle from {chapter} to the stated case."
-        return f"Explain and apply a key concept from {chapter} at {level.lower()} level."
-
-    def source_fallback(self, question_type: str, excerpt: str) -> dict[str, Any]:
-        if question_type == "MCQ":
-            return {"text": "Which option correctly describes this concept?", "options": [excerpt, "The concept always produces the opposite result.", "The concept has no practical application.", "The concept is unrelated to the subject."], "correct_answer": excerpt}
-        if question_type == "True/False":
-            return {"text": f'True or False: {excerpt}', "options": [], "correct_answer": "True"}
-        if question_type == "Fill Blank":
-            return {"text": f'Complete the concept: "{excerpt[:80]} _____"', "options": [], "correct_answer": excerpt}
-        return {"text": f'Explain the concept and its significance: "{excerpt}"', "options": [], "correct_answer": excerpt}
 
     def normalize_question(self, question: dict[str, Any]) -> dict[str, Any]:
         return {
@@ -511,8 +455,8 @@ class SupabaseStore:
         existing = self.rest("GET", "exam_sessions", query=f"?exam_id=eq.{exams[0]['id']}&student_id=eq.{user['id']}")
         if existing:
             return self.normalize_session(existing[0], student_name)
-        factors = {"behavioral": 92, "perplexity": 84, "stylometric": 89, "answer_quality": 91, "time_anomaly": 76}
-        integrity = compute_integrity_score(factors, baseline_tier=1)
+        factors = {"behavioral": 100, "perplexity": 100, "stylometric": 100, "answer_quality": 100, "time_anomaly": 100}
+        integrity = compute_integrity_score(factors, baseline_tier=3)
         session = self.rest("POST", "exam_sessions", {
             "exam_id": exams[0]["id"],
             "student_id": user["id"],
@@ -631,14 +575,16 @@ class SupabaseStore:
             "session_id": session_id,
             "event_type": event_type,
             "event_data": metadata,
-            "score_impact": impact_for(event_type),
+            "score_impact": impact_for(event_type, metadata),
             "severity": severity,
         })[0]
-        rows = self.rest("GET", "integrity_events", query=f"?session_id=eq.{session_id}&select=event_type") or []
-        behavioral = behavioral_score([{"type": row["event_type"]} for row in rows])
-        factors = {"behavioral": behavioral, "perplexity": 84, "stylometric": 89, "answer_quality": 91, "time_anomaly": 76}
-        event_types = [{"type": row["event_type"]} for row in rows]
-        result = compute_integrity_score(factors, baseline_tier=1)
+        rows = self.rest("GET", "integrity_events", query=f"?session_id=eq.{session_id}&select=event_type,event_data") or []
+        event_types = [{"type": row["event_type"], "metadata": row.get("event_data") or {}} for row in rows]
+        behavioral = behavioral_score(event_types)
+        factors = {"behavioral": behavioral, "perplexity": 100, "stylometric": 100, "answer_quality": 100, "time_anomaly": 100}
+        session = self.require_session(session_id)
+        baseline_tier = int(session.get("baseline_tier") or 3)
+        result = compute_integrity_score(factors, baseline_tier=baseline_tier)
         if has_critical_pattern(event_types):
             result = {**result, "score": min(float(result["score"]), 45.0), "status": "FLAGGED"}
         patch: dict[str, Any] = {"integrity_score": result["score"], "integrity_state": result["status"], "integrity_ci": result["ci"]}

@@ -5,7 +5,7 @@ ExamGuard AI is a syllabus-aware exam platform for teachers, coaching institutes
 **Product positioning:** privacy-first online exams with AI-assisted paper generation and teacher-controlled integrity review.  
 **Local app:** `frontend/`  
 **Sample access:** teacher and student roles are available from the home page.  
-**FAR AWAY 2026 alignment:** Examinations + Agentic & Autonomous Systems through a 10-agent LangGraph workflow.
+**FAR AWAY 2026 alignment:** Examinations + Agentic & Autonomous Systems through a 10-stage LangGraph workflow. Each named stage has a dedicated module; deterministic stages coordinate service functions and are not presented as ten independent LLMs.
 
 ## Quick Start
 
@@ -63,8 +63,7 @@ python scripts/seed_demo.py
 
 Teacher access:
 
-- Email: `teacher@demo.examguard.ai`
-- Password: `demo123`
+- Create a teacher account through the sign-up screen. Production ships without embedded credentials or seeded users.
 - Opens: dashboard, paper config, live monitor, review, reports, settings.
 
 Student access:

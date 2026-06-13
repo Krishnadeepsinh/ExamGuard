@@ -1,6 +1,6 @@
 # ExamGuard AI - 10 Agent Reference
 
-Each agent is a named node in the planned LangGraph StateGraph. Judges should be able to open `backend/agents/graph.py` and verify the full topology.
+Each agent is a named stage in the executable LangGraph StateGraph. Judges can open `backend/agents/graph.py` and verify topology and traces. These are specialized workflow stages: generation may call Gemini, while validation, scoring, routing, reporting, and review logic are deterministic Python components.
 
 | Agent | File | Trigger | Key Decision |
 | --- | --- | --- | --- |

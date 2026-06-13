@@ -6,13 +6,27 @@ from backend.agents.constants import status_for_score
 from backend.agents.orchestrator_agent import compute_integrity_score
 from backend.agents.review_agent import expire_appeal_without_response
 from backend.agents.paper_config_agent import validate_paper_config
-from backend.agents.graph import run_workflow
+from backend.agents.graph import AGENT_NODES, run_workflow
 from backend.agents.evaluation_agent import grade_objective, grade_subjective
 from backend.store import LocalStore
-from backend.main import student_safe_question
+from backend.main import ProctoringEventRequest, student_safe_question
+from backend.agents.llm_router import question_quality_errors
+from pydantic import ValidationError
 
 
 class IntegrityPolicyTests(unittest.TestCase):
+    def test_question_quality_rejects_source_leaks_and_bad_mcq(self) -> None:
+        errors = question_quality_errors({
+            "text": "According to the material, choose",
+            "options": ["A", "A", "B"],
+            "correct_answer": "C",
+        }, "MCQ")
+        self.assertTrue(errors)
+
+    def test_proctoring_event_allowlist_rejects_forged_type(self) -> None:
+        with self.assertRaises(ValidationError):
+            ProctoringEventRequest(event_type="set_score_to_zero", metadata={})
+
     def test_objective_and_subjective_grading_are_bounded(self) -> None:
         self.assertEqual(grade_objective("SELECT", "SELECT", 2)["score"], 2)
         subjective = grade_subjective("A transaction uses commit and rollback for atomic changes", "commit rollback atomic transaction", 5)
@@ -62,6 +76,17 @@ class IntegrityPolicyTests(unittest.TestCase):
 class StoreBehaviorTests(unittest.TestCase):
     def setUp(self) -> None:
         self.store = LocalStore()
+        self.store.users["teacher-demo"] = {
+            "id": "teacher-demo", "email": "teacher@example.test", "display_name": "Test Teacher",
+            "role": "teacher", "institute": "Test Institute", "baseline_answer_count": 0,
+        }
+        self.store.exams["exam-physics"] = {
+            "id": "exam-physics", "teacher_id": "teacher-demo", "title": "Test Exam", "subject": "Test Subject",
+            "duration_minutes": 60, "total_marks": 80, "join_code": "PHY001", "status": "draft",
+            "paper_config": {}, "activated_at": None, "ended_at": None, "created_at": "2026-01-01T00:00:00+00:00",
+        }
+        source = ("Chapter 1 Fundamentals explains definitions, examples, applications, and evaluation methods. ") * 100
+        self.store.add_material("exam-physics", "fixture.txt", source.encode("utf-8"))
 
     def test_clone_gets_new_code_and_no_sessions(self) -> None:
         source = self.store.exams["exam-physics"]
@@ -133,6 +158,12 @@ class StoreBehaviorTests(unittest.TestCase):
             "proctoring_agent", "orchestrator_agent", "review_agent", "report_agent",
         ])
 
+    def test_all_ten_agent_stages_are_reachable(self) -> None:
+        completed: set[str] = set()
+        for workflow in ("ingest", "generate", "proctor", "answer", "finish"):
+            completed.update(run_workflow(workflow, {}, "FLAGGED")["completed_agents"])
+        self.assertEqual(completed, set(AGENT_NODES))
+
     def test_proctoring_events_change_integrity_status(self) -> None:
         self.store.exams["exam-physics"]["status"] = "active"
         session = self.store.join_session("PHY001", "Risk Student", "risk@student.ai")
@@ -141,13 +172,16 @@ class StoreBehaviorTests(unittest.TestCase):
         self.store.log_integrity_event(session["id"], "window_blur", {})
         updated = self.store.sessions[session["id"]]["integrity"]
         self.assertLess(updated["score"], initial)
-        self.assertIn(updated["status"], {"WATCH", "WARN", "FLAGGED"})
+        self.assertNotEqual(updated["status"], "FLAGGED")
 
     def test_multi_vector_cheating_pattern_is_flagged(self) -> None:
         self.store.exams["exam-physics"]["status"] = "active"
         session = self.store.join_session("PHY001", "Pattern Student", "pattern@student.ai")
-        for event in ("tab_hidden", "tab_hidden", "paste_detected", "fullscreen_exit"):
-            self.store.log_integrity_event(session["id"], event, {})
+        for event, metadata in (
+            ("tab_hidden", {}), ("tab_hidden", {}), ("tab_hidden", {}),
+            ("paste_detected", {"bulk_paste": True}), ("fullscreen_exit", {}),
+        ):
+            self.store.log_integrity_event(session["id"], event, metadata)
         updated = self.store.sessions[session["id"]]["integrity"]
         self.assertEqual(updated["status"], "FLAGGED")
         self.assertLess(updated["score"], 50)
