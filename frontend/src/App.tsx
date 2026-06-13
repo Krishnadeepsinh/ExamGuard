@@ -1973,13 +1973,18 @@ function ExamView(props: {
   const [questionsLoading, setQuestionsLoading] = useState(true)
   const [answers, setAnswers] = useState<Record<string, string>>({})
   const [timeLeft, setTimeLeft] = useState(0)
+  const [timerReady, setTimerReady] = useState(false)
   const [examStatus, setExamStatus] = useState('active')
   const [integrityStatus, setIntegrityStatus] = useState<IntegrityStatus>('CLEAN')
+  const [integrityWarnings, setIntegrityWarnings] = useState(0)
+  const [integrityLocked, setIntegrityLocked] = useState(false)
   const [lastSave, setLastSave] = useState<number>(Date.now())
   const [saveWarning, setSaveWarning] = useState('')
   const [submitOpen, setSubmitOpen] = useState(false)
   const [presenceState, setPresenceState] = useState<'starting' | 'present' | 'missing' | 'multiple' | 'unavailable'>('starting')
   const lastIntegrityStatusRef = useRef<IntegrityStatus>('CLEAN')
+  const lastWarningCountRef = useRef(0)
+  const integrityLockedRef = useRef(false)
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const autoSaveRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const expirySubmitStarted = useRef(false)
@@ -2014,6 +2019,7 @@ function ExamView(props: {
               const deadline = authoritativeDeadline || (savedDeadline > Date.now() ? savedDeadline : Date.now() + exam.duration_minutes * 60_000)
               window.localStorage.setItem(deadlineKey, String(deadline))
               setTimeLeft(Math.max(0, Math.ceil((deadline - (Date.now() + serverClockOffsetRef.current)) / 1000)))
+              setTimerReady(true)
             }
           })
           .catch(() => {})
@@ -2021,7 +2027,12 @@ function ExamView(props: {
       api.sessionIntegrity(sessionId)
         .then((integrity) => {
           const next = (integrity.status as IntegrityStatus) || 'CLEAN'
+          const warningCount = Number(integrity.warning_count || 0)
           setIntegrityStatus(next)
+          setIntegrityWarnings(warningCount)
+          setIntegrityLocked(Boolean(integrity.locked_for_review))
+          lastWarningCountRef.current = warningCount
+          integrityLockedRef.current = Boolean(integrity.locked_for_review)
           if (next !== lastIntegrityStatusRef.current && next !== 'CLEAN') {
             props.notify('warning', next === 'FLAGGED'
               ? 'Several integrity signals need teacher review. Exam continues; no final decision has been made.'
@@ -2158,7 +2169,21 @@ function ExamView(props: {
       api.sessionIntegrity(sessionId)
         .then((integrity) => {
           const next = (integrity.status as IntegrityStatus) || 'CLEAN'
+          const warningCount = Number(integrity.warning_count || 0)
+          const locked = Boolean(integrity.locked_for_review)
           setIntegrityStatus(next)
+          setIntegrityWarnings(warningCount)
+          setIntegrityLocked(locked)
+          if (warningCount > lastWarningCountRef.current && !locked) {
+            props.notify('warning', warningCount >= 2
+              ? 'Final integrity warning (2 of 2). Correct the exam environment and continue.'
+              : 'Integrity warning (1 of 2). Return focus and keep one face visible.')
+          }
+          if (locked && !integrityLockedRef.current) {
+            props.notify('error', 'Exam paused for teacher review. Your saved answers are preserved.')
+          }
+          lastWarningCountRef.current = warningCount
+          integrityLockedRef.current = locked
           if (next !== lastIntegrityStatusRef.current && next !== 'CLEAN') {
             props.notify('warning', next === 'FLAGGED'
               ? 'Several integrity signals need teacher review. Exam continues; no final decision has been made.'
@@ -2231,7 +2256,7 @@ function ExamView(props: {
   }, [current, q, props.answer, answers])
 
   useEffect(() => {
-    if (timeLeft !== 0 || expirySubmitStarted.current) return
+    if (!timerReady || timeLeft !== 0 || expirySubmitStarted.current) return
     expirySubmitStarted.current = true
     const submitExpiredExam = async () => {
       await saveCurrentAnswer()
@@ -2248,7 +2273,7 @@ function ExamView(props: {
       }
     }
     submitExpiredExam()
-  }, [timeLeft, saveCurrentAnswer, props])
+  }, [timerReady, timeLeft, saveCurrentAnswer, props])
 
   const goToQuestion = (idx: number) => {
     saveCurrentAnswer()
@@ -2312,15 +2337,26 @@ function ExamView(props: {
     }
   }, [])
 
+  if (integrityLocked) return (
+    <section className="screen">
+      <div className="liveness-card" role="alert" style={{ textAlign: 'center' }}>
+        <AlertTriangle size={42} />
+        <h2>Exam paused for teacher review</h2>
+        <p className="muted">Multiple independent signals were recorded after two warnings. Your saved answers are preserved. This is not a final cheating decision; your teacher must review the evidence.</p>
+        <span className="badge badge-red">Integrity review required</span>
+      </div>
+    </section>
+  )
+
   return (
     <section className="screen exam-layout">
       <div className="exam-header" aria-live="assertive">
         <strong>{examTitle}</strong>
         <span className={timeLeft < 300 ? 'timer-critical' : ''} style={{ fontSize: '20px', fontFamily: 'JetBrains Mono, monospace' }}>
-          <Timer size={20} /> {formatTime(timeLeft)}
+          <Timer size={20} /> {timerReady ? formatTime(timeLeft) : '--:--'}
         </span>
         <span className="save-state"><Check size={16} /> Saved {secondsSinceSave}s ago</span>
-        <span className={`badge ${integrityStatus === 'CLEAN' ? 'badge-green' : integrityStatus === 'WATCH' ? 'badge-amber' : 'badge-red'}`} title="Integrity status is informational during the exam. Teacher review remains final."><Shield size={14} /> {integrityStatus} · exam continues</span>
+        <span className={`badge ${integrityStatus === 'CLEAN' ? 'badge-green' : integrityStatus === 'WATCH' ? 'badge-amber' : 'badge-red'}`} title="Integrity status is informational during the exam. Teacher review remains final."><Shield size={14} /> {integrityStatus} · warnings {integrityWarnings}/2</span>
       </div>
 
       {(integrityStatus !== 'CLEAN' || presenceState === 'missing' || presenceState === 'multiple' || presenceState === 'unavailable') && <div className="student-integrity-warning" role="alert" aria-live="assertive">

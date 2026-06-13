@@ -139,7 +139,19 @@ class StoreBehaviorTests(unittest.TestCase):
         self.store.log_integrity_event(session["id"], "tab_hidden", {})
         self.store.log_integrity_event(session["id"], "tab_hidden", {})
         self.store.log_integrity_event(session["id"], "paste_detected", {"bulk_paste": True})
+        self.assertFalse(self.store.sessions[session["id"]].get("locked_for_review", False))
+        self.store.log_integrity_event(session["id"], "multiple_faces", {"face_count": 2})
         self.assertTrue(self.store.sessions[session["id"]]["locked_for_review"])
+
+    def test_accidental_focus_loss_warns_but_never_locks(self) -> None:
+        self.store.exams["exam-physics"]["status"] = "active"
+        session = self.store.join_session("PHY001", "Careful Student", "careful@student.ai")
+        first = self.store.log_integrity_event(session["id"], "tab_hidden", {})
+        self.assertEqual(first["warning_count"], 1)
+        self.assertFalse(first["locked_for_review"])
+        second = self.store.log_integrity_event(session["id"], "window_blur", {})
+        self.assertEqual(second["warning_count"], 1)
+        self.assertFalse(second["locked_for_review"])
 
     def test_generation_requires_uploaded_material(self) -> None:
         exam = self.store.create_exam("teacher-demo", {
@@ -294,7 +306,7 @@ class StoreBehaviorTests(unittest.TestCase):
         session = self.store.join_session("PHY001", "Pattern Student", "pattern@student.ai")
         for event, metadata in (
             ("tab_hidden", {}), ("tab_hidden", {}), ("tab_hidden", {}),
-            ("paste_detected", {"bulk_paste": True}), ("fullscreen_exit", {}),
+            ("paste_detected", {"bulk_paste": True}), ("multiple_faces", {"face_count": 2}),
         ):
             self.store.log_integrity_event(session["id"], event, metadata)
         updated = self.store.sessions[session["id"]]["integrity"]

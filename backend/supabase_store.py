@@ -19,7 +19,7 @@ from backend.agents.llm_router import generate_grounded_questions, gemini_router
 from backend.agents.evaluation_agent import grade_objective, grade_subjective
 from backend.agents.orchestrator_agent import compute_integrity_score
 from backend.agents.paper_config_agent import generate_join_code, validate_paper_config
-from backend.agents.proctoring_agent import behavioral_score, has_critical_pattern, impact_for
+from backend.agents.proctoring_agent import behavioral_score, has_critical_pattern, impact_for, integrity_warning_count
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
 from backend.store import build_pdf_report
@@ -550,6 +550,11 @@ class SupabaseStore:
             "expires_at": session.get("expires_at"),
         }
 
+    def session_warning_count(self, session_id: str) -> int:
+        rows = self.rest("GET", "integrity_events", query=f"?session_id=eq.{session_id}&select=event_type,event_data") or []
+        events = [{"type": row["event_type"], "metadata": row.get("event_data") or {}} for row in rows]
+        return integrity_warning_count(events)
+
     def require_session(self, session_id: str) -> dict[str, Any]:
         rows = self.rest("GET", "exam_sessions", query=f"?id=eq.{session_id}")
         if not rows:
@@ -669,7 +674,8 @@ class SupabaseStore:
         }
         baseline_tier = int(session.get("baseline_tier") or 3)
         result = compute_integrity_score(factors, baseline_tier=baseline_tier)
-        critical_pattern = has_critical_pattern(event_types)
+        warning_count = integrity_warning_count(event_types)
+        critical_pattern = has_critical_pattern(event_types) and integrity_warning_count(event_types[:-1]) >= 2
         if critical_pattern:
             result = {**result, "score": min(float(result["score"]), 45.0), "status": "FLAGGED"}
         patch: dict[str, Any] = {"integrity_score": result["score"], "integrity_state": result["status"], "integrity_ci": result["ci"], "integrity_factors": factors}
@@ -678,7 +684,7 @@ class SupabaseStore:
         if critical_pattern:
             patch["locked_for_review"] = True
         self.update_session(session_id, patch)
-        return {**created, "integrity": result}
+        return {**created, "integrity": result, "warning_count": warning_count, "locked_for_review": critical_pattern or bool(session.get("locked_for_review"))}
 
     def generate_report_pdf(self, session_id: str) -> bytes:
         session_row = self.require_session(session_id)
