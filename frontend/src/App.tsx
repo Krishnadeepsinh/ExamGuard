@@ -2014,11 +2014,13 @@ function ExamView(props: {
               const deadlineKey = `examguard-deadline-${sessionId}`
               const serverNow = exam.server_now ? Date.parse(exam.server_now) : Date.now()
               serverClockOffsetRef.current = serverNow - Date.now()
-              const authoritativeDeadline = exam.expires_at ? Date.parse(exam.expires_at) : 0
-              const savedDeadline = Number(window.localStorage.getItem(deadlineKey))
-              const deadline = authoritativeDeadline || (savedDeadline > Date.now() ? savedDeadline : Date.now() + exam.duration_minutes * 60_000)
+              const serverRemaining = typeof exam.remaining_seconds === 'number' ? exam.remaining_seconds : null
+              const authoritativeDeadline = serverRemaining !== null ? Date.now() + serverRemaining * 1000 : (exam.expires_at ? Date.parse(exam.expires_at) : 0)
+              const deadline = Number.isFinite(authoritativeDeadline) && authoritativeDeadline > 0
+                ? authoritativeDeadline
+                : Date.now() + exam.duration_minutes * 60_000
               window.localStorage.setItem(deadlineKey, String(deadline))
-              setTimeLeft(Math.max(0, Math.ceil((deadline - (Date.now() + serverClockOffsetRef.current)) / 1000)))
+              setTimeLeft(serverRemaining !== null ? serverRemaining : Math.max(1, Math.ceil((deadline - Date.now()) / 1000)))
               setTimerReady(true)
             }
           })
@@ -2161,7 +2163,7 @@ function ExamView(props: {
       api.sessionExam(sessionId).then((exam) => {
         setExamStatus(exam.status)
         if (exam.status === 'ended') {
-          api.endSession(sessionId).catch(() => {})
+          api.endSession(sessionId, 'teacher_ended').catch(() => {})
           props.notify('info', 'Teacher ended the exam. Your saved answers were submitted.')
           props.go('complete')
         }
@@ -2263,7 +2265,7 @@ function ExamView(props: {
       const sessionId = studentSessionId()
       if (!sessionId) return
       try {
-        await api.endSession(sessionId)
+        await api.endSession(sessionId, 'expired')
         window.localStorage.removeItem(`examguard-answers-${sessionId}`)
         props.notify('info', 'Time expired. Your exam was submitted automatically.')
         props.go('complete')
