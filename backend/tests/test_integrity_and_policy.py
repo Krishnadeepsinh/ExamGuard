@@ -195,6 +195,39 @@ class StoreBehaviorTests(unittest.TestCase):
         with self.assertRaises(PermissionError):
             self.store.join_session(exam["join_code"], "Draft Student", "draft@example.com")
 
+    def test_same_student_resumes_unfinished_attempt_and_cannot_restart_submitted_exam(self) -> None:
+        self.store.exams["exam-physics"]["status"] = "active"
+        user = self.store.ensure_student("resume@example.com", "Resume Student")
+        first = self.store.join_session("PHY001", "Resume Student", user["email"], user["id"])
+        resumed = self.store.join_session("PHY001", "Resume Student", user["email"], user["id"])
+        self.assertEqual(first["id"], resumed["id"])
+        self.store.update_session(first["id"], {"status": "ended"})
+        submitted = self.store.join_session("PHY001", "Resume Student", user["email"], user["id"])
+        self.assertEqual(first["id"], submitted["id"])
+        self.assertTrue(submitted["already_submitted"])
+
+    def test_generated_paper_keeps_generated_status(self) -> None:
+        exam = self.store.exams["exam-physics"]
+        exam["paper_config"] = {
+            "material_id": next(iter(self.store.materials)), "overall_level": "Standard",
+            "sections": [{"id": "A", "type": "MCQ", "count": 1, "marks_each": 10, "bloom": "Understand", "chapter_tag": "All syllabus", "level": "Standard"}],
+        }
+        import backend.store as store_module
+        original = store_module.generate_grounded_questions
+        store_module.generate_grounded_questions = lambda *args, **kwargs: [{"text": "Grounded?", "options": ["A", "B", "C", "D"], "correct_answer": "A"}]
+        try:
+            self.store.generate_questions(exam["id"])
+        finally:
+            store_module.generate_grounded_questions = original
+        self.assertEqual(exam["status"], "generated")
+        self.assertTrue(exam["questions_generated"])
+
+    def test_long_answer_length_without_relevant_concepts_gets_no_marks(self) -> None:
+        irrelevant = "beautiful unrelated sentence " * 80
+        result = grade_subjective(irrelevant, "photosynthesis converts light energy using chlorophyll into chemical energy", 10, "Long Answer")
+        self.assertEqual(result["score"], 0)
+        self.assertIn("concept_coverage", result["rubric"])
+
     def test_scheduling_requires_generated_questions(self) -> None:
         exam = self.store.create_exam("teacher-demo", {
             "title": "Scheduled Draft", "subject": "SQL", "duration_minutes": 60, "total_marks": 20,

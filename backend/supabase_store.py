@@ -323,6 +323,8 @@ class SupabaseStore:
             "total_marks": config["total_marks"],
             "paper_config": config,
             "config_validated": True,
+            "questions_generated": False,
+            "status": "draft",
         }, query=f"?id=eq.{exam_id}")[0]
         return {"status": "saved", "exam": self.normalize_exam(exam), "validation": validation}
 
@@ -425,7 +427,7 @@ class SupabaseStore:
             created = self.rest("POST", "questions", questions)
         else:
             created = []
-        self.rest("PATCH", "exams", {"questions_generated": True, "status": "draft"}, query=f"?id=eq.{exam_id}")
+        self.rest("PATCH", "exams", {"questions_generated": True, "status": "generated"}, query=f"?id=eq.{exam_id}")
         return {
             "status": "generated", "count": len(created),
             "questions": [self.normalize_question(item) for item in created],
@@ -470,8 +472,8 @@ class SupabaseStore:
         if not questions:
             raise ValueError("Generate and review questions before scheduling the exam.")
         current = self.get_exam(exam_id)
-        if current.get("status") not in {"draft", "scheduled"}:
-            raise ValueError("Only a draft paper can be scheduled.")
+        if current.get("status") not in {"generated", "scheduled"}:
+            raise ValueError("Only a generated paper can be scheduled.")
         return self.normalize_exam(self.rest("PATCH", "exams", {"status": "scheduled", "scheduled_start_at": scheduled_start_at}, query=f"?id=eq.{exam_id}")[0])
 
     def end_exam(self, exam_id: str) -> dict[str, Any]:
@@ -480,7 +482,7 @@ class SupabaseStore:
         self.rest("PATCH", "exam_sessions", {"status": "ended", "ended_at": ended_at}, query=f"?exam_id=eq.{exam_id}&status=neq.ended")
         return self.normalize_exam(exam)
 
-    def join_session(self, join_code: str, student_name: str, email: str | None) -> dict[str, Any]:
+    def join_session(self, join_code: str, student_name: str, email: str | None, student_id: str | None = None) -> dict[str, Any]:
         exams = self.rest("GET", "exams", query=f"?join_code=eq.{join_code}")
         if not exams:
             raise KeyError("Invalid join code.")
@@ -490,16 +492,19 @@ class SupabaseStore:
                 exams[0] = self.activate_exam(str(exams[0]["id"]))
         if exams[0]["status"] != "active":
             raise PermissionError(f"Exam is {exams[0]['status']} and is not accepting students.")
-        student_email = email or f"{student_name.lower().replace(' ', '.')}@student.local"
-        encoded_email = parse.quote(student_email, safe="")
-        users = self.rest("GET", "users", query=f"?email=eq.{encoded_email}&role=eq.student")
-        user = users[0] if users else self.rest("POST", "users", {
-            "email": student_email, "display_name": student_name, "role": "student",
-            "institute_name": "", "baseline_answer_count": 0,
-        })[0]
+        if student_id:
+            users = self.rest("GET", "users", query=f"?id=eq.{student_id}&role=eq.student")
+            if not users:
+                raise PermissionError("Student login is invalid. Sign in again before joining.")
+            user = users[0]
+        else:
+            student_email = email or f"guest-{uuid4().hex}@student.local"
+            user = self.ensure_student(student_email, student_name)
         existing = self.rest("GET", "exam_sessions", query=f"?exam_id=eq.{exams[0]['id']}&student_id=eq.{user['id']}")
         if existing:
-            return self.normalize_session(existing[0], student_name)
+            normalized = self.normalize_session(existing[0], student_name)
+            normalized["already_submitted"] = existing[0].get("status") == "ended"
+            return normalized
         factors = {"behavioral": 100, "perplexity": 100, "stylometric": 100, "answer_quality": 100, "time_anomaly": 100}
         integrity = compute_integrity_score(factors, baseline_tier=3)
         session = self.rest("POST", "exam_sessions", {
@@ -587,8 +592,11 @@ class SupabaseStore:
             if not question:
                 continue
             response = str(answer.get("selected_option") or answer.get("answer_text") or "")
-            grader = grade_objective if question.get("type") in {"MCQ", "True/False", "Fill Blank"} else grade_subjective
-            result = grader(response, str(question.get("correct_answer") or ""), int(question.get("marks", 0)))
+            question_type = str(question.get("type") or "Short Answer")
+            if question_type in {"MCQ", "True/False", "Fill Blank"}:
+                result = grade_objective(response, str(question.get("correct_answer") or ""), int(question.get("marks", 0)))
+            else:
+                result = grade_subjective(response, str(question.get("correct_answer") or ""), int(question.get("marks", 0)), question_type)
             self.rest("PATCH", "answers", {"eval_score": result["score"], "eval_reasoning": result["reasoning"]}, query=f"?id=eq.{answer['id']}")
             earned += float(result["score"])
         return {"earned_marks": round(earned, 2), "total_marks": round(total, 2), "percentage": round(earned / total * 100, 2) if total else 0}
@@ -677,9 +685,12 @@ class SupabaseStore:
         session = self.normalize_session(session_row)
         questions = self.session_questions(session_id)
         answers = self.rest("GET", "answers", query=f"?session_id=eq.{session_id}") or []
+        grade = self.evaluate_session(session_id)
+        answers = self.rest("GET", "answers", query=f"?session_id=eq.{session_id}") or []
+        session["grade"] = grade
         events = self.rest("GET", "integrity_events", query=f"?session_id=eq.{session_id}") or []
         
-        data = build_pdf_report(session, questions, answers, events)
+        data = build_pdf_report(session, questions, answers, events, self.get_exam(str(session["exam_id"])))
         self.reports[session_id] = data
         return data
 
@@ -795,3 +806,14 @@ class SupabaseStore:
         if not updated:
             raise KeyError("user not found")
         return updated[0]
+    def ensure_student(self, email: str, display_name: str) -> dict[str, Any]:
+        encoded = parse.quote(email, safe="")
+        existing = self.rest("GET", "users", query=f"?email=eq.{encoded}&role=eq.student")
+        if existing:
+            if existing[0].get("display_name") != display_name:
+                return self.rest("PATCH", "users", {"display_name": display_name}, query=f"?id=eq.{existing[0]['id']}")[0]
+            return existing[0]
+        return self.rest("POST", "users", {
+            "email": email, "display_name": display_name, "role": "student",
+            "institute_name": "", "baseline_answer_count": 0,
+        })[0]

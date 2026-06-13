@@ -106,6 +106,7 @@ export type ApiExam = {
   total_marks: number
   join_code: string
   status: string
+  questions_generated?: boolean
   paper_config?: Record<string, unknown>
   activated_at?: string | null
   scheduled_start_at?: string | null
@@ -164,6 +165,7 @@ export type ApiSession = {
   grade?: { earned_marks: number; total_marks: number; percentage: number }
   student_access_token?: string
   locked_for_review?: boolean
+  already_submitted?: boolean
 }
 
 export type ApiAnswer = {
@@ -202,6 +204,9 @@ export const api = {
 
   demoLogin: (email: string, password: string) =>
     request<{ user: ApiUser; token: string; demo: boolean }>('/auth/demo', { method: 'POST', body: JSON.stringify({ email, password }) }),
+
+  studentAccess: (studentName: string, email: string, deviceId: string) =>
+    request<{ user: ApiUser; token: string }>('/auth/student-access', { method: 'POST', body: JSON.stringify({ student_name: studentName, email: email || null, device_id: deviceId }) }),
 
   signup: (payload: { email: string; password: string; role: 'teacher' | 'student'; display_name?: string }) =>
     request<{ user: ApiUser; token: string }>('/auth/signup', { method: 'POST', body: JSON.stringify(payload) }),

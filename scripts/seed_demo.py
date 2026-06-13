@@ -17,6 +17,8 @@ DEMO = {
         "arjun@student.ai / demo123 (CLEAN, Tier 1, score 88)",
         "priya@student.ai / demo123 (FLAGGED, Tier 1, score 43)",
         "rahul@student.ai / demo123 (WARN, Tier 3, score 65)",
+        "meera@student.ai / demo123 (WATCH, Tier 2, score 78)",
+        "kabir@student.ai / demo123 (CLEAN, Tier 3, score 92)",
     ],
     "join_code": "PHY001",
     "exam": "Physics XI - Electromagnetism",
@@ -33,12 +35,12 @@ def main() -> None:
     verify_gemini_configuration()
     steps = [
         "create teacher",
-        "create 3 students with baseline tiers",
+        "create 5 students with baseline tiers",
         "create Physics exam",
         "upload NCERT Physics PDF",
         "configure 6-section 80-mark paper",
         "generate grounded questions",
-        "create clean, flagged, and warn sessions",
+        "create five clean, watch, warn, and flagged sessions",
         "generate reports",
         "print demo credentials",
     ]
