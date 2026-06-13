@@ -21,7 +21,7 @@ from backend.agents.llm_router import generate_grounded_questions, gemini_router
 from backend.agents.evaluation_agent import grade_objective, grade_subjective
 from backend.agents.orchestrator_agent import compute_integrity_score
 from backend.agents.paper_config_agent import generate_join_code, validate_paper_config
-from backend.agents.proctoring_agent import behavioral_score, has_critical_pattern, impact_for
+from backend.agents.proctoring_agent import behavioral_score, has_critical_pattern, impact_for, integrity_warning_count
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_CENTER, TA_LEFT
 from reportlab.lib.pagesizes import A4
@@ -431,6 +431,7 @@ class LocalStore:
             "review_status": "none",
             "grade_released": False,
             "locked_for_review": False,
+            "integrity_warning_count": 0,
             "joined_at": utc_now(),
         }
         self.sessions[session_id] = session
@@ -591,19 +592,24 @@ class LocalStore:
         }
         baseline_tier = int(prior.get("baseline_tier", 3)) if isinstance(prior, dict) else 3
         result = compute_integrity_score(factors, baseline_tier=baseline_tier)
-        critical_pattern = has_critical_pattern(events)
+        warning_count = integrity_warning_count(events)
+        critical_pattern = has_critical_pattern(events) and integrity_warning_count(events[:-1]) >= 2
         if critical_pattern:
             result = {**result, "score": min(float(result["score"]), 45.0), "status": "FLAGGED"}
         session = self.sessions[session_id]
         session["integrity"] = result
+        session["integrity_warning_count"] = warning_count
         if result["status"] == "FLAGGED":
             session["review_status"] = "awaiting_response"
         if critical_pattern:
             session["locked_for_review"] = True
-        return {**event, "integrity": result}
+        return {**event, "integrity": result, "warning_count": warning_count, "locked_for_review": bool(session.get("locked_for_review"))}
 
     def normalize_session(self, session: dict[str, Any]) -> dict[str, Any]:
         return session
+
+    def session_warning_count(self, session_id: str) -> int:
+        return integrity_warning_count(self.integrity_events.get(session_id, []))
 
     def exam_students(self, exam_id: str) -> list[dict[str, Any]]:
         return [session for session in self.sessions.values() if session["exam_id"] == exam_id]

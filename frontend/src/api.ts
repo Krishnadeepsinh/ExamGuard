@@ -174,6 +174,7 @@ export type ApiSession = {
   grade?: { earned_marks: number; total_marks: number; percentage: number }
   student_access_token?: string
   locked_for_review?: boolean
+  integrity_warning_count?: number
   already_submitted?: boolean
 }
 
@@ -318,7 +319,7 @@ export const api = {
 
   // Proctoring Events
   logEvent: (sessionId: string, event_type: string, metadata: Record<string, unknown> = {}) =>
-    request<{ status: string }>(`/sessions/${sessionId}/events`, { method: 'POST', body: JSON.stringify({ event_type, metadata }) }),
+    request<{ status: string; warning_count: number; locked_for_review: boolean }>(`/sessions/${sessionId}/events`, { method: 'POST', body: JSON.stringify({ event_type, metadata }) }),
 
   // Reports
   examReports: (examId: string) =>
