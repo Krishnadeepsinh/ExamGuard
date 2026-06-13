@@ -1466,15 +1466,18 @@ function LiveMonitorView(props: {
 
   const warnCount = props.students.filter(s => s.status === 'WARN').length
   const flaggedCount = props.students.filter(s => s.status === 'FLAGGED').length
+  const cleanCount = props.students.filter(s => s.status === 'CLEAN').length
+  const watchCount = props.students.filter(s => s.status === 'WATCH').length
 
   const [examStatus, setExamStatus] = useState<string>('active')
+  const [exam, setExam] = useState<ApiExam | null>(null)
   const [connection, setConnection] = useState<'connecting' | 'live' | 'offline'>('connecting')
   const refreshStudentsRef = useRef(props.onRefreshStudents)
 
   useEffect(() => { refreshStudentsRef.current = props.onRefreshStudents }, [props.onRefreshStudents])
   
   useEffect(() => {
-    api.getExam(props.examId).then(e => setExamStatus(e.status)).catch(() => {})
+    api.getExam(props.examId).then(e => { setExam(e); setExamStatus(e.status) }).catch(() => {})
   }, [props.examId])
 
   useEffect(() => {
@@ -1535,18 +1538,55 @@ function LiveMonitorView(props: {
   return (
     <section className="screen live-layout">
       <div className="live-main">
-        <div className="connection-banner">
-          <Activity size={16} /> 
-          <span>{connection === 'live' ? 'Live WebSocket connected' : connection === 'connecting' ? 'Connecting live monitor...' : 'Connection lost. Retrying automatically.'}</span>
+        <header className="monitor-command-bar">
+          <div className="monitor-exam-identity">
+            <span className="monitor-eyebrow">Exam command center</span>
+            <div className="monitor-title-row">
+              <h2>{exam?.title || 'Loading exam...'}</h2>
+              <span className={`lifecycle-chip ${examStatus}`}>{examStatus}</span>
+            </div>
+            <div className="monitor-meta">
+              <span><BookOpen size={14} /> {exam?.subject || 'Subject'}</span>
+              <span><Timer size={14} /> {exam?.duration_minutes || '--'} min</span>
+              <span><FileText size={14} /> {exam?.total_marks || '--'} marks</span>
+              <span className="monitor-code"><Lock size={14} /> {exam?.join_code || '------'}</span>
+            </div>
+          </div>
+          <div className={`monitor-connection ${connection}`} role="status">
+            <i />
+            <span>{connection === 'live' ? 'Live updates' : connection === 'connecting' ? 'Connecting' : 'Reconnecting'}</span>
+          </div>
+        </header>
+
+        {connection === 'offline' && <div className="connection-banner warning">
+          <RefreshCw size={16} />
+          <span>Live updates are interrupted. Scores remain stored and the monitor is reconnecting automatically.</span>
         </div>
-        <div className="summary-grid">
-          <Metric label="Active Students" value={String(props.students.length)} icon={Users} compact />
-          <Metric label="WARN" value={String(warnCount)} icon={AlertTriangle} compact />
-          <Metric label="FLAGGED" value={String(flaggedCount)} icon={Flag} compact />
-          <Metric label="Avg Integrity" value={`${avg}`} icon={Gauge} compact />
+        }
+
+        <div className="monitor-overview">
+          <div className="monitor-kpis">
+            <div className="monitor-kpi primary"><Users size={19} /><span>Students<strong>{props.students.length}</strong></span></div>
+            <div className="monitor-kpi"><Gauge size={19} /><span>Average<strong>{avg || '--'}{avg ? '%' : ''}</strong></span></div>
+            <div className="monitor-kpi attention"><AlertTriangle size={19} /><span>Needs attention<strong>{warnCount + flaggedCount}</strong></span></div>
+          </div>
+          <div className="risk-distribution" aria-label="Integrity status distribution">
+            <div className="risk-distribution-head"><span>Integrity distribution</span><small>{props.students.length ? 'Current sessions' : 'Waiting for students'}</small></div>
+            <div className="risk-track">
+              {props.students.length > 0 && <>
+                <i className="clean" style={{ width: `${cleanCount / props.students.length * 100}%` }} />
+                <i className="watch" style={{ width: `${watchCount / props.students.length * 100}%` }} />
+                <i className="warn" style={{ width: `${warnCount / props.students.length * 100}%` }} />
+                <i className="flagged" style={{ width: `${flaggedCount / props.students.length * 100}%` }} />
+              </>}
+            </div>
+            <div className="risk-legend"><span className="clean">CLEAN {cleanCount}</span><span className="watch">WATCH {watchCount}</span><span className="warn">WARN {warnCount}</span><span className="flagged">FLAGGED {flaggedCount}</span></div>
+          </div>
         </div>
-        <div className="toolbar" style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
-          <select aria-label="Filter by status" value={props.filter} onChange={(event) => props.setFilter(event.target.value as IntegrityStatus | 'ALL')}>
+
+        <div className="monitor-toolbar">
+          <div className="monitor-filters">
+          <select aria-label="Filter students by integrity status" value={props.filter} onChange={(event) => props.setFilter(event.target.value as IntegrityStatus | 'ALL')}>
             {['ALL', 'CLEAN', 'WATCH', 'WARN', 'FLAGGED'].map((status) => <option key={status}>{status}</option>)}
           </select>
           <select aria-label="Sort students" value={props.sort} onChange={(event) => props.setSort(event.target.value as 'risk' | 'name' | 'join')}>
@@ -1554,12 +1594,15 @@ function LiveMonitorView(props: {
             <option value="name">Sort by name</option>
             <option value="join">Sort by join time</option>
           </select>
+          </div>
+          <div className="monitor-actions">
           <button className="ghost-btn" onClick={() => props.notify('info', 'Sound alerts enabled for FLAGGED events.')}><Bell size={16} /> Sound Alerts</button>
           <button className="ghost-btn" onClick={togglePause}>
             {examStatus === 'paused' ? <PlayCircle size={16} /> : <PauseCircle size={16} />}
             {examStatus === 'paused' ? 'Resume Exam' : 'Pause All'}
           </button>
           <button className="danger-btn" onClick={endExam}><X size={16} /> End Exam</button>
+          </div>
         </div>
         
         {/* Grid of Student Tiles (Webcam style feeds) */}
@@ -1571,10 +1614,15 @@ function LiveMonitorView(props: {
         </div>
       </div>
       
-      {props.selected && <aside className="side-panel">
-        <Card title="Expanded student view" icon={Eye}>
-          <h3 style={{ fontSize: '18px', fontWeight: 600, color: 'var(--eg-text)', margin: '0 0 16px 0' }}>{props.selected.name}</h3>
+      {props.selected && <aside className="side-panel monitor-inspector">
+        <Card title="Student evidence" icon={Eye}>
+          <div className="inspector-student-head"><div className="student-avatar">{props.selected.name?.slice(0, 1).toUpperCase()}</div><div><h3>{props.selected.name}</h3><span>Session {String(props.selected.id || '').slice(0, 8)}</span></div></div>
           <IntegrityScoreCard student={props.selected} />
+          <div className="inspector-facts">
+            <span><small>Progress</small><strong>{props.selected.progress || 0}%</strong></span>
+            <span><small>Consent</small><strong>{props.selected.consent ? 'Recorded' : 'Pending'}</strong></span>
+            <span><small>Events</small><strong>{props.selected.events || 0}</strong></span>
+          </div>
           <div className="event-feed">
             {props.selected.events > 0 ? <AlertFeedItem name={props.selected.name} event={`${props.selected.events} structured integrity event(s) recorded`} severity="info" /> : <p className="muted">No integrity events recorded for this session.</p>}
           </div>

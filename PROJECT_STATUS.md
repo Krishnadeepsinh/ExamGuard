@@ -279,3 +279,13 @@ Deployment follow-up:
 - Added deterministic attempt locking only after repeated, independent critical signals; one tab change, focus loss, or ordinary paste cannot lock a student.
 - Added `007_exam_scheduling.sql`; it must be applied before deploying this batch.
 - Backend test suite: `27 passed`; Python compilation and frontend production build pass; ESLint has zero errors (34 existing warnings).
+
+## 2026-06-13 Exam-Wise Monitoring Redesign
+
+- Rebuilt the teacher live monitor around the selected exam rather than generic global metrics.
+- Added exam title, subject, duration, marks, join code, lifecycle status, and WebSocket state to a single command header.
+- Added compact student, average-integrity, and attention KPIs plus a proportional CLEAN/WATCH/WARN/FLAGGED distribution.
+- Grouped filter/sort controls separately from pause, alerts, and destructive end-exam commands.
+- Added a sticky student evidence inspector with identity, score factors, progress, consent, and event count.
+- Added mobile monitor layouts with wrapping controls, two-column KPIs, and full-width actions.
+- Frontend production build passes; ESLint has zero errors (existing warnings remain).
