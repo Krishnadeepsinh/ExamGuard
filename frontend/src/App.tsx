@@ -1108,10 +1108,16 @@ function ConfigView({ examId, notify }: { examId: string; notify: (kind: ToastKi
     setGenerated(false)
     setGeneratedQuestions([])
     setActivated(false)
-    api.getExam(examId)
-      .then((exam) => {
+    Promise.all([api.getExam(examId), api.examQuestions(examId)])
+      .then(([exam, existingQuestions]) => {
         setTotalMarksTarget(exam.total_marks)
         setSections(sectionsForMode('Mixed', exam.total_marks))
+        setActivated(['active', 'paused', 'ended'].includes(exam.status))
+        if (existingQuestions.length > 0) {
+          setGeneratedQuestions(existingQuestions)
+          setGenerated(true)
+          setGenerationError('')
+        }
         return api.materials(examId)
       })
       .then((materials) => {
@@ -1254,6 +1260,17 @@ function ConfigView({ examId, notify }: { examId: string; notify: (kind: ToastKi
       notify('success', `Paper generated successfully. ${result.count}/${result.count} questions created.`)
     } catch (event) {
       const message = event instanceof Error ? event.message : 'Paper generation failed.'
+      try {
+        const recovered = await api.examQuestions(examId)
+        if (recovered.length > 0) {
+          setGeneratedQuestions(recovered)
+          setQuestionPage(0)
+          setGenerated(true)
+          setGenerationError('')
+          notify('success', `Paper completed on the backend. Recovered ${recovered.length} generated questions.`)
+          return
+        }
+      } catch { /* keep the original generation error */ }
       setGenerationError(message)
       notify('error', message)
     }

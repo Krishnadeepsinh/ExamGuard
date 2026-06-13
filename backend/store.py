@@ -256,8 +256,12 @@ class LocalStore:
             matching = rank_chunks(f"{chapter_tag} {topic_tag or ''} {section.get('bloom', '')}", matching, max(8, section["count"]))
                     
             generated_items: list[dict[str, Any]] = []
-            for batch_start in range(0, section["count"], 10):
-                batch_count = min(10, section["count"] - batch_start)
+            # One section-level request is much faster on hosted backends than
+            # several sequential Gemini calls. Keep a conservative ceiling so
+            # responses remain within the configured output-token budget.
+            batch_size = 25
+            for batch_start in range(0, section["count"], batch_size):
+                batch_count = min(batch_size, section["count"] - batch_start)
                 try:
                     generated_items.extend(generate_grounded_questions(
                         section["type"], batch_count,
@@ -320,6 +324,11 @@ class LocalStore:
         self.questions[exam_id] = questions
         exam["status"] = "generated"
         return {"status": "generated", "count": len(questions), "questions": questions, "llm": gemini_router.status(), "fallback_count": 0}
+
+    def exam_questions(self, exam_id: str) -> list[dict[str, Any]]:
+        if exam_id not in self.exams:
+            raise KeyError("exam not found")
+        return [dict(question) for question in self.questions.get(exam_id, [])]
 
     def activate_exam(self, exam_id: str) -> dict[str, Any]:
         exam = self.exams.get(exam_id)

@@ -357,8 +357,11 @@ class SupabaseStore:
             matching = rank_chunks(f"{chapter_tag} {topic_tag or ''} {section.get('bloom', '')}", matching, max(8, section["count"]))
                     
             generated_items: list[dict[str, Any]] = []
-            for batch_start in range(0, section["count"], 10):
-                batch_count = min(10, section["count"] - batch_start)
+            # Generate a complete ordinary section in one provider request to
+            # stay below browser/proxy timeouts on Render's free instances.
+            batch_size = 25
+            for batch_start in range(0, section["count"], batch_size):
+                batch_count = min(batch_size, section["count"] - batch_start)
                 try:
                     generated_items.extend(generate_grounded_questions(
                         section["type"], batch_count,
@@ -445,6 +448,11 @@ class SupabaseStore:
             "groundedness": question.get("groundedness_score"),
             "teacher_modified": question.get("teacher_modified", False),
         }
+
+    def exam_questions(self, exam_id: str) -> list[dict[str, Any]]:
+        self.get_exam(exam_id)
+        rows = self.rest("GET", "questions", query=f"?exam_id=eq.{exam_id}&order=section_index.asc,question_index.asc")
+        return [self.normalize_question(row) for row in rows]
 
     def activate_exam(self, exam_id: str) -> dict[str, Any]:
         questions = self.rest("GET", "questions", query=f"?exam_id=eq.{exam_id}")

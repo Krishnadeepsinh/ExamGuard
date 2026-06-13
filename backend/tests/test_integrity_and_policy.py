@@ -149,6 +149,32 @@ class StoreBehaviorTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Upload syllabus"):
             self.store.generate_questions(exam["id"])
 
+    def test_generation_batches_normal_sections_in_one_request(self) -> None:
+        import backend.store as store_module
+
+        exam = self.store.exams["exam-physics"]
+        exam["status"] = "draft"
+        exam["paper_config"]["material_id"] = next(iter(self.store.materials))
+        exam["paper_config"]["overall_level"] = "Standard"
+        exam["paper_config"]["sections"] = [{
+            "id": "A", "type": "MCQ", "count": 25, "marks_each": 1,
+            "bloom": "Understand", "chapter_tag": "All syllabus", "level": "Standard",
+        }]
+        calls: list[int] = []
+        original = store_module.generate_grounded_questions
+        store_module.generate_grounded_questions = lambda question_type, count, level, bloom, marks, chunks: (
+            calls.append(count) or [{
+                "text": f"Grounded question {index}?", "options": ["A", "B", "C", "D"],
+                "correct_answer": "A", "source_number": 1,
+            } for index in range(count)]
+        )
+        try:
+            result = self.store.generate_questions(exam["id"])
+        finally:
+            store_module.generate_grounded_questions = original
+        self.assertEqual(result["count"], 25)
+        self.assertEqual(calls, [25])
+
     def test_activation_rejects_empty_generated_paper(self) -> None:
         exam = self.store.create_exam("teacher-demo", {
             "title": "Empty Paper", "subject": "SQL", "duration_minutes": 60, "total_marks": 10,
@@ -156,6 +182,11 @@ class StoreBehaviorTests(unittest.TestCase):
         self.store.questions[exam["id"]] = []
         with self.assertRaisesRegex(ValueError, "generate questions"):
             self.store.activate_exam(exam["id"])
+
+    def test_teacher_can_recover_generated_questions(self) -> None:
+        self.store.questions["exam-physics"] = [{"id": "q-recovered", "text": "Recovered question?", "marks": 1}]
+        recovered = self.store.exam_questions("exam-physics")
+        self.assertEqual(recovered[0]["id"], "q-recovered")
 
     def test_draft_exam_rejects_student_join(self) -> None:
         exam = self.store.create_exam("teacher-demo", {

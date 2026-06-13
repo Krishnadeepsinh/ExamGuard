@@ -16,13 +16,14 @@ export const examSocketUrl = (examId: string) => {
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const token = window.localStorage.getItem('examguard-access-token')
   const method = options.method ?? 'GET'
-  const attempts = method === 'GET' ? 2 : 1
+  const retryableLongOperation = path.includes('/generate') || path.includes('/materials/upload')
+  const attempts = method === 'GET' || retryableLongOperation ? 2 : 1
   let response: Response | undefined
   let networkError: unknown
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     const controller = new AbortController()
-    const longOperation = path.includes('/generate') || path.includes('/materials/upload')
-    const timeout = window.setTimeout(() => controller.abort(), longOperation ? 120_000 : 30_000)
+    const longOperation = retryableLongOperation
+    const timeout = window.setTimeout(() => controller.abort(), longOperation ? 180_000 : 30_000)
     try {
       response = await fetch(`${API_BASE}${path}`, {
         ...options,
@@ -36,11 +37,21 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
       if (response.ok || response.status < 500 || attempt === attempts - 1) break
     } catch (error) {
       networkError = error
-      if (attempt === attempts - 1) throw new ApiError(longOperation ? 'The operation timed out. Your file and draft are safe; retry once.' : 'Backend is temporarily unreachable. Check your connection and retry.', 0)
+      if (attempt === attempts - 1) {
+        const offline = !window.navigator.onLine
+        throw new ApiError(
+          offline
+            ? 'You are offline. Reconnect and retry; your draft is safe.'
+            : longOperation
+              ? 'The backend did not finish the operation in time. Your draft is safe; retry after a moment.'
+              : 'The backend could not be reached. It may be waking up; retry in a moment.',
+          0,
+        )
+      }
     } finally {
       window.clearTimeout(timeout)
     }
-    await new Promise((resolve) => window.setTimeout(resolve, 1200))
+    await new Promise((resolve) => window.setTimeout(resolve, longOperation ? 2500 : 1200))
   }
   if (!response) throw new ApiError(networkError instanceof Error ? networkError.message : 'Backend is temporarily unreachable.', 0)
   if (!response.ok) {
@@ -52,14 +63,24 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 
 async function requestRaw(path: string, options: RequestInit = {}): Promise<Response> {
   const token = window.localStorage.getItem('examguard-access-token')
-  const response = await fetch(`${API_BASE}${path}`, {
-    ...options,
-    headers: {
-      ...(options.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }),
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...options.headers,
-    },
-  })
+  const controller = new AbortController()
+  const timeout = window.setTimeout(() => controller.abort(), 60_000)
+  let response: Response
+  try {
+    response = await fetch(`${API_BASE}${path}`, {
+      ...options,
+      signal: controller.signal,
+      headers: {
+        ...(options.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }),
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...options.headers,
+      },
+    })
+  } catch {
+    throw new ApiError(window.navigator.onLine ? 'The download service could not be reached. Retry in a moment.' : 'You are offline. Reconnect before downloading.', 0)
+  } finally {
+    window.clearTimeout(timeout)
+  }
   if (!response.ok) {
     const error = await response.json().catch(() => ({ detail: response.statusText }))
     throw new Error(Array.isArray(error.detail) ? error.detail.join(' ') : error.detail || response.statusText)
@@ -241,6 +262,8 @@ export const api = {
 
   generatePaper: (examId: string) =>
     request<{ status: string; count: number; questions: ApiQuestion[] }>(`/exams/${examId}/generate`, { method: 'POST' }),
+
+  examQuestions: (examId: string) => request<ApiQuestion[]>(`/exams/${examId}/questions`),
 
   // Sessions
   joinSession: (payload: { join_code: string; student_name: string; email?: string }) =>

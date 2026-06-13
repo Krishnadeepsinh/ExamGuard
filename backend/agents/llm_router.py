@@ -97,7 +97,11 @@ class GeminiRouter:
                 continue
             payload = json.dumps({
                 "contents": [{"parts": [{"text": prompt}]}],
-                "generationConfig": {"temperature": 0.25, "responseMimeType": "application/json"},
+                "generationConfig": {
+                    "temperature": 0.25,
+                    "responseMimeType": "application/json",
+                    "maxOutputTokens": 8192,
+                },
             }).encode("utf-8")
             url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.model}:generateContent"
             req = request.Request(url, data=payload, method="POST", headers={

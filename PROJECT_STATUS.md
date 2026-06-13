@@ -289,3 +289,15 @@ Deployment follow-up:
 - Added a sticky student evidence inspector with identity, score factors, progress, consent, and event count.
 - Added mobile monitor layouts with wrapping controls, two-column KPIs, and full-width actions.
 - Frontend production build passes; ESLint has zero errors (existing warnings remain).
+
+## 2026-06-13 Paper Generation Reliability
+
+- Reproduced the reported deployed error against the exact SQL draft and confirmed the backend completed all 25 grounded MCQs in about 60 seconds after the browser had failed.
+- Reduced ordinary section generation from three sequential Gemini requests to one request for up to 25 questions.
+- Added an explicit Gemini output-token budget for complete section responses.
+- Increased long-operation browser timeout to 180 seconds and added one safe retry for generation and uploads.
+- Added teacher-authenticated generated-question recovery; completed papers reappear after reload or a lost response.
+- Generation errors now attempt backend recovery before displaying failure.
+- Material storage upload/delete failures return actionable 503 responses instead of unhandled server errors.
+- Added consistent timeout/offline handling to report downloads.
+- Backend test suite: `29 passed`; frontend production build passes.

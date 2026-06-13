@@ -468,6 +468,15 @@ def generate_paper(request: Request, exam_id: str, teacher: dict[str, object] = 
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
+@app.get("/api/v1/exams/{exam_id}/questions")
+def teacher_exam_questions(exam_id: str, teacher: dict[str, object] = Depends(current_teacher)) -> list[dict[str, object]]:
+    require_owned_exam(exam_id, teacher)
+    try:
+        return store.exam_questions(exam_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="exam not found") from exc
+
+
 @app.post("/api/v1/exams/{exam_id}/activate")
 def activate_exam(exam_id: str, teacher: dict[str, object] = Depends(current_teacher)) -> dict[str, object]:
     require_owned_exam(exam_id, teacher)
@@ -732,6 +741,8 @@ async def upload_material(request: Request, exam_id: str, source_type: Literal["
         return material
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
 @app.get("/api/v1/materials/{material_id}/status")
@@ -742,6 +753,8 @@ def material_status(material_id: str, teacher: dict[str, object] = Depends(curre
         return {key: value for key, value in material.items() if key != "chunks"}
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="material not found") from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
 @app.delete("/api/v1/materials/{material_id}")
