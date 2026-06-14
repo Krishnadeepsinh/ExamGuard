@@ -2405,7 +2405,7 @@ function ExamView(props: {
     if (current?.id && props.answer.trim()) finalAnswers[current.id] = props.answer
     window.localStorage.setItem(`examguard-answers-${sessionId}`, JSON.stringify(finalAnswers))
     await Promise.allSettled([...pendingAnswerSavesRef.current])
-    await Promise.all(displayQuestions.map((question) => {
+    const results = await Promise.allSettled(displayQuestions.map((question) => {
       const value = String(finalAnswers[question.id] || '').trim()
       if (!value) return Promise.resolve()
       return saveAnswerTracked(sessionId, {
@@ -2417,6 +2417,11 @@ function ExamView(props: {
     }))
     setAnswers(finalAnswers)
     setLastSave(Date.now())
+    const failedCount = results.filter((result) => result.status === 'rejected').length
+    if (failedCount) {
+      setSaveWarning(`${failedCount} answer${failedCount === 1 ? '' : 's'} could not sync. Your local backup is preserved.`)
+      throw new Error('One or more answers could not sync.')
+    }
     setSaveWarning('')
   }, [answers, current?.id, displayQuestions, props.answer, saveAnswerTracked])
 
@@ -3396,6 +3401,7 @@ function Toast({ kind, text, onClose }: { kind: ToastKind; text: string; onClose
 function SubmitDialog({ onClose, go, notify, answeredCount, totalCount, markedCount, onBeforeSubmit }: { onClose: () => void; go: () => void; notify: (kind: ToastKind, text: string) => void; answeredCount: number; totalCount: number; markedCount: number; onBeforeSubmit: () => Promise<void> }) {
   const [submitError, setSubmitError] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  const [submitStage, setSubmitStage] = useState<'idle' | 'syncing' | 'finalizing'>('idle')
   const handleSubmit = async () => {
     if (answeredCount === 0) {
       setSubmitError('Answer at least one question before submitting.')
@@ -3404,26 +3410,30 @@ function SubmitDialog({ onClose, go, notify, answeredCount, totalCount, markedCo
     setSubmitting(true)
     setSubmitError('')
     const sessionId = studentSessionId()
+    if (!sessionId) {
+      setSubmitError('Student session is missing. Reopen the exam from the student portal.')
+      setSubmitting(false)
+      return
+    }
     let syncFailed = false
-    if (sessionId) {
-      try {
-        await onBeforeSubmit()
-      }
-      catch {
-        syncFailed = true
-      }
-      try {
-        await api.endSession(sessionId)
-      } catch (error) {
-        setSubmitError(error instanceof Error ? error.message : 'Submission failed. Your answers remain saved locally.')
-        setSubmitting(false)
-        return
-      }
+    setSubmitStage('syncing')
+    try {
+      await onBeforeSubmit()
     }
-    if (sessionId) {
-      if (!syncFailed) window.localStorage.removeItem(`examguard-answers-${sessionId}`)
-      window.localStorage.removeItem(`examguard-deadline-${sessionId}`)
+    catch {
+      syncFailed = true
     }
+    setSubmitStage('finalizing')
+    try {
+      await api.endSession(sessionId)
+    } catch (error) {
+      setSubmitError(error instanceof Error ? error.message : 'Submission failed. Your answers remain saved locally.')
+      setSubmitStage('idle')
+      setSubmitting(false)
+      return
+    }
+    if (!syncFailed) window.localStorage.removeItem(`examguard-answers-${sessionId}`)
+    window.localStorage.removeItem(`examguard-deadline-${sessionId}`)
     notify(syncFailed ? 'warning' : 'success', syncFailed
       ? 'Exam submitted. Some final answer syncs failed, so your local backup was kept.'
       : 'Exam submitted successfully. Your answers are ready for grading.')
@@ -3442,7 +3452,9 @@ function SubmitDialog({ onClose, go, notify, answeredCount, totalCount, markedCo
         {submitError && <p className="form-error" role="alert">{submitError}</p>}
         <div className="inline-actions" style={{ justifyContent: 'flex-end' }}>
           <button className="ghost-btn" onClick={onClose}>Review Answers</button>
-          <button className="primary-btn" disabled={submitting || answeredCount === 0} onClick={handleSubmit}>{submitting ? 'Submitting...' : 'Submit Exam'}</button>
+          <button className="primary-btn" disabled={submitting || answeredCount === 0} onClick={handleSubmit}>
+            {submitStage === 'syncing' ? 'Syncing answers...' : submitStage === 'finalizing' ? 'Finalizing exam...' : 'Submit Exam'}
+          </button>
         </div>
       </div>
     </div>

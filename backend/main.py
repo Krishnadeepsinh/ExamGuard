@@ -12,10 +12,11 @@ import hashlib
 import hmac
 import io
 import json
+import logging
 from datetime import datetime, timedelta, timezone
 from typing import Literal, Optional
 
-from fastapi import Depends, FastAPI, File, Header, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi import BackgroundTasks, Depends, FastAPI, File, Header, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, Field, field_validator
@@ -28,6 +29,8 @@ from backend.agents.graph import AGENT_NODES, EDGES, run_workflow
 from backend.config import settings
 from backend.redis_client import redis_hot_state
 from backend.store import build_class_pdf_report, store as local_store
+
+logger = logging.getLogger(__name__)
 
 if settings.supabase_enabled:
     from backend.supabase_store import SupabaseStore
@@ -190,6 +193,16 @@ def _get_session_field(session: dict, field: str) -> object:
     if field == "liveness":
         return session.get("liveness", session.get("liveness_verified", False))
     return session.get(field)
+
+
+def finalize_submitted_session(session_id: str) -> None:
+    """Grade and trace a submitted attempt without delaying the student UI."""
+    try:
+        if hasattr(store, "evaluate_session"):
+            store.evaluate_session(session_id)
+        run_workflow("finish", {"session_id": session_id})
+    except Exception:
+        logger.exception("Could not finalize submitted session %s", session_id)
 
 
 def now_iso() -> str:
@@ -923,19 +936,23 @@ def save_answer(request: Request, session_id: str, payload: AnswerRequest, stude
 
 
 @app.post("/api/v1/sessions/{session_id}/end")
-def end_session(session_id: str, reason: str = "manual", student: dict[str, object] = Depends(current_student)) -> dict[str, object]:
+def end_session(
+    session_id: str,
+    background_tasks: BackgroundTasks,
+    reason: str = "manual",
+    student: dict[str, object] = Depends(current_student),
+) -> dict[str, object]:
     session = require_student_session(session_id, student)
     if session.get("status") == "ended":
+        background_tasks.add_task(finalize_submitted_session, session_id)
         return store.normalize_session(session)
     exam = lookup_exam(str(session["exam_id"]))
     if reason == "expired" and not session_expired(session, exam):
         raise HTTPException(status_code=409, detail="The exam timer has not expired. Your attempt remains active.")
     if reason not in {"manual", "expired", "teacher_ended"}:
         raise HTTPException(status_code=422, detail="Invalid submission reason")
-    if hasattr(store, "evaluate_session"):
-        store.evaluate_session(session_id)
-    run_workflow("finish", {"session_id": session_id})
     updated = store.update_session(session_id, {"status": "ended", "ended_at": now_iso()})
+    background_tasks.add_task(finalize_submitted_session, session_id)
     return store.normalize_session(updated)
 
 
