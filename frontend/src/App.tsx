@@ -1761,7 +1761,7 @@ function LiveMonitorView(props: {
         <div className="monitor-overview">
           <div className="monitor-kpis">
             <div className="monitor-kpi primary"><Users size={19} /><span>Students<strong>{props.students.length}</strong></span></div>
-            <div className="monitor-kpi"><Gauge size={19} /><span>Average<strong>{avg || '--'}{avg ? '%' : ''}</strong></span></div>
+            <div className="monitor-kpi"><Gauge size={19} /><span>Avg Integrity<strong>{avg || '--'}{avg ? '%' : ''}</strong></span></div>
             <div className="monitor-kpi attention"><AlertTriangle size={19} /><span>Needs attention<strong>{warnCount + flaggedCount}</strong></span></div>
           </div>
           <div className="risk-distribution" aria-label="Integrity status distribution">
