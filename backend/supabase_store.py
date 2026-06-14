@@ -756,7 +756,10 @@ class SupabaseStore:
         baseline_tier = int(session.get("baseline_tier") or 3)
         result = compute_integrity_score(factors, baseline_tier=baseline_tier)
         warning_count = integrity_warning_count(event_types)
-        critical_pattern = has_critical_pattern(event_types) and integrity_warning_count(event_types[:-1]) >= 4
+        critical_pattern = has_critical_pattern(event_types) and (
+            integrity_warning_count(event_types[:-1]) >= 4
+            or any(event.get("type") == "phone_detected" for event in event_types)
+        )
         if critical_pattern:
             result = {**result, "score": min(float(result["score"]), 45.0), "status": "FLAGGED"}
         patch: dict[str, Any] = {"integrity_score": result["score"], "integrity_state": result["status"], "integrity_ci": result["ci"], "integrity_factors": factors}

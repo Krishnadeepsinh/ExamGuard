@@ -34,6 +34,16 @@ class IntegrityPolicyTests(unittest.TestCase):
         subjective = grade_subjective("A transaction uses commit and rollback for atomic changes", "commit rollback atomic transaction", 5)
         self.assertGreater(subjective["score"], 0)
         self.assertLessEqual(subjective["score"], 5)
+
+    def test_subjective_grading_awards_equivalent_wording(self) -> None:
+        result = grade_subjective(
+            "Threads let a Java program run tasks concurrently and keep the interface responsive while work continues.",
+            "Multiple threads allow concurrent execution and improve UI responsiveness in Java applications.",
+            6,
+            "Short Answer",
+        )
+        self.assertGreaterEqual(result["score"], 4)
+        self.assertIn("thread", result["rubric"]["matched_concepts"])
     def test_threshold_boundaries(self) -> None:
         self.assertEqual(status_for_score(85.01).value, "CLEAN")
         self.assertEqual(status_for_score(85).value, "WATCH")
@@ -152,6 +162,20 @@ class StoreBehaviorTests(unittest.TestCase):
         self.store.log_integrity_event(session["id"], "phone_detected", {"confidence": 0.95})
         self.assertLess(self.store.sessions[session["id"]]["integrity"]["score"], initial)
         self.assertEqual(self.store.session_event_summary(session["id"])["phone_detected"], 1)
+
+    def test_phone_with_correlated_events_locks_for_review(self) -> None:
+        self.store.exams["exam-physics"]["status"] = "active"
+        session = self.store.join_session("PHY001", "Correlated Phone Student", "phone-lock@student.ai")
+        for event, metadata in [
+            ("phone_detected", {"confidence": 0.95}),
+            ("paste_detected", {"bulk_paste": True}),
+            ("tab_hidden", {}),
+            ("phone_detected", {"confidence": 0.92}),
+            ("paste_detected", {"bulk_paste": True}),
+        ]:
+            self.store.log_integrity_event(session["id"], event, metadata)
+        self.assertTrue(self.store.sessions[session["id"]]["locked_for_review"])
+        self.assertEqual(self.store.sessions[session["id"]]["integrity"]["status"], "FLAGGED")
 
     def test_only_repeated_independent_signals_lock_attempt(self) -> None:
         self.store.exams["exam-physics"]["status"] = "active"

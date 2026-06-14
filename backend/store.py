@@ -637,7 +637,10 @@ class LocalStore:
         baseline_tier = int(prior.get("baseline_tier", 3)) if isinstance(prior, dict) else 3
         result = compute_integrity_score(factors, baseline_tier=baseline_tier)
         warning_count = integrity_warning_count(events)
-        critical_pattern = has_critical_pattern(events) and integrity_warning_count(events[:-1]) >= 4
+        critical_pattern = has_critical_pattern(events) and (
+            integrity_warning_count(events[:-1]) >= 4
+            or any(event.get("type") == "phone_detected" for event in events)
+        )
         if critical_pattern:
             result = {**result, "score": min(float(result["score"]), 45.0), "status": "FLAGGED"}
         session = self.sessions[session_id]

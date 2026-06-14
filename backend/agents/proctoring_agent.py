@@ -55,6 +55,11 @@ def integrity_warning_count(events: list[dict[str, object]]) -> int:
         return 0
     categories = len(set(categorized))
     meaningful = len(categorized)
+    has_device = "device" in categorized
+    if has_device and categories >= 3 and meaningful >= 5:
+        return 4
+    if has_device and categories >= 2 and meaningful >= 3:
+        return 3
     if categories >= 3 and meaningful >= 6:
         return 4
     if categories >= 2 and meaningful >= 4:
@@ -74,4 +79,6 @@ def has_critical_pattern(events: list[dict[str, object]]) -> bool:
         for event in events
     )
     repeated_category = any(categorized.count(category) >= 2 for category in categories)
+    if "device" in categories and len(categories) >= 3 and len(categorized) >= 5 and has_strong_evidence:
+        return True
     return len(categories) >= 3 and len(categorized) >= 7 and has_strong_evidence and repeated_category
