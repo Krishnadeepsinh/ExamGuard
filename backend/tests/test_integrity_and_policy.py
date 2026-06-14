@@ -653,9 +653,20 @@ class StoreBehaviorTests(unittest.TestCase):
         self.assertEqual(self.store.student_sessions(student_id), [])
 
     def test_student_question_endpoint_never_exposes_answer_key(self) -> None:
-        result = student_safe_question({"id": "q1", "text": "Question", "correct_answer": "Secret", "source_chunk_ids": ["chunk-1"]})
+        result = student_safe_question({
+            "id": "q1",
+            "text": "Question",
+            "correct_answer": "Secret",
+            "source_chunk_ids": ["chunk-1"],
+            "groundedness": 0.91,
+            "groundedness_score": 0.91,
+            "teacher_modified": False,
+        })
         self.assertNotIn("correct_answer", result)
         self.assertNotIn("source_chunk_ids", result)
+        self.assertNotIn("groundedness", result)
+        self.assertNotIn("groundedness_score", result)
+        self.assertNotIn("teacher_modified", result)
 
 
 if __name__ == "__main__":

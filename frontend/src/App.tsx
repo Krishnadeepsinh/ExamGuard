@@ -895,7 +895,7 @@ function StudentPortalView({ auth, go, notify }: { auth: AuthUser | null; go: (v
       if (session.student_access_token) window.localStorage.setItem('examguard-access-token', session.student_access_token)
       if (session.status === 'ended' || session.already_submitted) {
         notify('info', 'You already submitted this exam. Your saved result is shown instead of a new attempt.')
-        go('complete')
+        go(session.grade_released ? 'results' : 'complete')
       } else if (session.status === 'active') {
         notify('success', 'Your unfinished attempt was restored.')
         go('exam')
@@ -2552,10 +2552,6 @@ function ExamView(props: {
         <h2 style={{ fontSize: '18px', fontWeight: 600, lineHeight: 1.5, margin: '12px 0', color: '#0F172A' }}>
           {current?.text || 'Loading question...'}
         </h2>
-        <p className="muted" style={{ fontSize: '12px', color: '#64748B', marginBottom: '24px' }}>
-          Source: uploaded material, {current.chapter_tag || 'selected syllabus'}. Groundedness {current.groundedness || 0.84}.
-        </p>
-
         {current?.type === 'MCQ' && current.options?.length ? (
           <div className="mcq-options" style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '24px' }}>
             {current.options.map((opt, i) => {

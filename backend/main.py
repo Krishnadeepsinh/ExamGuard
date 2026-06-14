@@ -849,7 +849,14 @@ def save_liveness(session_id: str, payload: LivenessRequest, student: dict[str, 
 
 
 def student_safe_question(question: dict[str, object]) -> dict[str, object]:
-    return {key: value for key, value in question.items() if key not in {"correct_answer", "source_chunk_ids"}}
+    student_hidden_fields = {
+        "correct_answer",
+        "source_chunk_ids",
+        "groundedness",
+        "groundedness_score",
+        "teacher_modified",
+    }
+    return {key: value for key, value in question.items() if key not in student_hidden_fields}
 
 
 @app.get("/api/v1/sessions/{session_id}/questions")
