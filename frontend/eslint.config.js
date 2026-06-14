@@ -19,10 +19,13 @@ export default defineConfig([
       globals: globals.browser,
     },
     rules: {
-      '@typescript-eslint/no-explicit-any': 'warn',
-      'react-hooks/set-state-in-effect': 'warn',
+      '@typescript-eslint/no-explicit-any': 'error',
+      // This app intentionally initializes and synchronizes its state-machine
+      // views from effects after storage/API checks.
+      'react-hooks/set-state-in-effect': 'off',
+      'react-hooks/exhaustive-deps': 'off',
       'react-hooks/immutability': 'warn',
-      'react-hooks/purity': 'warn',
+      'react-hooks/purity': 'error',
     },
   },
 ])

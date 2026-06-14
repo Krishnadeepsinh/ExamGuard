@@ -149,10 +149,28 @@ class StoreBehaviorTests(unittest.TestCase):
 
     def test_clone_gets_new_code_and_no_sessions(self) -> None:
         source = self.store.exams["exam-physics"]
+        source_material_id = next(item_id for item_id, item in self.store.materials.items() if item["exam_id"] == source["id"])
+        source["paper_config"] = {
+            "material_id": source_material_id,
+            "material_ids": [source_material_id],
+            "total_marks": 10,
+            "paper_mode": "MCQ only",
+            "overall_level": "Standard",
+            "sections": [{
+                "id": "A", "type": "MCQ", "count": 5, "marks_each": 2,
+                "bloom": "Understand", "chapter_tag": next(iter(self.store.materials[source_material_id]["chapter_counts"])),
+                "level": "Standard",
+            }],
+        }
         clone = self.store.clone_exam(source["id"])
         self.assertEqual(clone["status"], "draft")
         self.assertNotEqual(clone["join_code"], source["join_code"])
         self.assertFalse(any(session["exam_id"] == clone["id"] for session in self.store.sessions.values()))
+        cloned_material_ids = [item_id for item_id, item in self.store.materials.items() if item["exam_id"] == clone["id"]]
+        self.assertEqual(len(cloned_material_ids), 1)
+        self.assertNotEqual(cloned_material_ids[0], source_material_id)
+        self.assertEqual(clone["paper_config"]["material_ids"], cloned_material_ids)
+        self.assertEqual(self.store.configure_exam(clone["id"], clone["paper_config"])["status"], "saved")
 
     def test_answer_save_is_upsert(self) -> None:
         self.store.exams["exam-physics"]["status"] = "active"

@@ -7,6 +7,7 @@ later without rewriting the frontend.
 
 from __future__ import annotations
 
+from copy import deepcopy
 from dataclasses import asdict
 from datetime import datetime, timedelta, timezone
 from io import BytesIO
@@ -132,7 +133,25 @@ class LocalStore:
             "duration_minutes": source["duration_minutes"],
             "total_marks": source["total_marks"],
         })
-        clone["paper_config"] = dict(source.get("paper_config") or {})
+        material_id_map: dict[str, str] = {}
+        for material in [item for item in self.materials.values() if item.get("exam_id") == exam_id]:
+            cloned_material = deepcopy(material)
+            cloned_material_id = f"mat-{uuid4().hex[:10]}"
+            material_id_map[str(material["id"])] = cloned_material_id
+            cloned_material.update({
+                "id": cloned_material_id,
+                "exam_id": clone["id"],
+                "created_at": utc_now(),
+            })
+            self.materials[cloned_material_id] = cloned_material
+
+        config = deepcopy(source.get("paper_config") or {})
+        if config:
+            old_ids = config.get("material_ids") or ([config.get("material_id")] if config.get("material_id") else [])
+            new_ids = [material_id_map[str(item)] for item in old_ids if str(item) in material_id_map]
+            config["material_ids"] = new_ids
+            config["material_id"] = new_ids[0] if new_ids else None
+            clone["paper_config"] = config if new_ids else {}
         return clone
 
     def add_material(self, exam_id: str, filename: str, content: bytes, source_type: str = "material") -> dict[str, Any]:
@@ -493,7 +512,7 @@ class LocalStore:
         rows.append(answer)
         return answer
 
-    def evaluate_session(self, session_id: str) -> dict[str, Any]:
+    def calculate_session_grade(self, session_id: str, *, persist: bool = False) -> dict[str, Any]:
         session = self.require_session(session_id)
         questions = {item["id"]: item for item in self.questions.get(session["exam_id"], [])}
         total = sum(float(item.get("marks", 0)) for item in questions.values())
@@ -508,11 +527,17 @@ class LocalStore:
                 result = grade_objective(response, str(question.get("correct_answer") or ""), int(question.get("marks", 0)), question.get("options") or [])
             else:
                 result = grade_subjective(response, str(question.get("correct_answer") or ""), int(question.get("marks", 0)), question_type)
-            answer["eval_score"] = result["score"]
-            answer["eval_reasoning"] = result["reasoning"]
+            if persist:
+                answer["eval_score"] = result["score"]
+                answer["eval_reasoning"] = result["reasoning"]
             earned += float(result["score"])
-        session["grade"] = {"earned_marks": round(earned, 2), "total_marks": round(total, 2), "percentage": round(earned / total * 100, 2) if total else 0}
-        return session["grade"]
+        grade = {"earned_marks": round(earned, 2), "total_marks": round(total, 2), "percentage": round(earned / total * 100, 2) if total else 0}
+        if persist:
+            session["grade"] = grade
+        return grade
+
+    def evaluate_session(self, session_id: str) -> dict[str, Any]:
+        return self.calculate_session_grade(session_id, persist=True)
 
     def generate_report_pdf(self, session_id: str) -> bytes:
         session = self.sessions[session_id]
@@ -542,20 +567,6 @@ class LocalStore:
             del self.sessions[sid]
             self.answers.pop(sid, None)
             self.reports.pop(sid, None)
-
-    def clone_exam(self, exam_id: str) -> dict[str, Any]:
-        source = self.exams.get(exam_id)
-        if not source:
-            raise KeyError("exam not found")
-        cloned = self.create_exam(source["teacher_id"], {
-            "title": f"{source['title']} (Copy)",
-            "subject": source["subject"],
-            "duration_minutes": source["duration_minutes"],
-            "total_marks": source["total_marks"],
-        })
-        if source.get("paper_config"):
-            cloned["paper_config"] = source["paper_config"]
-        return cloned
 
     def delete_material(self, material_id: str) -> None:
         if material_id not in self.materials:
@@ -587,7 +598,7 @@ class LocalStore:
         answers = self.answers.get(session_id, [])
         released = bool(session.get("grade_released"))
         if released:
-            self.evaluate_session(session_id)
+            session["grade"] = self.calculate_session_grade(session_id)
         visible_answers = answers if released else [
             {key: value for key, value in answer.items() if key not in {"eval_score", "eval_reasoning"}}
             for answer in answers
@@ -703,9 +714,8 @@ class LocalStore:
         for session in self.sessions.values():
             if session["exam_id"] != exam_id:
                 continue
-            if session.get("status") == "ended" and "grade" not in session:
-                self.evaluate_session(str(session["id"]))
             item = dict(session)
+            item["grade"] = self.calculate_session_grade(str(session["id"])) if session.get("status") == "ended" else None
             item["events_count"] = len(self.integrity_events.get(str(session["id"]), []))
             item["event_summary"] = self.session_event_summary(str(session["id"]))
             item["integrity_warning_count"] = self.session_warning_count(str(session["id"]))

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { FaceLandmarker, FilesetResolver } from '@mediapipe/tasks-vision'
+import type { FaceLandmarker } from '@mediapipe/tasks-vision'
 import { AnimatePresence, domAnimation, LazyMotion, m, MotionConfig } from 'motion/react'
 import {
   Activity,
@@ -41,7 +41,7 @@ import {
   X,
 } from 'lucide-react'
 import './App.css'
-import { api, ApiError, examSocketUrl, type ApiExam, type ApiMaterial, type ApiQuestion, type ApiSession } from './api'
+import { api, ApiError, examSocketUrl, type ApiExam, type ApiMaterial, type ApiQuestion, type ApiReportSummary, type ApiSession, type ApiSessionResult } from './api'
 
 type IntegrityStatus = 'CLEAN' | 'WATCH' | 'WARN' | 'FLAGGED'
 type AuthRole = 'teacher' | 'student'
@@ -233,12 +233,13 @@ function mapSessionToStudent(session: ApiSession) {
     status: (session.integrity?.status ?? 'CLEAN') as IntegrityStatus,
     tier: session.integrity?.baseline_tier ?? 1,
     answered: session.answers_count ?? 0,
+    progress: session.progress ?? 0,
     events: session.events_count ?? 0,
     consent: session.consent,
     joined: session.joined_at ? new Date(session.joined_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '--:--',
     ci: session.integrity?.ci ?? null,
     factors: factors,
-    appealResponse: (session as any).appeal?.response || '',
+    appealResponse: session.appeal?.response || '',
     reviewStatus: session.review_status,
     gradeReleased: session.grade_released,
     grade: session.grade,
@@ -303,7 +304,7 @@ function App() {
   const [mobileOpen, setMobileOpen] = useState(false)
   const [toast, setToast] = useState<{ kind: ToastKind; text: string } | null>(null)
   const [online, setOnline] = useState(navigator.onLine)
-  const [selectedStudent, setSelectedStudent] = useState<any>(null)
+  const [selectedStudent, setSelectedStudent] = useState<StudentRecord | null>(null)
   const [filter, setFilter] = useState<IntegrityStatus | 'ALL'>('ALL')
   const [sort, setSort] = useState<'risk' | 'name' | 'join'>('risk')
   const [consentScrolled, setConsentScrolled] = useState(false)
@@ -312,7 +313,7 @@ function App() {
   const [selectedExamId, setSelectedExamId] = useState<string>(() => {
     return window.localStorage.getItem('examguard-exam-id') || 'exam-physics'
   })
-  const [studentsList, setStudentsList] = useState<any[]>([])
+  const [studentsList, setStudentsList] = useState<StudentRecord[]>([])
   const [theme, setTheme] = useState<'light' | 'dark'>(() => (window.localStorage.getItem('examguard-theme') === 'light' ? 'light' : 'dark'))
 
   useEffect(() => {
@@ -542,7 +543,7 @@ function App() {
     return api.examStudents(selectedExamId).then((sessions) => {
       const mapped = sessions.map(mapSessionToStudent)
       setStudentsList(mapped)
-      setSelectedStudent((current: any) => current ? mapped.find((student) => student.id === current.id) || current : current)
+      setSelectedStudent((current) => current ? mapped.find((student) => student.id === current.id) || current : current)
     })
   }, [selectedExamId])
 
@@ -942,7 +943,7 @@ function StudentPortalView({ auth, go, notify }: { auth: AuthUser | null; go: (v
   )
 }
 
-function DashboardView({ go, notify, onSelectExam, students, selectedExamId }: { go: (view: View) => void; notify: (kind: ToastKind, text: string) => void; onSelectExam: (examId: string) => void; students: any[]; selectedExamId: string }) {
+function DashboardView({ go, notify, onSelectExam, students, selectedExamId }: { go: (view: View) => void; notify: (kind: ToastKind, text: string) => void; onSelectExam: (examId: string) => void; students: StudentRecord[]; selectedExamId: string }) {
   const [exams, setExams] = useState<ApiExam[]>([])
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [search, setSearch] = useState('')
@@ -1208,7 +1209,7 @@ function ConfigView({ examId, notify, go }: { examId: string; notify: (kind: Toa
     const topicsMap: Record<string, string[]> = {}
     const countsMap: Record<string, number> = {}
     materials.forEach((material) => {
-      Object.entries(material.chapter_counts || {}).forEach(([chapterName, info]: [string, any]) => {
+      Object.entries(material.chapter_counts || {}).forEach(([chapterName, info]) => {
         const count = info && typeof info === 'object' ? Number(info.count || 0) : Number(info || 0)
         const topics = info && typeof info === 'object' && Array.isArray(info.topics) ? info.topics.map(String) : []
         countsMap[chapterName] = (countsMap[chapterName] || 0) + count
@@ -1317,7 +1318,7 @@ function ConfigView({ examId, notify, go }: { examId: string; notify: (kind: Toa
         setAvailableChapters((current) => [...new Set([...current, ...Object.keys(material.chapter_counts)])])
         setChapterTopicsMap((current) => {
           const next = { ...current }
-          Object.entries(material.chapter_counts).forEach(([chapterName, info]: [string, any]) => {
+          Object.entries(material.chapter_counts).forEach(([chapterName, info]) => {
             const topics = info && typeof info === 'object' && Array.isArray(info.topics) ? info.topics.map(String) : []
             next[chapterName] = [...new Set([...(next[chapterName] || []), ...topics])]
           })
@@ -1325,7 +1326,7 @@ function ConfigView({ examId, notify, go }: { examId: string; notify: (kind: Toa
         })
         setChapterCountsMap((current) => {
           const next = { ...current }
-          Object.entries(material.chapter_counts).forEach(([chapterName, info]: [string, any]) => {
+          Object.entries(material.chapter_counts).forEach(([chapterName, info]) => {
             const count = info && typeof info === 'object' ? Number(info.count || 0) : Number(info || 0)
             next[chapterName] = (next[chapterName] || 0) + count
           })
@@ -1642,9 +1643,9 @@ function ConfigView({ examId, notify, go }: { examId: string; notify: (kind: Toa
 
 function LiveMonitorView(props: {
   examId: string
-  students: any[]
-  selected: any
-  setSelected: (student: any) => void
+  students: StudentRecord[]
+  selected: StudentRecord | null
+  setSelected: (student: StudentRecord | null) => void
   filter: IntegrityStatus | 'ALL'
   setFilter: (status: IntegrityStatus | 'ALL') => void
   sort: 'risk' | 'name' | 'join'
@@ -1959,6 +1960,7 @@ function LivenessView({ go, notify }: { go: (view: View) => void; notify: (kind:
       if (!video) return
       video.srcObject = stream
       await video.play()
+      const { FaceLandmarker, FilesetResolver } = await import('@mediapipe/tasks-vision')
       const vision = await FilesetResolver.forVisionTasks('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm')
       const detectorOptions = (delegate: 'GPU' | 'CPU') => ({
         baseOptions: { modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/latest/face_landmarker.task', delegate },
@@ -2102,7 +2104,8 @@ function ExamView(props: {
   const [integrityWarnings, setIntegrityWarnings] = useState(0)
   const [integrityLocked, setIntegrityLocked] = useState(false)
   const [eventSummary, setEventSummary] = useState<Record<string, number>>({})
-  const [lastSave, setLastSave] = useState<number>(Date.now())
+  const [lastSave, setLastSave] = useState<number>(() => Date.now())
+  const [clockNow, setClockNow] = useState<number>(() => Date.now())
   const [saveWarning, setSaveWarning] = useState('')
   const [submitOpen, setSubmitOpen] = useState(false)
   const [presenceState, setPresenceState] = useState<'starting' | 'present' | 'missing' | 'multiple' | 'unavailable'>('starting')
@@ -2210,6 +2213,7 @@ function ExamView(props: {
         if (!active || !monitorVideoRef.current) return
         monitorVideoRef.current.srcObject = stream
         await monitorVideoRef.current.play()
+        const { FaceLandmarker, FilesetResolver } = await import('@mediapipe/tasks-vision')
         const vision = await FilesetResolver.forVisionTasks('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm')
         detector = await FaceLandmarker.createFromOptions(vision, {
           baseOptions: { modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/latest/face_landmarker.task', delegate: 'CPU' },
@@ -2347,6 +2351,7 @@ function ExamView(props: {
   // Countdown timer
   useEffect(() => {
     const timer = setInterval(() => {
+      setClockNow(Date.now())
       if (examStatus === 'active') setTimeLeft((t) => Math.max(0, t - 1))
     }, 1000)
     timerRef.current = timer
@@ -2419,13 +2424,21 @@ function ExamView(props: {
     if (!timerReady || timeLeft !== 0 || expirySubmitStarted.current) return
     expirySubmitStarted.current = true
     const submitExpiredExam = async () => {
-      await flushAllAnswers()
       const sessionId = studentSessionId()
       if (!sessionId) return
+      let syncFailed = false
+      try {
+        await flushAllAnswers()
+      } catch {
+        syncFailed = true
+        setSaveWarning('Some answers could not sync before time expired. The server will grade every answer it received.')
+      }
       try {
         await api.endSession(sessionId, 'expired')
         window.localStorage.removeItem(`examguard-answers-${sessionId}`)
-        props.notify('info', 'Time expired. Your exam was submitted automatically.')
+        props.notify(syncFailed ? 'warning' : 'info', syncFailed
+          ? 'Time expired. The exam was submitted, but one or more final answer syncs failed.'
+          : 'Time expired. Your exam was submitted automatically.')
         props.go('complete')
       } catch (error) {
         expirySubmitStarted.current = false
@@ -2463,7 +2476,7 @@ function ExamView(props: {
     setSubmitOpen(true)
   }
 
-  const secondsSinceSave = Math.round((Date.now() - lastSave) / 1000)
+  const secondsSinceSave = Math.round((clockNow - lastSave) / 1000)
 
   const eventSequenceRef = useRef(0)
   const logEvent = (eventType: string, metadata: Record<string, unknown> = {}) => {
@@ -2702,7 +2715,7 @@ function CompleteView({ notify, go }: { notify: (kind: ToastKind, text: string) 
   const [appeal, setAppeal] = useState('')
   const appealWords = wordCount(appeal)
   const [submitted, setSubmitted] = useState(false)
-  const [sessionData, setSessionData] = useState<any>(null)
+  const [sessionData, setSessionData] = useState<ApiSessionResult | { missingSession: true } | null>(null)
 
   useEffect(() => {
     const sessionId = studentSessionId()
@@ -2732,7 +2745,7 @@ function CompleteView({ notify, go }: { notify: (kind: ToastKind, text: string) 
     }
   }
 
-  if (sessionData?.missingSession) return <section className="screen"><div className="empty-state"><Lock size={28} /><strong>Login required</strong><span>Open your student portal to see only your own submitted result.</span><button className="primary-btn" onClick={() => go('student')}>Open Student Portal</button></div></section>
+  if (sessionData && 'missingSession' in sessionData) return <section className="screen"><div className="empty-state"><Lock size={28} /><strong>Login required</strong><span>Open your student portal to see only your own submitted result.</span><button className="primary-btn" onClick={() => go('student')}>Open Student Portal</button></div></section>
   if (!sessionData) return <section className="screen"><div className="empty-state"><RefreshCw size={28} /><strong>Loading submission status</strong><span>Your locally saved answers remain available.</span></div></section>
 
   return (
@@ -2774,7 +2787,7 @@ function CompleteView({ notify, go }: { notify: (kind: ToastKind, text: string) 
   )
 }
 
-function ReviewView({ examId, students, selected, setSelected, notify, onRefreshStudents }: { examId: string; students: any[]; selected: any; setSelected: (s: any) => void; notify: (kind: ToastKind, text: string) => void; onRefreshStudents: () => Promise<void> }) {
+function ReviewView({ examId, students, selected, setSelected, notify, onRefreshStudents }: { examId: string; students: StudentRecord[]; selected: StudentRecord | null; setSelected: (student: StudentRecord | null) => void; notify: (kind: ToastKind, text: string) => void; onRefreshStudents: () => Promise<void> }) {
   const [teacherNote, setTeacherNote] = useState('')
   const [exam, setExam] = useState<ApiExam | null>(null)
   const [savingDecision, setSavingDecision] = useState<'clear' | 'confirm_flag' | null>(null)
@@ -2885,7 +2898,8 @@ function ReviewView({ examId, students, selected, setSelected, notify, onRefresh
 function ResultsView({ auth, notify }: { auth: AuthUser | null; notify: (kind: ToastKind, text: string) => void }) {
   const [exams, setExams] = useState<ApiExam[]>([])
   const [examId, setExamId] = useState('')
-  const [rows, setRows] = useState<any[]>([])
+  const [teacherRows, setTeacherRows] = useState<StudentRecord[]>([])
+  const [studentRows, setStudentRows] = useState<Awaited<ReturnType<typeof api.myStudentSessions>>>([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -2893,7 +2907,7 @@ function ResultsView({ auth, notify }: { auth: AuthUser | null; notify: (kind: T
     if (auth?.role === 'student') {
       const loadStudentResults = () => {
         setLoading(true)
-        api.myStudentSessions().then((sessions) => setRows(sessions.filter((session) => session.status === 'ended')))
+        api.myStudentSessions().then((sessions) => setStudentRows(sessions.filter((session) => session.status === 'ended')))
           .catch((error) => {
             if (window.localStorage.getItem('examguard-access-token')) notify('error', error instanceof Error ? error.message : 'Results could not be loaded.')
           })
@@ -2915,7 +2929,7 @@ function ResultsView({ auth, notify }: { auth: AuthUser | null; notify: (kind: T
   useEffect(() => {
     if (auth?.role !== 'teacher' || !examId) return
     setLoading(true)
-    api.examStudents(examId).then((sessions) => setRows(sessions.filter((session) => session.status === 'ended').map(mapSessionToStudent)))
+    api.examStudents(examId).then((sessions) => setTeacherRows(sessions.filter((session) => session.status === 'ended').map(mapSessionToStudent)))
       .catch((error) => notify('error', error instanceof Error ? error.message : 'Exam results could not be loaded.'))
       .finally(() => setLoading(false))
   }, [auth?.role, examId])
@@ -2925,7 +2939,7 @@ function ResultsView({ auth, notify }: { auth: AuthUser | null; notify: (kind: T
       <Card title="My Results" icon={GraduationCap}>
         <p className="muted">Only results made live by your teacher are visible. Deleted exams are removed automatically.</p>
         <div className="results-list">
-          {loading ? <div className="empty-state"><RefreshCw size={24} /><strong>Loading results</strong></div> : rows.length === 0 ? <div className="empty-state"><BookOpen size={24} /><strong>No completed exams yet</strong></div> : rows.map((row) => (
+          {loading ? <div className="empty-state"><RefreshCw size={24} /><strong>Loading results</strong></div> : studentRows.length === 0 ? <div className="empty-state"><BookOpen size={24} /><strong>No completed exams yet</strong></div> : studentRows.map((row) => (
             <div className="result-detail-row" key={row.session_id}>
               <span><strong>{row.exam_title || 'Exam'}</strong><small>{row.subject || 'Subject not specified'}</small></span>
               {row.grade_released && row.grade ? <><strong>{row.grade.earned_marks}/{row.grade.total_marks}</strong><span className="badge badge-green">{row.grade.percentage}%</span></> : <span className="badge badge-amber">Result not live</span>}
@@ -2947,7 +2961,7 @@ function ResultsView({ auth, notify }: { auth: AuthUser | null; notify: (kind: T
         </div>
         <p className="muted">Select any ended exam to see each student's evaluated marks and release status.</p>
         <div className="results-list">
-          {loading ? <div className="empty-state"><RefreshCw size={24} /><strong>Loading exam results</strong></div> : exams.length === 0 ? <div className="empty-state"><BookOpen size={24} /><strong>No ended exams yet</strong></div> : rows.length === 0 ? <div className="empty-state"><Users size={24} /><strong>No submitted students for this exam</strong></div> : rows.map((row) => (
+          {loading ? <div className="empty-state"><RefreshCw size={24} /><strong>Loading exam results</strong></div> : exams.length === 0 ? <div className="empty-state"><BookOpen size={24} /><strong>No ended exams yet</strong></div> : teacherRows.length === 0 ? <div className="empty-state"><Users size={24} /><strong>No submitted students for this exam</strong></div> : teacherRows.map((row) => (
             <div className="result-detail-row teacher" key={row.id}>
               <span><strong>{row.name}</strong><small>{row.answered} answer{row.answered === 1 ? '' : 's'} submitted</small></span>
               <strong>{row.grade ? `${row.grade.earned_marks}/${row.grade.total_marks}` : 'Pending'}</strong>
@@ -2962,8 +2976,10 @@ function ResultsView({ auth, notify }: { auth: AuthUser | null; notify: (kind: T
   )
 }
 
-function ReportsView({ examId, students, notify, onRefreshStudents }: { examId: string; students: any[]; notify: (kind: ToastKind, text: string) => void; onRefreshStudents: () => Promise<void> }) {
-  const [summary, setSummary] = useState<any>(null)
+type StudentRecord = ReturnType<typeof mapSessionToStudent>
+
+function ReportsView({ examId, students, notify, onRefreshStudents }: { examId: string; students: StudentRecord[]; notify: (kind: ToastKind, text: string) => void; onRefreshStudents: () => Promise<void> }) {
+  const [summary, setSummary] = useState<ApiReportSummary | null>(null)
   const [exam, setExam] = useState<ApiExam | null>(null)
 
   useEffect(() => {
@@ -3188,7 +3204,7 @@ function ProgressStream({ generating, generatedCount, sections, error, onRetry }
   )
 }
 
-function StudentTile({ student, selected, onClick }: { student: any; selected: boolean; onClick: () => void }) {
+function StudentTile({ student, selected, onClick }: { student: StudentRecord; selected: boolean; onClick: () => void }) {
   let integrityColor = 'var(--eg-emerald)'
   if (student.status === 'FLAGGED') integrityColor = 'var(--eg-red)'
   else if (student.status === 'WARN') integrityColor = 'var(--eg-orange)'

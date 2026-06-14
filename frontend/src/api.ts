@@ -36,13 +36,13 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const apiBase = requireApiBase()
   const token = window.localStorage.getItem('examguard-access-token')
   const method = options.method ?? 'GET'
-  const retryableLongOperation = path.includes('/generate') || path.includes('/materials/upload')
+  const longOperation = path.includes('/generate') || path.includes('/materials/upload')
+  const retryableLongOperation = path.includes('/generate')
   const attempts = method === 'GET' || retryableLongOperation ? 2 : 1
   let response: Response | undefined
   let networkError: unknown
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     const controller = new AbortController()
-    const longOperation = retryableLongOperation
     const timeout = window.setTimeout(() => controller.abort(), longOperation ? 180_000 : 30_000)
     try {
       response = await fetch(`${apiBase}${path}`, {
@@ -173,6 +173,7 @@ export type ApiSession = {
   review_status: string
   grade_released: boolean
   answers_count?: number
+  progress?: number
   events_count?: number
   event_summary?: Record<string, number>
   joined_at?: string
@@ -181,6 +182,7 @@ export type ApiSession = {
   locked_for_review?: boolean
   integrity_warning_count?: number
   already_submitted?: boolean
+  appeal?: { response?: string; submitted_at?: string; deadline_at?: string }
 }
 
 export type ApiAnswer = {
@@ -208,6 +210,20 @@ export type ApiExamReports = {
   reports_ready: number
   students: ApiSession[]
   average_integrity: number
+}
+
+export type ApiSessionResult = {
+  session_id: string
+  student_name: string
+  exam_title?: string
+  subject?: string
+  status: string
+  integrity: Record<string, unknown>
+  review_status: string
+  grade_released: boolean
+  answers_count: number
+  answers: ApiAnswer[]
+  grade?: { earned_marks: number; total_marks: number; percentage: number }
 }
 
 // --- API Client -------------------------------------------------------------
@@ -311,7 +327,7 @@ export const api = {
     request<Record<string, unknown>>(`/sessions/${sessionId}/integrity`),
 
   sessionResult: (sessionId: string) =>
-    request<{ session_id: string; student_name: string; status: string; integrity: Record<string, any>; review_status: string; grade_released: boolean; answers_count: number; answers: ApiAnswer[]; grade?: { earned_marks: number; total_marks: number; percentage: number } }>(`/sessions/${sessionId}/result`),
+    request<ApiSessionResult>(`/sessions/${sessionId}/result`),
 
   myStudentSessions: () => request<Array<{ session_id: string; student_name: string; exam_title?: string; subject?: string; status: string; review_status: string; grade_released: boolean; grade?: { earned_marks: number; total_marks: number; percentage: number } }>>('/students/me/sessions'),
 

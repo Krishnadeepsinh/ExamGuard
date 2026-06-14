@@ -6,6 +6,7 @@ frontend code and do not expose these calls to the browser.
 
 from __future__ import annotations
 
+from copy import deepcopy
 import json
 import hashlib
 from datetime import datetime, timedelta, timezone
@@ -157,9 +158,42 @@ class SupabaseStore:
             "duration_minutes": source["duration_minutes"],
             "total_marks": source["total_marks"],
         })
+        material_id_map: dict[str, str] = {}
+        for material in self.list_materials(exam_id):
+            source_type = str(material.get("source_type") or "material")
+            safe_name = "".join(char if char.isalnum() or char in {".", "-", "_"} else "_" for char in str(material["filename"]))
+            cloned_material = self.rest("POST", "materials", {
+                "exam_id": clone["id"],
+                "filename": material["filename"],
+                "storage_path": f"clone-reference/{source_type}/{uuid4().hex}_{safe_name}",
+                "status": material.get("status") or "ready",
+                "chunk_count": int(material.get("chunk_count") or 0),
+                "chapter_counts": material.get("chapter_counts") or {},
+            })[0]
+            material_id_map[str(material["id"])] = str(cloned_material["id"])
+            chunks = self.rest("GET", "material_chunks", query=f"?material_id=eq.{material['id']}") or []
+            cloned_chunks = [{
+                "exam_id": clone["id"],
+                "material_id": cloned_material["id"],
+                "material_filename": chunk.get("material_filename") or material["filename"],
+                "chunk_text": chunk["chunk_text"],
+                "embedding": chunk.get("embedding"),
+                "chapter_tag": chunk.get("chapter_tag"),
+                "source_page": chunk.get("source_page"),
+                "chunk_index": chunk.get("chunk_index"),
+            } for chunk in chunks]
+            for start in range(0, len(cloned_chunks), 500):
+                self.rest("POST", "material_chunks", cloned_chunks[start:start + 500])
+
+        config = deepcopy(source.get("paper_config") or {})
+        old_ids = config.get("material_ids") or ([config.get("material_id")] if config.get("material_id") else [])
+        new_ids = [material_id_map[str(item)] for item in old_ids if str(item) in material_id_map]
+        if config:
+            config["material_ids"] = new_ids
+            config["material_id"] = new_ids[0] if new_ids else None
         updated = self.rest("PATCH", "exams", {
-            "paper_config": source.get("paper_config") or {},
-            "config_validated": bool(source.get("paper_config")),
+            "paper_config": config if new_ids else {},
+            "config_validated": bool(config and new_ids),
             "questions_generated": False,
             "status": "draft",
         }, query=f"?id=eq.{clone['id']}")[0]
@@ -568,7 +602,7 @@ class SupabaseStore:
             released = bool(row.get("grade_released"))
             total = round(float(exam.get("total_marks") or 0), 2)
             if released:
-                grade = self.evaluate_session(str(row["id"]))
+                grade = self.calculate_session_grade(str(row["id"]))
                 earned = float(grade.get("earned_marks") or 0)
                 total = float(grade.get("total_marks") or total)
             else:
@@ -681,7 +715,7 @@ class SupabaseStore:
         created = self.rest("PATCH", "answers", row, query=f"?id=eq.{existing[0]['id']}") if existing else self.rest("POST", "answers", row)
         return created[0]
 
-    def evaluate_session(self, session_id: str) -> dict[str, Any]:
+    def calculate_session_grade(self, session_id: str, *, persist: bool = False) -> dict[str, Any]:
         questions = {item["id"]: item for item in self.session_questions(session_id)}
         answers = self.rest("GET", "answers", query=f"?session_id=eq.{session_id}") or []
         total = sum(float(item.get("marks", 0)) for item in questions.values())
@@ -696,9 +730,13 @@ class SupabaseStore:
                 result = grade_objective(response, str(question.get("correct_answer") or ""), int(question.get("marks", 0)), question.get("options") or [])
             else:
                 result = grade_subjective(response, str(question.get("correct_answer") or ""), int(question.get("marks", 0)), question_type)
-            self.rest("PATCH", "answers", {"eval_score": result["score"], "eval_reasoning": result["reasoning"]}, query=f"?id=eq.{answer['id']}")
+            if persist:
+                self.rest("PATCH", "answers", {"eval_score": result["score"], "eval_reasoning": result["reasoning"]}, query=f"?id=eq.{answer['id']}")
             earned += float(result["score"])
         return {"earned_marks": round(earned, 2), "total_marks": round(total, 2), "percentage": round(earned / total * 100, 2) if total else 0}
+
+    def evaluate_session(self, session_id: str) -> dict[str, Any]:
+        return self.calculate_session_grade(session_id, persist=True)
 
     def exam_students(self, exam_id: str) -> list[dict[str, Any]]:
         rows = self.rest(
@@ -721,7 +759,7 @@ class SupabaseStore:
             session = self.normalize_session(row, user.get("display_name") or "Student")
             session["answers_count"] = len(answers)
             if session.get("status") == "ended":
-                session["grade"] = self.evaluate_session(str(session["id"]))
+                session["grade"] = self.calculate_session_grade(str(session["id"]))
             else:
                 session["grade"] = None
             session["events_count"] = int(events[0].get("count", 0)) if events else 0
@@ -814,22 +852,6 @@ class SupabaseStore:
         self.rest("DELETE", "questions", query=f"?exam_id=eq.{exam_id}")
         self.rest("DELETE", "exams", query=f"?id=eq.{exam_id}")
 
-    def clone_exam(self, exam_id: str) -> dict[str, Any]:
-        source = self.get_exam(exam_id)
-        cloned = self.create_exam(source["teacher_id"], {
-            "title": f"{source['title']} (Copy)",
-            "subject": source["subject"],
-            "duration_minutes": source["duration_min"],
-            "total_marks": source["total_marks"],
-        })
-        if source.get("paper_config"):
-            self.rest("PATCH", "exams", {
-                "paper_config": source["paper_config"],
-                "config_validated": source.get("config_validated", False)
-            }, query=f"?id=eq.{cloned['id']}")
-            cloned["paper_config"] = source["paper_config"]
-        return cloned
-
     def delete_material(self, material_id: str) -> None:
         material = self.get_material(material_id)
         storage_path = material.get("storage_path")
@@ -869,8 +891,7 @@ class SupabaseStore:
         total = round(sum(float(question.get("marks") or 0) for question in questions), 2)
         released = bool(session.get("grade_released"))
         if released:
-            grade = self.evaluate_session(session_id)
-            answers = self.rest("GET", "answers", query=f"?session_id=eq.{session_id}") or []
+            grade = self.calculate_session_grade(session_id)
             earned = float(grade.get("earned_marks") or 0)
             total = float(grade.get("total_marks") or total)
         else:
