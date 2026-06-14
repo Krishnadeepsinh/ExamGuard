@@ -19,7 +19,7 @@ from backend.agents.llm_router import generate_grounded_questions, gemini_router
 from backend.agents.evaluation_agent import grade_objective, grade_subjective
 from backend.agents.orchestrator_agent import compute_integrity_score
 from backend.agents.paper_config_agent import generate_join_code, validate_paper_config
-from backend.agents.proctoring_agent import behavioral_score, has_critical_pattern, impact_for, integrity_warning_count
+from backend.agents.proctoring_agent import behavioral_score, impact_for, integrity_warning_count, should_lock_for_review
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
 from backend.store import build_pdf_report
@@ -768,10 +768,7 @@ class SupabaseStore:
         baseline_tier = int(session.get("baseline_tier") or 3)
         result = compute_integrity_score(factors, baseline_tier=baseline_tier)
         warning_count = integrity_warning_count(event_types)
-        critical_pattern = has_critical_pattern(event_types) and (
-            integrity_warning_count(event_types[:-1]) >= 4
-            or any(event.get("type") == "phone_detected" for event in event_types)
-        )
+        critical_pattern = should_lock_for_review(event_types)
         if critical_pattern:
             result = {**result, "score": min(float(result["score"]), 45.0), "status": "FLAGGED"}
         patch: dict[str, Any] = {"integrity_score": result["score"], "integrity_state": result["status"], "integrity_ci": result["ci"], "integrity_factors": factors}

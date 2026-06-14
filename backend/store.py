@@ -21,7 +21,7 @@ from backend.agents.llm_router import generate_grounded_questions, gemini_router
 from backend.agents.evaluation_agent import grade_objective, grade_subjective
 from backend.agents.orchestrator_agent import compute_integrity_score
 from backend.agents.paper_config_agent import generate_join_code, validate_paper_config
-from backend.agents.proctoring_agent import behavioral_score, has_critical_pattern, impact_for, integrity_warning_count
+from backend.agents.proctoring_agent import behavioral_score, impact_for, integrity_warning_count, should_lock_for_review
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_CENTER, TA_LEFT
 from reportlab.lib.pagesizes import A4
@@ -639,10 +639,7 @@ class LocalStore:
         baseline_tier = int(prior.get("baseline_tier", 3)) if isinstance(prior, dict) else 3
         result = compute_integrity_score(factors, baseline_tier=baseline_tier)
         warning_count = integrity_warning_count(events)
-        critical_pattern = has_critical_pattern(events) and (
-            integrity_warning_count(events[:-1]) >= 4
-            or any(event.get("type") == "phone_detected" for event in events)
-        )
+        critical_pattern = should_lock_for_review(events)
         if critical_pattern:
             result = {**result, "score": min(float(result["score"]), 45.0), "status": "FLAGGED"}
         session = self.sessions[session_id]

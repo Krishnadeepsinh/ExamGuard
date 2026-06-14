@@ -82,3 +82,30 @@ def has_critical_pattern(events: list[dict[str, object]]) -> bool:
     if "device" in categories and len(categories) >= 3 and len(categorized) >= 5 and has_strong_evidence:
         return True
     return len(categories) >= 3 and len(categorized) >= 7 and has_strong_evidence and repeated_category
+
+
+def should_lock_for_review(events: list[dict[str, object]]) -> bool:
+    """Return True only when evidence is strong enough to pause/hold an attempt.
+
+    A lock is an action, not a verdict. It must require corroboration so one
+    noisy camera event or one accidental focus loss cannot stop a student.
+    """
+    if not has_critical_pattern(events):
+        return False
+    warning_count = integrity_warning_count(events)
+    previous_warning_count = integrity_warning_count(events[:-1])
+    repeated_high_confidence_phone = sum(
+        1
+        for event in events
+        if event.get("type") == "phone_detected"
+        and isinstance(event.get("metadata"), dict)
+        and float(event["metadata"].get("confidence", 0) or 0) >= 0.90
+    ) >= 2
+    categories = {
+        category
+        for event in events
+        if (category := _signal_category(event)) is not None
+    }
+    if warning_count >= 4 and previous_warning_count >= 3:
+        return True
+    return repeated_high_confidence_phone and len(categories) >= 3 and len(events) >= 5

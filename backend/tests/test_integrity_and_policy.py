@@ -191,6 +191,19 @@ class StoreBehaviorTests(unittest.TestCase):
         self.assertTrue(self.store.sessions[session["id"]]["locked_for_review"])
         self.assertEqual(self.store.sessions[session["id"]]["integrity"]["status"], "FLAGGED")
 
+    def test_single_phone_signal_with_noise_does_not_lock_attempt(self) -> None:
+        self.store.exams["exam-physics"]["status"] = "active"
+        session = self.store.join_session("PHY001", "Noisy Phone Student", "phone-noise@student.ai")
+        for event, metadata in [
+            ("phone_detected", {"confidence": 0.93}),
+            ("tab_hidden", {}),
+            ("paste_detected", {"bulk_paste": True}),
+            ("window_blur", {}),
+        ]:
+            self.store.log_integrity_event(session["id"], event, metadata)
+        self.assertFalse(self.store.sessions[session["id"]].get("locked_for_review", False))
+        self.assertNotEqual(self.store.sessions[session["id"]]["integrity"]["status"], "FLAGGED")
+
     def test_only_repeated_independent_signals_lock_attempt(self) -> None:
         self.store.exams["exam-physics"]["status"] = "active"
         session = self.store.join_session("PHY001", "Lock Student", "lock@student.ai")
