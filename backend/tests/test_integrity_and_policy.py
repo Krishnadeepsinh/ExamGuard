@@ -190,6 +190,16 @@ class StoreBehaviorTests(unittest.TestCase):
         self.assertEqual(first["id"], second["id"])
         self.assertEqual(len(self.store.answers[session["id"]]), 1)
 
+    def test_material_upload_retry_with_same_idempotency_key_is_not_duplicated(self) -> None:
+        before = len([item for item in self.store.materials.values() if item["exam_id"] == "exam-physics"])
+        source = ("Chapter 2 Safety explains controls, risks, observation, and reporting. ") * 80
+        first = self.store.add_material("exam-physics", "retry.txt", source.encode("utf-8"), idempotency_key="upload-key-123")
+        second = self.store.add_material("exam-physics", "retry.txt", source.encode("utf-8"), idempotency_key="upload-key-123")
+        after = len([item for item in self.store.materials.values() if item["exam_id"] == "exam-physics"])
+
+        self.assertEqual(first["id"], second["id"])
+        self.assertEqual(after, before + 1)
+
     def test_activation_captures_immutable_paper_snapshot(self) -> None:
         self.store.questions["exam-physics"] = [{"id": "q1", "text": "What is SQL?", "marks": 2}]
         self.store.exams["exam-physics"]["status"] = "generated"

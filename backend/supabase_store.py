@@ -215,7 +215,7 @@ class SupabaseStore:
             "duration_minutes": exam.get("duration_min", exam.get("duration_minutes")),
         }
 
-    def add_material(self, exam_id: str, filename: str, content: bytes, source_type: str = "material") -> dict[str, Any]:
+    def add_material(self, exam_id: str, filename: str, content: bytes, source_type: str = "material", idempotency_key: str | None = None) -> dict[str, Any]:
         text = self.extract_text(filename, content)
         chunks, chapter_topics = chunk_text_with_chapters(text, source_page=1, approx_tokens=384)
         if not chunks:
@@ -231,7 +231,13 @@ class SupabaseStore:
                 }
 
         safe_name = "".join(char if char.isalnum() or char in {".", "-", "_"} else "_" for char in filename)
-        storage_path = f"{exam_id}/{source_type}/{uuid4().hex}_{safe_name}"
+        upload_token = hashlib.sha256(idempotency_key.encode()).hexdigest()[:32] if idempotency_key else uuid4().hex
+        storage_path = f"{exam_id}/{source_type}/{upload_token}_{safe_name}"
+        if idempotency_key:
+            encoded_storage_path = parse.quote(storage_path, safe="")
+            duplicate = self.rest("GET", "materials", query=f"?exam_id=eq.{exam_id}&storage_path=eq.{encoded_storage_path}&limit=1")
+            if duplicate:
+                return self.normalize_material(duplicate[0])
         content_type = "application/pdf" if filename.lower().endswith(".pdf") else "application/vnd.openxmlformats-officedocument.wordprocessingml.document" if filename.lower().endswith(".docx") else "text/plain"
         upload_headers = {
             "apikey": self.key,
@@ -245,6 +251,11 @@ class SupabaseStore:
                 pass
         except error.HTTPError as exc:
             detail = exc.read().decode("utf-8", errors="ignore")
+            if idempotency_key:
+                encoded_storage_path = parse.quote(storage_path, safe="")
+                duplicate = self.rest("GET", "materials", query=f"?exam_id=eq.{exam_id}&storage_path=eq.{encoded_storage_path}&limit=1")
+                if duplicate:
+                    return self.normalize_material(duplicate[0])
             raise RuntimeError(f"Material storage upload failed: {detail or exc.reason}") from exc
 
         material = self.rest("POST", "materials", {
@@ -745,12 +756,13 @@ class SupabaseStore:
             query=(
                 f"?exam_id=eq.{exam_id}"
                 "&select=*,users!exam_sessions_student_id_fkey(display_name),"
-                "answers(eval_score),integrity_events(count),"
+                "answers(eval_score),integrity_events(event_type,event_data),"
                 "integrity_appeals(student_response,submitted_at,deadline_at)"
             ),
         )
         result = []
         exam = self.get_exam(exam_id)
+        total_marks = round(float(exam.get("total_marks") or 0), 2)
         for row in rows:
             user = row.pop("users", None) or {}
             answers = row.pop("answers", None) or []
@@ -758,13 +770,23 @@ class SupabaseStore:
             appeals = row.pop("integrity_appeals", None) or []
             session = self.normalize_session(row, user.get("display_name") or "Student")
             session["answers_count"] = len(answers)
-            if session.get("status") == "ended":
-                session["grade"] = self.calculate_session_grade(str(session["id"]))
+            if session.get("status") == "ended" and all(answer.get("eval_score") is not None for answer in answers):
+                earned = round(sum(float(answer.get("eval_score") or 0) for answer in answers), 2)
+                session["grade"] = {
+                    "earned_marks": earned,
+                    "total_marks": total_marks,
+                    "percentage": round(earned / total_marks * 100, 2) if total_marks else 0,
+                }
             else:
                 session["grade"] = None
-            session["events_count"] = int(events[0].get("count", 0)) if events else 0
-            session["event_summary"] = self.session_event_summary(str(session["id"]))
-            session["integrity_warning_count"] = self.session_warning_count(str(session["id"]))
+            normalized_events = [{"type": event["event_type"], "metadata": event.get("event_data") or {}} for event in events]
+            event_summary: dict[str, int] = {}
+            for event in normalized_events:
+                event_type = str(event.get("type") or "unknown")
+                event_summary[event_type] = event_summary.get(event_type, 0) + 1
+            session["events_count"] = len(normalized_events)
+            session["event_summary"] = event_summary
+            session["integrity_warning_count"] = integrity_warning_count(normalized_events)
             session["joined_at"] = row.get("started_at") or row.get("created_at")
             if appeals:
                 appeal = appeals[0] if isinstance(appeals, list) else appeals

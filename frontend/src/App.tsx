@@ -389,7 +389,7 @@ function App() {
 
   useEffect(() => {
     if (!auth || auth.role !== 'teacher') return
-    if (!['live', 'review', 'reports'].includes(view)) return
+    if (!['review', 'reports'].includes(view)) return
 
     const poll = () => {
       api.examStudents(selectedExamId)
@@ -400,7 +400,7 @@ function App() {
     }
 
     poll()
-    const interval = setInterval(poll, 4000)
+    const interval = setInterval(poll, 15000)
     return () => clearInterval(interval)
   }, [auth, view, selectedExamId])
 
@@ -2420,6 +2420,18 @@ function ExamView(props: {
     setSaveWarning('')
   }, [answers, current?.id, displayQuestions, props.answer, saveAnswerTracked])
 
+  const flushAllAnswersBeforeExpiry = useCallback(async () => {
+    let timeoutId: number | undefined
+    const timeout = new Promise<never>((_, reject) => {
+      timeoutId = window.setTimeout(() => reject(new Error('Final answer sync timed out.')), 8000)
+    })
+    try {
+      await Promise.race([flushAllAnswers(), timeout])
+    } finally {
+      if (timeoutId) window.clearTimeout(timeoutId)
+    }
+  }, [flushAllAnswers])
+
   useEffect(() => {
     if (!timerReady || timeLeft !== 0 || expirySubmitStarted.current) return
     expirySubmitStarted.current = true
@@ -2428,14 +2440,15 @@ function ExamView(props: {
       if (!sessionId) return
       let syncFailed = false
       try {
-        await flushAllAnswers()
+        await flushAllAnswersBeforeExpiry()
       } catch {
         syncFailed = true
         setSaveWarning('Some answers could not sync before time expired. The server will grade every answer it received.')
       }
       try {
         await api.endSession(sessionId, 'expired')
-        window.localStorage.removeItem(`examguard-answers-${sessionId}`)
+        if (!syncFailed) window.localStorage.removeItem(`examguard-answers-${sessionId}`)
+        window.localStorage.removeItem(`examguard-deadline-${sessionId}`)
         props.notify(syncFailed ? 'warning' : 'info', syncFailed
           ? 'Time expired. The exam was submitted, but one or more final answer syncs failed.'
           : 'Time expired. Your exam was submitted automatically.')
@@ -2446,7 +2459,7 @@ function ExamView(props: {
       }
     }
     submitExpiredExam()
-  }, [timerReady, timeLeft, flushAllAnswers, props])
+  }, [timerReady, timeLeft, flushAllAnswersBeforeExpiry, props])
 
   const goToQuestion = (idx: number) => {
     saveCurrentAnswer()

@@ -154,7 +154,17 @@ class LocalStore:
             clone["paper_config"] = config if new_ids else {}
         return clone
 
-    def add_material(self, exam_id: str, filename: str, content: bytes, source_type: str = "material") -> dict[str, Any]:
+    def add_material(self, exam_id: str, filename: str, content: bytes, source_type: str = "material", idempotency_key: str | None = None) -> dict[str, Any]:
+        if idempotency_key:
+            duplicate = next(
+                (
+                    item for item in self.materials.values()
+                    if item.get("exam_id") == exam_id and item.get("idempotency_key") == idempotency_key
+                ),
+                None,
+            )
+            if duplicate:
+                return {key: value for key, value in duplicate.items() if key != "chunks"}
         text = self.extract_text(filename, content)
         chunks, chapter_topics = chunk_text_with_chapters(text, source_page=1, approx_tokens=384)
         if not chunks:
@@ -179,6 +189,7 @@ class LocalStore:
             "chunk_count": len(chunks),
             "chapter_counts": chapter_counts,
             "chunks": [asdict(chunk) for chunk in chunks],
+            "idempotency_key": idempotency_key,
             "created_at": utc_now(),
         }
         self.materials[material_id] = material

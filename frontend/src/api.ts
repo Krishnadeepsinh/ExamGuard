@@ -101,6 +101,14 @@ async function requestRaw(path: string, options: RequestInit = {}): Promise<Resp
   return response
 }
 
+async function materialUploadKey(examId: string, sourceType: 'syllabus' | 'material', file: File): Promise<string> {
+  const digest = await window.crypto.subtle.digest('SHA-256', await file.arrayBuffer())
+  const contentHash = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('')
+  const metadata = `${examId}:${sourceType}:${file.name}:${file.size}:${file.lastModified}:${contentHash}`
+  const metadataDigest = await window.crypto.subtle.digest('SHA-256', new TextEncoder().encode(metadata))
+  return Array.from(new Uint8Array(metadataDigest), (byte) => byte.toString(16).padStart(2, '0')).join('').slice(0, 48)
+}
+
 // --- Types ------------------------------------------------------------------
 
 export type ApiUser = {
@@ -280,10 +288,14 @@ export const api = {
   // Materials
   materials: (examId: string) => request<ApiMaterial[]>(`/exams/${examId}/materials`),
 
-  uploadMaterial: (examId: string, file: File, sourceType: 'syllabus' | 'material' = 'material') => {
+  uploadMaterial: async (examId: string, file: File, sourceType: 'syllabus' | 'material' = 'material') => {
+    const idempotencyKey = await materialUploadKey(examId, sourceType, file)
     const form = new FormData()
     form.append('file', file)
-    return request<ApiMaterial>(`/materials/upload?exam_id=${examId}&source_type=${sourceType}`, { method: 'POST', body: form })
+    return request<ApiMaterial>(
+      `/materials/upload?exam_id=${encodeURIComponent(examId)}&source_type=${sourceType}`,
+      { method: 'POST', body: form, headers: { 'Idempotency-Key': idempotencyKey } },
+    )
   },
 
   deleteMaterial: (materialId: string) =>

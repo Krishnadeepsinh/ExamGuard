@@ -747,17 +747,26 @@ async def exam_live_socket(websocket: WebSocket, exam_id: str, token: str = "") 
 
 @app.post("/api/v1/materials/upload")
 @limiter.limit("10/minute")
-async def upload_material(request: Request, exam_id: str, source_type: Literal["syllabus", "material"] = "material", file: UploadFile = File(...), teacher: dict[str, object] = Depends(current_teacher)) -> dict[str, object]:
+async def upload_material(
+    request: Request,
+    exam_id: str,
+    source_type: Literal["syllabus", "material"] = "material",
+    file: UploadFile = File(...),
+    teacher: dict[str, object] = Depends(current_teacher),
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+) -> dict[str, object]:
     require_owned_exam(exam_id, teacher)
     if not file.filename:
         raise HTTPException(status_code=422, detail="filename is required")
+    if idempotency_key and not (8 <= len(idempotency_key) <= 120):
+        raise HTTPException(status_code=422, detail="Idempotency-Key must be 8 to 120 characters")
     if not file.filename.lower().endswith((".pdf", ".docx", ".txt")):
         raise HTTPException(status_code=422, detail="only PDF, DOCX, or TXT files are allowed")
     content = await file.read()
     if len(content) > 50 * 1024 * 1024:
         raise HTTPException(status_code=413, detail="material file must be 50MB or smaller")
     try:
-        material = store.add_material(exam_id, file.filename, content, source_type)
+        material = store.add_material(exam_id, file.filename, content, source_type, idempotency_key=idempotency_key)
         run_workflow("ingest", {"exam_id": exam_id, "material_id": material["id"]})
         return material
     except ValueError as exc:
