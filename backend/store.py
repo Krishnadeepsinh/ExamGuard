@@ -196,7 +196,13 @@ class LocalStore:
         if exam.get("status") in {"active", "paused", "ended", "archived"}:
             raise ValueError("Activated papers are immutable. Clone this exam to create a new version.")
         material_ids = config.get("material_ids") or ([config.get("material_id")] if config.get("material_id") else [])
+        invalid_material_ids = [item for item in material_ids if item not in self.materials or self.materials[item].get("exam_id") != exam_id]
+        if invalid_material_ids:
+            raise ValueError("Every selected material must belong to this exam")
         material_id = material_ids[0] if material_ids else None
+        invalid_material_ids = [item for item in material_ids if item not in self.materials or self.materials[item].get("exam_id") != exam_id]
+        if invalid_material_ids:
+            raise ValueError("Paper configuration contains material from another exam. Re-select this exam's material.")
         materials = [self.materials[item] for item in material_ids if item in self.materials and self.materials[item]["exam_id"] == exam_id]
         material = materials[0] if materials else None
         
@@ -688,6 +694,7 @@ class LocalStore:
 
     def teacher_decision(self, session_id: str, decision: str, teacher_note: str) -> dict[str, Any]:
         session = self.require_session(session_id)
+        self.evaluate_session(session_id)
         session["teacher_decision"] = "cleared" if decision == "clear" else "confirmed_flag"
         session["teacher_note"] = teacher_note
         session["decision_at"] = self.appeal_deadline()

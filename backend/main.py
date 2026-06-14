@@ -950,6 +950,8 @@ def teacher_decision(session_id: str, payload: DecisionRequest, teacher: dict[st
         return store.teacher_decision(session_id, payload.decision, payload.teacher_note)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="session not found") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 # --- Proctoring Events -------------------------------------------------------

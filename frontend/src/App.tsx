@@ -57,6 +57,7 @@ type View =
   | 'exam'
   | 'complete'
   | 'review'
+  | 'results'
   | 'reports'
   | 'settings'
 
@@ -80,12 +81,13 @@ const navItems: Array<{ view: View; label: string; icon: typeof Shield }> = [
   { view: 'exam', label: 'Exam Session', icon: GraduationCap },
   { view: 'complete', label: 'Post Exam', icon: UserCheck },
   { view: 'review', label: 'Teacher Review', icon: Flag },
+  { view: 'results', label: 'Results', icon: GraduationCap },
   { view: 'reports', label: 'Reports', icon: BarChart3 },
   { view: 'settings', label: 'Settings', icon: Settings },
 ]
 
-const teacherViews: View[] = ['dashboard', 'config', 'live', 'review', 'reports', 'settings']
-const studentViews: View[] = ['student', 'consent', 'liveness', 'exam', 'complete', 'settings']
+const teacherViews: View[] = ['dashboard', 'config', 'live', 'review', 'results', 'reports', 'settings']
+const studentViews: View[] = ['student', 'consent', 'liveness', 'exam', 'complete', 'results', 'settings']
 const publicViews: View[] = ['landing']
 
 type QuestionType = 'MCQ' | 'Short Answer' | 'Long Answer' | 'Fill Blank' | 'True/False' | 'Essay'
@@ -589,6 +591,7 @@ function App() {
         onRefreshStudents={refreshSelectedExamStudents}
       />
     ),
+    results: <ResultsView auth={auth} notify={notify} />,
     reports: (
       <ReportsView
         examId={selectedExamId}
@@ -1172,6 +1175,8 @@ function CreateExamModal({ onClose, onCreate }: { onClose: () => void; onCreate:
 }
 
 function ConfigView({ examId, notify, go }: { examId: string; notify: (kind: ToastKind, text: string) => void; go: (view: View) => void }) {
+  const loadRequestRef = useRef(0)
+  const currentExamRef = useRef(examId)
   const [materialId, setMaterialId] = useState('')
   const [materialIds, setMaterialIds] = useState<string[]>([])
   const [uploadedMaterial, setUploadedMaterial] = useState('')
@@ -1199,6 +1204,8 @@ function ConfigView({ examId, notify, go }: { examId: string; notify: (kind: Toa
   const [chapterCountsMap, setChapterCountsMap] = useState<Record<string, number>>({})
 
   useEffect(() => {
+    currentExamRef.current = examId
+    const requestId = ++loadRequestRef.current
     setLoading(true)
     setMaterialId('')
     setMaterialIds([])
@@ -1214,6 +1221,7 @@ function ConfigView({ examId, notify, go }: { examId: string; notify: (kind: Toa
     setPaperReviewed(window.localStorage.getItem(`examguard-paper-reviewed-${examId}`) === 'true')
     Promise.all([api.getExam(examId), api.examQuestions(examId)])
       .then(([exam, existingQuestions]) => {
+        if (requestId !== loadRequestRef.current) return []
         const restored = sectionsFromPaperConfig(exam.paper_config, exam.total_marks)
         setTotalMarksTarget(exam.total_marks)
         setPaperMode(restored.mode)
@@ -1228,6 +1236,7 @@ function ConfigView({ examId, notify, go }: { examId: string; notify: (kind: Toa
         return api.materials(examId)
       })
       .then((materials) => {
+        if (requestId !== loadRequestRef.current) return
         const first = materials?.[0]
         if (!first) return
         setMaterialId(first.id)
@@ -1257,8 +1266,8 @@ function ConfigView({ examId, notify, go }: { examId: string; notify: (kind: Toa
           }
         }
       })
-      .catch((event) => notify('error', `Could not load this exam from the backend: ${event instanceof Error ? event.message : 'unknown error'}`))
-      .finally(() => setLoading(false))
+      .catch((event) => { if (requestId === loadRequestRef.current) notify('error', `Could not load this exam from the backend: ${event instanceof Error ? event.message : 'unknown error'}`) })
+      .finally(() => { if (requestId === loadRequestRef.current) setLoading(false) })
   }, [examId])
 
   const total = sections.reduce((sum, section) => sum + section.count * section.marks, 0)
@@ -1298,7 +1307,9 @@ function ConfigView({ examId, notify, go }: { examId: string; notify: (kind: Toa
     if (!allowed.includes(file.type) && !/\.(pdf|docx|txt)$/i.test(file.name)) { setMaterialError('Only PDF, DOCX, or TXT files are allowed.'); notify('error', 'Only PDF, DOCX, or TXT files are allowed.'); return }
     if (file.size > 50 * 1024 * 1024) { setMaterialError('Material file must be 50MB or smaller.'); notify('error', 'Material file must be 50MB or smaller.'); return }
     try {
+      const uploadExamId = examId
       const material = await api.uploadMaterial(examId, file, sourceType)
+      if (currentExamRef.current !== uploadExamId) return
       setMaterialId(material.id)
       setMaterialIds((current) => [...new Set([...current, material.id])])
       setUploadedMaterial((current) => current ? `${current}, ${material.filename}` : material.filename)
@@ -1338,6 +1349,7 @@ function ConfigView({ examId, notify, go }: { examId: string; notify: (kind: Toa
     if (invalidSections.length) { notify('error', 'Every section needs question count, marks, and chapter.'); return }
     if (lowCoverageChapters.length) { notify('error', 'One or more selected chapters have no usable source chunks.'); return }
     if (modeMismatch) { notify('error', `Selected sections do not match the ${paperMode} paper type.`); return }
+    const generationExamId = examId
     try {
       setGenerating(true)
       setGenerationError('')
@@ -1360,6 +1372,7 @@ function ConfigView({ examId, notify, go }: { examId: string; notify: (kind: Toa
       }
       await api.savePaperConfig(examId, payload)
       const result = await api.generatePaper(examId)
+      if (currentExamRef.current !== generationExamId) return
       setGeneratedQuestions(result.questions)
       setQuestionPage(0)
       setPaperReviewed(false)
@@ -1371,6 +1384,7 @@ function ConfigView({ examId, notify, go }: { examId: string; notify: (kind: Toa
       const message = event instanceof Error ? event.message : 'Paper generation failed.'
       try {
         const recovered = await api.examQuestions(examId)
+        if (currentExamRef.current !== generationExamId) return
         if (recovered.length > 0) {
           setGeneratedQuestions(recovered)
           setQuestionPage(0)
@@ -2711,20 +2725,23 @@ function CompleteView({ notify, go }: { notify: (kind: ToastKind, text: string) 
 function ReviewView({ examId, students, selected, setSelected, notify, onRefreshStudents }: { examId: string; students: any[]; selected: any; setSelected: (s: any) => void; notify: (kind: ToastKind, text: string) => void; onRefreshStudents: () => Promise<void> }) {
   const [teacherNote, setTeacherNote] = useState('')
   const [exam, setExam] = useState<ApiExam | null>(null)
+  const [savingDecision, setSavingDecision] = useState<'clear' | 'confirm_flag' | null>(null)
 
   useEffect(() => { api.getExam(examId).then(setExam).catch(() => setExam(null)) }, [examId])
 
   const saveDecision = async (decision: 'clear' | 'confirm_flag') => {
     if (!selected || !selected.id) { notify('error', 'No student session selected.'); return }
     if (teacherNote.trim().length < 12) { notify('error', 'Add a teacher note before saving the decision.'); return }
+    setSavingDecision(decision)
     try {
       const updated = await api.teacherDecision(selected.id, decision, teacherNote) as ApiSession
       setSelected(mapSessionToStudent(updated))
       await onRefreshStudents()
-      notify(decision === 'clear' ? 'success' : 'warning', decision === 'clear' ? 'Decision saved: student cleared, grade released.' : 'Decision saved: student kept under watch, grade released with note.')
+      setTeacherNote('')
+      notify(decision === 'clear' ? 'success' : 'warning', decision === 'clear' ? 'Decision saved: student cleared, grade released.' : 'Violation confirmed: result released with the teacher decision recorded.')
     } catch (e) {
       notify('error', e instanceof Error ? e.message : 'Failed to save decision.')
-    }
+    } finally { setSavingDecision(null) }
   }
 
   const reviewStudentsList = students.filter((student) => student.sessionStatus === 'ended' || student.status !== 'CLEAN')
@@ -2793,11 +2810,11 @@ function ReviewView({ examId, students, selected, setSelected, notify, onRefresh
                 {teacherNote.trim().length < 12 && <p className="form-error" style={{ marginBottom: '12px' }}>Teacher note is required before releasing the grade.</p>}
                 
                 <div className="inline-actions">
-                  <button className="primary-btn" style={{ background: 'var(--eg-emerald)', borderColor: 'var(--eg-emerald)' }} disabled={teacherNote.trim().length < 12} onClick={() => saveDecision('clear')}>
-                    Clear & Release Result
+                  <button className="primary-btn" style={{ background: 'var(--eg-emerald)', borderColor: 'var(--eg-emerald)' }} disabled={savingDecision !== null} onClick={() => saveDecision('clear')}>
+                    {savingDecision === 'clear' ? 'Saving...' : 'Clear & Release Result'}
                   </button>
-                  <button className="danger-btn" disabled={teacherNote.trim().length < 12} onClick={() => saveDecision('confirm_flag')}>
-                    Keep Under Watch
+                  <button className="danger-btn" disabled={savingDecision !== null} onClick={() => saveDecision('confirm_flag')}>
+                    {savingDecision === 'confirm_flag' ? 'Saving...' : 'Confirm Violation & Release'}
                   </button>
                 </div>
               </div>
@@ -2806,6 +2823,85 @@ function ReviewView({ examId, students, selected, setSelected, notify, onRefresh
         ) : (
           <p className="muted">Select a student from the queue to start side-by-side review.</p>
         )}
+      </Card>
+    </section>
+  )
+}
+
+function ResultsView({ auth, notify }: { auth: AuthUser | null; notify: (kind: ToastKind, text: string) => void }) {
+  const [exams, setExams] = useState<ApiExam[]>([])
+  const [examId, setExamId] = useState('')
+  const [rows, setRows] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    setLoading(true)
+    if (auth?.role === 'student') {
+      const loadStudentResults = () => {
+        setLoading(true)
+        api.myStudentSessions().then((sessions) => setRows(sessions.filter((session) => session.status === 'ended')))
+          .catch((error) => {
+            if (window.localStorage.getItem('examguard-access-token')) notify('error', error instanceof Error ? error.message : 'Results could not be loaded.')
+          })
+          .finally(() => setLoading(false))
+      }
+      window.addEventListener('examguard-student-access-ready', loadStudentResults)
+      loadStudentResults()
+      return () => window.removeEventListener('examguard-student-access-ready', loadStudentResults)
+    }
+    const teacherId = window.localStorage.getItem('examguard-user-id') || undefined
+    api.exams(teacherId).then((items) => {
+      const ended = items.filter((exam) => exam.status === 'ended')
+      setExams(ended)
+      setExamId((current) => ended.some((exam) => exam.id === current) ? current : ended[0]?.id || '')
+      if (!ended.length) setLoading(false)
+    }).catch((error) => { setLoading(false); notify('error', error instanceof Error ? error.message : 'Ended exams could not be loaded.') })
+  }, [auth?.role])
+
+  useEffect(() => {
+    if (auth?.role !== 'teacher' || !examId) return
+    setLoading(true)
+    api.examStudents(examId).then((sessions) => setRows(sessions.filter((session) => session.status === 'ended').map(mapSessionToStudent)))
+      .catch((error) => notify('error', error instanceof Error ? error.message : 'Exam results could not be loaded.'))
+      .finally(() => setLoading(false))
+  }, [auth?.role, examId])
+
+  if (auth?.role === 'student') return (
+    <section className="screen">
+      <Card title="My Results" icon={GraduationCap}>
+        <p className="muted">Only results made live by your teacher are visible. Deleted exams are removed automatically.</p>
+        <div className="results-list">
+          {loading ? <div className="empty-state"><RefreshCw size={24} /><strong>Loading results</strong></div> : rows.length === 0 ? <div className="empty-state"><BookOpen size={24} /><strong>No completed exams yet</strong></div> : rows.map((row) => (
+            <div className="result-detail-row" key={row.session_id}>
+              <span><strong>{row.exam_title || 'Exam'}</strong><small>{row.subject || 'Subject not specified'}</small></span>
+              {row.grade_released && row.grade ? <><strong>{row.grade.earned_marks}/{row.grade.total_marks}</strong><span className="badge badge-green">{row.grade.percentage}%</span></> : <span className="badge badge-amber">Result not live</span>}
+            </div>
+          ))}
+        </div>
+      </Card>
+    </section>
+  )
+
+  const selectedExam = exams.find((exam) => exam.id === examId)
+  return (
+    <section className="screen">
+      <Card title="Exam Results" icon={GraduationCap}>
+        <div className="results-toolbar">
+          <div><label htmlFor="result-exam">Ended exam</label><select id="result-exam" value={examId} onChange={(event) => setExamId(event.target.value)}>{exams.map((exam) => <option key={exam.id} value={exam.id}>{exam.title} - {exam.subject}</option>)}</select></div>
+          {selectedExam && <span className="badge badge-green">Ended</span>}
+        </div>
+        <p className="muted">Select any ended exam to see each student's evaluated marks and release status.</p>
+        <div className="results-list">
+          {loading ? <div className="empty-state"><RefreshCw size={24} /><strong>Loading exam results</strong></div> : exams.length === 0 ? <div className="empty-state"><BookOpen size={24} /><strong>No ended exams yet</strong></div> : rows.length === 0 ? <div className="empty-state"><Users size={24} /><strong>No submitted students for this exam</strong></div> : rows.map((row) => (
+            <div className="result-detail-row teacher" key={row.id}>
+              <span><strong>{row.name}</strong><small>{row.answered} answer{row.answered === 1 ? '' : 's'} submitted</small></span>
+              <strong>{row.grade ? `${row.grade.earned_marks}/${row.grade.total_marks}` : 'Pending'}</strong>
+              <span>{row.grade ? `${row.grade.percentage}%` : '--'}</span>
+              <StatusBadge status={row.status} />
+              <span className={`badge ${row.gradeReleased ? 'badge-green' : 'badge-amber'}`}>{row.gradeReleased ? 'Live' : 'Held'}</span>
+            </div>
+          ))}
+        </div>
       </Card>
     </section>
   )

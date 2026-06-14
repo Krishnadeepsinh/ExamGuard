@@ -280,6 +280,8 @@ class SupabaseStore:
         material_ids = config.get("material_ids") or ([config.get("material_id")] if config.get("material_id") else [])
         material_id = material_ids[0] if material_ids else None
         materials = [self.get_material(item) for item in material_ids]
+        if any(str(material.get("exam_id")) != exam_id for material in materials):
+            raise ValueError("Every selected material must belong to this exam")
         material = materials[0] if materials else None
         
         flat_counts = {}
@@ -339,6 +341,9 @@ class SupabaseStore:
         material_ids = config.get("material_ids") or ([config.get("material_id")] if config.get("material_id") else [])
         if not material_ids:
             raise ValueError("Upload syllabus or study material before generating questions.")
+        materials = [self.get_material(item) for item in material_ids]
+        if any(str(material.get("exam_id")) != exam_id for material in materials):
+            raise ValueError("Paper configuration contains material from another exam. Re-select this exam's material.")
         chunks = self.rest("GET", "material_chunks", query=f"?exam_id=eq.{exam_id}")
         if not chunks:
             raise ValueError("Uploaded material has no usable chunks. Re-upload a readable PDF, DOCX, or TXT file.")
@@ -534,7 +539,7 @@ class SupabaseStore:
             "GET",
             "exam_sessions",
             query=(
-                f"?student_id=eq.{student_id}&order=created_at.desc"
+                f"?student_id=eq.{student_id}&order=started_at.desc"
                 "&select=id,status,review_status,grade_released,integrity_state,integrity_score,"
                 "integrity_ci,baseline_tier,integrity_factors,"
                 "users!exam_sessions_student_id_fkey(display_name),"
@@ -877,6 +882,8 @@ class SupabaseStore:
         return {"response": appeal["student_response"], "submitted_at": appeal["submitted_at"], "status": "submitted"}
 
     def teacher_decision(self, session_id: str, decision: str, teacher_note: str) -> dict[str, Any]:
+        session = self.require_session(session_id)
+        self.evaluate_session(session_id)
         try:
             self.rest("PATCH", "integrity_appeals", {"teacher_note": teacher_note}, query=f"?session_id=eq.{session_id}")
         except Exception:

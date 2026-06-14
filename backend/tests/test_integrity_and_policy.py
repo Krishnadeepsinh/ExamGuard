@@ -165,6 +165,62 @@ class StoreBehaviorTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Upload syllabus"):
             self.store.generate_questions(exam["id"])
 
+    def test_paper_config_rejects_material_from_another_exam(self) -> None:
+        java_exam = self.store.create_exam("teacher-demo", {
+            "title": "Java Exam", "subject": "Java", "duration_minutes": 60, "total_marks": 10,
+        })
+        foreign_material_id = next(iter(self.store.materials))
+        config = {
+            "material_id": foreign_material_id,
+            "material_ids": [foreign_material_id],
+            "total_marks": 10,
+            "paper_mode": "MCQ only",
+            "overall_level": "Standard",
+            "sections": [{
+                "id": "A", "type": "MCQ", "count": 5, "marks_each": 2,
+                "bloom": "Understand", "chapter_tag": "All syllabus", "level": "Standard",
+            }],
+        }
+        with self.assertRaisesRegex(ValueError, "belong to this exam"):
+            self.store.configure_exam(java_exam["id"], config)
+
+    def test_generation_uses_only_current_exam_material_chunks(self) -> None:
+        import backend.store as store_module
+
+        java_exam = self.store.create_exam("teacher-demo", {
+            "title": "Java Exam", "subject": "Java", "duration_minutes": 60, "total_marks": 10,
+        })
+        java_source = ("Java classes use inheritance interfaces objects methods constructors and encapsulation. ") * 40
+        java_material = self.store.add_material(java_exam["id"], "java.txt", java_source.encode("utf-8"))
+        java_exam["paper_config"] = {
+            "material_id": java_material["id"], "material_ids": [java_material["id"]],
+            "total_marks": 10, "paper_mode": "MCQ only", "overall_level": "Standard",
+            "sections": [{
+                "id": "A", "type": "MCQ", "count": 5, "marks_each": 2,
+                "bloom": "Understand", "chapter_tag": "All syllabus", "level": "Standard",
+            }],
+        }
+        observed_context: list[str] = []
+        original = store_module.generate_grounded_questions
+
+        def fake_generate(question_type, count, level, bloom, marks, chunks):
+            observed_context.extend(chunk["chunk_text"] for chunk in chunks)
+            return [{
+                "text": f"Java question {index}", "options": ["A", "B", "C", "D"],
+                "correct_answer": "A", "source_number": 1,
+            } for index in range(count)]
+
+        store_module.generate_grounded_questions = fake_generate
+        try:
+            result = self.store.generate_questions(java_exam["id"])
+        finally:
+            store_module.generate_grounded_questions = original
+
+        self.assertEqual(result["count"], 5)
+        self.assertTrue(observed_context)
+        self.assertTrue(all("Java" in chunk for chunk in observed_context))
+        self.assertTrue(all(question["exam_id"] == java_exam["id"] for question in result["questions"]))
+
     def test_generation_batches_normal_sections_in_one_request(self) -> None:
         import backend.store as store_module
 
