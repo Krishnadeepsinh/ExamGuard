@@ -2713,10 +2713,11 @@ function ExamView(props: {
         <SubmitDialog
           onClose={() => setSubmitOpen(false)}
           go={() => props.go('complete')}
+          notify={props.notify}
           answeredCount={answeredCount}
           totalCount={totalQ}
           markedCount={props.marked ? 1 : 0}
-          onBeforeSubmit={flushAllAnswers}
+          onBeforeSubmit={flushAllAnswersBeforeExpiry}
         />
       )}
       <div className="connection-card" style={{ display: 'none' }}><RefreshCw size={16} /> Connection lost. Answers saved locally. Reconnecting...</div>
@@ -3392,7 +3393,7 @@ function Toast({ kind, text, onClose }: { kind: ToastKind; text: string; onClose
   )
 }
 
-function SubmitDialog({ onClose, go, answeredCount, totalCount, markedCount, onBeforeSubmit }: { onClose: () => void; go: () => void; answeredCount: number; totalCount: number; markedCount: number; onBeforeSubmit: () => Promise<void> }) {
+function SubmitDialog({ onClose, go, notify, answeredCount, totalCount, markedCount, onBeforeSubmit }: { onClose: () => void; go: () => void; notify: (kind: ToastKind, text: string) => void; answeredCount: number; totalCount: number; markedCount: number; onBeforeSubmit: () => Promise<void> }) {
   const [submitError, setSubmitError] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const handleSubmit = async () => {
@@ -3403,21 +3404,29 @@ function SubmitDialog({ onClose, go, answeredCount, totalCount, markedCount, onB
     setSubmitting(true)
     setSubmitError('')
     const sessionId = studentSessionId()
+    let syncFailed = false
     if (sessionId) {
       try {
         await onBeforeSubmit()
-        await api.endSession(sessionId)
       }
-      catch (error) {
+      catch {
+        syncFailed = true
+      }
+      try {
+        await api.endSession(sessionId)
+      } catch (error) {
         setSubmitError(error instanceof Error ? error.message : 'Submission failed. Your answers remain saved locally.')
         setSubmitting(false)
         return
       }
     }
     if (sessionId) {
-      window.localStorage.removeItem(`examguard-answers-${sessionId}`)
+      if (!syncFailed) window.localStorage.removeItem(`examguard-answers-${sessionId}`)
       window.localStorage.removeItem(`examguard-deadline-${sessionId}`)
     }
+    notify(syncFailed ? 'warning' : 'success', syncFailed
+      ? 'Exam submitted. Some final answer syncs failed, so your local backup was kept.'
+      : 'Exam submitted successfully. Your answers are ready for grading.')
     go()
   }
   return (
