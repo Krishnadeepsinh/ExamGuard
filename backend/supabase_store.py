@@ -551,8 +551,15 @@ class SupabaseStore:
             exam = row.get("exams") or {}
             answers = row.get("answers") or []
             released = bool(row.get("grade_released"))
-            earned = round(sum(float(answer.get("eval_score") or 0) for answer in answers), 2)
             total = round(float(exam.get("total_marks") or 0), 2)
+            if released and answers and any(answer.get("eval_score") is None for answer in answers):
+                grade = self.evaluate_session(str(row["id"]))
+                earned = float(grade.get("earned_marks") or 0)
+                total = float(grade.get("total_marks") or total)
+            elif released:
+                earned = round(sum(float(answer.get("eval_score") or 0) for answer in answers), 2)
+            else:
+                earned = 0.0
             user = row.get("users") or {}
             results.append({
                 "session_id": str(row["id"]),

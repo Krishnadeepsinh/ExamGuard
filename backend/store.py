@@ -567,6 +567,8 @@ class LocalStore:
             raise KeyError("exam not found")
         answers = self.answers.get(session_id, [])
         released = bool(session.get("grade_released"))
+        if released and "grade" not in session:
+            self.evaluate_session(session_id)
         visible_answers = answers if released else [
             {key: value for key, value in answer.items() if key not in {"eval_score", "eval_reasoning"}}
             for answer in answers

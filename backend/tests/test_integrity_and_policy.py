@@ -569,6 +569,21 @@ class StoreBehaviorTests(unittest.TestCase):
         self.assertTrue(result["grade_released"])
         self.assertIn("eval_score", result["answers"][0])
 
+    def test_student_history_released_result_uses_evaluated_grade(self) -> None:
+        self.store.exams["exam-physics"]["status"] = "active"
+        self.store.questions["exam-physics"] = [{
+            "id": "history-q1", "exam_id": "exam-physics", "type": "MCQ", "correct_answer": "Correct",
+            "marks": 5, "text": "Choose", "options": ["Correct", "Wrong", "Other", "None"],
+        }]
+        session = self.store.join_session("PHY001", "History Student", "history@student.ai")
+        self.store.save_answer(session["id"], {"question_id": "history-q1", "answer_text": "Correct", "selected_option": "Correct"})
+        self.store.update_session(session["id"], {"status": "ended", "grade_released": True})
+
+        history = self.store.student_sessions(str(session["student_id"]))
+
+        self.assertEqual(history[0]["grade"]["earned_marks"], 5)
+        self.assertEqual(history[0]["grade"]["percentage"], 100)
+
     def test_student_history_hides_deleted_exams(self) -> None:
         self.store.exams["exam-physics"]["status"] = "active"
         session = self.store.join_session("PHY001", "History Student", "history@student.ai")

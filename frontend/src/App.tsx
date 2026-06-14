@@ -2753,7 +2753,9 @@ function ReviewView({ examId, students, selected, setSelected, notify, onRefresh
     setSavingDecision(decision)
     try {
       const updated = await api.teacherDecision(selected.id, decision, teacherNote) as ApiSession
-      setSelected(mapSessionToStudent(updated))
+      const refreshed = await api.examStudents(updated.exam_id || examId)
+      const mapped = refreshed.map(mapSessionToStudent)
+      setSelected(mapped.find((student) => student.id === updated.id) || mapSessionToStudent(updated))
       await onRefreshStudents()
       setTeacherNote('')
       notify(decision === 'clear' ? 'success' : 'warning', decision === 'clear' ? 'Decision saved: student cleared, grade released.' : 'Violation confirmed: result released with the teacher decision recorded.')
