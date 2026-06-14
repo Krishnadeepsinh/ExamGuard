@@ -2425,10 +2425,10 @@ function ExamView(props: {
     setSaveWarning('')
   }, [answers, current?.id, displayQuestions, props.answer, saveAnswerTracked])
 
-  const flushAllAnswersBeforeExpiry = useCallback(async () => {
+  const flushAllAnswersWithTimeout = useCallback(async (timeoutMs: number) => {
     let timeoutId: number | undefined
     const timeout = new Promise<never>((_, reject) => {
-      timeoutId = window.setTimeout(() => reject(new Error('Final answer sync timed out.')), 8000)
+      timeoutId = window.setTimeout(() => reject(new Error('Final answer sync timed out. Your answers are still saved locally; reconnect and submit again.')), timeoutMs)
     })
     try {
       await Promise.race([flushAllAnswers(), timeout])
@@ -2436,6 +2436,16 @@ function ExamView(props: {
       if (timeoutId) window.clearTimeout(timeoutId)
     }
   }, [flushAllAnswers])
+
+  const flushAllAnswersBeforeSubmit = useCallback(
+    () => flushAllAnswersWithTimeout(60_000),
+    [flushAllAnswersWithTimeout],
+  )
+
+  const flushAllAnswersBeforeExpiry = useCallback(
+    () => flushAllAnswersWithTimeout(15_000),
+    [flushAllAnswersWithTimeout],
+  )
 
   useEffect(() => {
     if (!timerReady || timeLeft !== 0 || expirySubmitStarted.current) return
@@ -2722,7 +2732,7 @@ function ExamView(props: {
           answeredCount={answeredCount}
           totalCount={totalQ}
           markedCount={props.marked ? 1 : 0}
-          onBeforeSubmit={flushAllAnswersBeforeExpiry}
+          onBeforeSubmit={flushAllAnswersBeforeSubmit}
         />
       )}
       <div className="connection-card" style={{ display: 'none' }}><RefreshCw size={16} /> Connection lost. Answers saved locally. Reconnecting...</div>
@@ -3420,8 +3430,13 @@ function SubmitDialog({ onClose, go, notify, answeredCount, totalCount, markedCo
     try {
       await onBeforeSubmit()
     }
-    catch {
+    catch (error) {
       syncFailed = true
+      setSubmitError(error instanceof Error ? error.message : 'Answers could not sync. Your local backup is preserved; retry submit once the connection recovers.')
+      notify('error', 'Answer sync failed. The exam was not submitted, so your answers can still be retried.')
+      setSubmitStage('idle')
+      setSubmitting(false)
+      return
     }
     setSubmitStage('finalizing')
     try {
