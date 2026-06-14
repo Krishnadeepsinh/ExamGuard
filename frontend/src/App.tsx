@@ -3432,11 +3432,8 @@ function SubmitDialog({ onClose, go, notify, answeredCount, totalCount, markedCo
     }
     catch (error) {
       syncFailed = true
-      setSubmitError(error instanceof Error ? error.message : 'Answers could not sync. Your local backup is preserved; retry submit once the connection recovers.')
-      notify('error', 'Answer sync failed. The exam was not submitted, so your answers can still be retried.')
-      setSubmitStage('idle')
-      setSubmitting(false)
-      return
+      setSubmitError(error instanceof Error ? error.message : 'Some final answers could not sync. Your local backup will be preserved after submission.')
+      notify('warning', 'Some final answer syncs failed. Submitting the saved attempt now.')
     }
     setSubmitStage('finalizing')
     try {
