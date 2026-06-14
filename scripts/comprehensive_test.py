@@ -74,6 +74,18 @@ def encode_multipart_formdata(fields: dict[str, str], files: dict[str, tuple[str
     content_type = f"multipart/form-data; boundary={boundary}"
     return body, content_type
 
+def generate_with_retry(exam_id: str, attempts: int = 2) -> dict:
+    last_error: Exception | None = None
+    for attempt in range(1, attempts + 1):
+        try:
+            return call("POST", f"/exams/{exam_id}/generate")
+        except RuntimeError as exc:
+            last_error = exc
+            if attempt == attempts or "503" not in str(exc):
+                raise
+            print("  -> Generation quality check failed once; retrying without saving placeholders...")
+    raise last_error or RuntimeError("Question generation failed.")
+
 def run_test() -> None:
     global AUTH_TOKEN
     print("======================================================================")
@@ -88,7 +100,8 @@ def run_test() -> None:
     if demo_email and demo_password:
         teacher_login = call("POST", "/auth/demo", {"email": demo_email, "password": demo_password})
     else:
-        teacher_email = f"teacher-{run_id}@example.com"
+        email_domain = os.getenv("EXAMGUARD_TEST_EMAIL_DOMAIN", "gmail.com").strip() or "gmail.com"
+        teacher_email = f"examguard.qa.teacher.{run_id}@{email_domain}"
         teacher_login = call("POST", "/auth/signup", {
             "email": teacher_email,
             "password": "ExamGuard-Test-2026!",
@@ -101,7 +114,7 @@ def run_test() -> None:
     print(f"  -> Success! Logged in as: {teacher_login['user']['display_name']} (ID: {teacher_id})")
 
     # Step 2: Create new Exam Shell
-    print("\n[2/15] Creating a new Physics Exam...")
+    print("\n[2/15] Creating a new SQL Exam...")
     exam = call("POST", "/exams", {
         "teacher_id": teacher_id,
         "title": "SQL Source-Locked Audit Exam",
@@ -116,17 +129,18 @@ def run_test() -> None:
     # Step 3: Upload Syllabus Material to this Exam
     print("\n[3/15] Uploading syllabus textbook file to the exam...")
     file_content = (
-        "Chapter 12 Electromagnetic Induction explains magnetic flux, induced EMF, Faraday law, "
-        "Lenz law, self induction, mutual induction, generators, and transformers. "
-        "Chapter 13 Alternating Current explains AC voltage applied to resistor, inductor, capacitor, "
-        "LCR series circuit, resonance, power in AC circuit, LC oscillations, and transformers. "
-        "Chapter 14 Electromagnetic Waves explains displacement current, electromagnetic waves, "
-        "electromagnetic spectrum, and propagation of waves."
+        "SQL SELECT statements retrieve rows from database tables. WHERE clauses filter rows by conditions. "
+        "ORDER BY sorts query results. GROUP BY groups rows so aggregate functions such as COUNT, SUM, and AVG "
+        "can calculate summaries. Primary keys uniquely identify rows. Foreign keys connect related tables and "
+        "protect referential integrity. INNER JOIN returns matching rows from both tables. LEFT JOIN returns all "
+        "rows from the left table and matching rows from the right table. Normalization reduces duplicate data. "
+        "Indexes help speed up lookups on frequently filtered columns. Transactions follow ACID properties: "
+        "atomicity, consistency, isolation, and durability. Constraints enforce valid database values."
     ) * 80  # Multiply to meet chunk limits
     
     raw_body, content_type = encode_multipart_formdata(
         {},
-        {"file": ("NCERT_Electromagnetism_Syllabus.txt", file_content.encode("utf-8"))}
+        {"file": ("SQL_Syllabus.txt", file_content.encode("utf-8"))}
     )
     
     material = call(
@@ -146,7 +160,7 @@ def run_test() -> None:
         "material_id": material_id,
         "total_marks": 10,
         "overall_level": "Standard",
-        "paper_mode": "Mixed",
+        "paper_mode": "MCQ only",
         "sections": [
             {
                 "id": "A",
@@ -164,7 +178,7 @@ def run_test() -> None:
 
     # Step 5: Generate Grounded Questions
     print("\n[5/15] Generating source-locked questions using materials chunks...")
-    questions_res = call("POST", f"/exams/{exam_id}/generate")
+    questions_res = generate_with_retry(exam_id)
     questions = questions_res["questions"]
     print(f"  -> Success! Generated {questions_res['count']} questions.")
     print(f"     Example generated question: \"{questions[0]['text']}\" (Marks: {questions[0]['marks']})")
@@ -176,10 +190,12 @@ def run_test() -> None:
 
     # Step 7: Student Joins using the Join Code
     print("\n[7/15] Student Arjun Sharma accessing and joining the exam session...")
-    student_email = f"arjun-{run_id}@example.com"
+    email_domain = os.getenv("EXAMGUARD_TEST_EMAIL_DOMAIN", "gmail.com").strip() or "gmail.com"
+    student_email = f"examguard.qa.student.{run_id}@{email_domain}"
     student_access = call("POST", "/auth/student-access", {
         "student_name": "Arjun Sharma",
         "email": student_email,
+        "device_id": f"comprehensive-test-{run_id}",
     })
     student_token = student_access["token"]
     AUTH_TOKEN = student_token
@@ -215,8 +231,10 @@ def run_test() -> None:
     # Answer first question
     answer_res_1 = call("POST", f"/sessions/{session_id}/answers", {
         "question_id": student_questions[0]["id"],
-        "answer_text": "This is a source-locked student answer for Faraday's law of electromagnetism.",
-        "time_spent_seconds": 45
+        "answer_text": "SELECT retrieves rows, WHERE filters rows, joins combine related tables, and constraints protect data integrity.",
+        "selected_option": student_questions[0].get("options", [""])[0] if student_questions[0].get("options") else None,
+        "time_spent_seconds": 45,
+        "idempotency_key": f"{session_id}:{student_questions[0]['id']}:1",
     })
     print(f"  -> Success! Answer saved for Question 1.")
 

@@ -4,6 +4,8 @@ ExamGuard AI is a syllabus-aware exam platform for teachers, coaching institutes
 
 **Product positioning:** privacy-first online exams with AI-assisted paper generation and teacher-controlled integrity review.  
 **Local app:** `frontend/`  
+**Live app:** `https://exam-guard-five.vercel.app/`  
+**Live API:** `https://examguard-backend-t2pv.onrender.com/api/v1`  
 **Sample access:** teacher and student roles are available from the home page.  
 **FAR AWAY 2026 alignment:** Examinations + Agentic & Autonomous Systems through a 10-stage LangGraph workflow. Each named stage has a dedicated module; deterministic stages coordinate service functions and are not presented as ten independent LLMs.
 
