@@ -555,13 +555,19 @@ class StoreBehaviorTests(unittest.TestCase):
 
     def test_clean_completed_results_can_be_published_in_bulk(self) -> None:
         self.store.exams["exam-physics"]["status"] = "active"
+        self.store.questions["exam-physics"] = [{
+            "id": "bulk-q1", "exam_id": "exam-physics", "type": "MCQ", "correct_answer": "Correct",
+            "marks": 10, "text": "Choose", "options": ["Correct", "Wrong", "Other", "None"],
+        }]
         clean = self.store.join_session("PHY001", "Clean Result", "clean-result@student.ai")
         flagged = self.store.join_session("PHY001", "Held Result", "held-result@student.ai")
-        self.store.update_session(clean["id"], {"status": "ended", "grade": {"earned_marks": 5, "total_marks": 10, "percentage": 50}})
+        self.store.save_answer(clean["id"], {"question_id": "bulk-q1", "answer_text": "Correct", "selected_option": "Correct"})
+        self.store.update_session(clean["id"], {"status": "ended", "grade": {"earned_marks": 0, "total_marks": 10, "percentage": 0}})
         self.store.update_session(flagged["id"], {"status": "ended", "locked_for_review": True})
         result = self.store.release_exam_results("exam-physics")
         self.assertEqual(result, {"released": 1, "held_for_review": 1})
         self.assertTrue(self.store.sessions[clean["id"]]["grade_released"])
+        self.assertEqual(self.store.sessions[clean["id"]]["grade"]["earned_marks"], 10)
         self.assertFalse(self.store.sessions[flagged["id"]]["grade_released"])
 
     def test_grade_is_hidden_until_teacher_releases_result(self) -> None:

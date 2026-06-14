@@ -912,10 +912,10 @@ function StudentPortalView({ auth, go, notify }: { auth: AuthUser | null; go: (v
     } finally { setJoining(false) }
   }
 
-  const openAttempt = (sessionId: string, status: string) => {
-    window.sessionStorage.setItem('examguard-session-id', sessionId)
+  const openAttempt = (session: { session_id: string; status: string; grade_released: boolean }) => {
+    window.sessionStorage.setItem('examguard-session-id', session.session_id)
     window.sessionStorage.setItem('examguard-tab-owner', currentTabId())
-    go(status === 'ended' ? 'complete' : status === 'active' ? 'exam' : 'consent')
+    go(session.status === 'ended' ? session.grade_released ? 'results' : 'complete' : session.status === 'active' ? 'exam' : 'consent')
   }
 
   return (
@@ -934,7 +934,7 @@ function StudentPortalView({ auth, go, notify }: { auth: AuthUser | null; go: (v
         {historyLoading && sessions.length === 0 ? <div className="empty-state"><RefreshCw size={24} /><strong>Syncing your exam history</strong><span>The portal is ready; results will appear as soon as secure login finishes.</span></div> : sessions.length === 0 ? <div className="empty-state"><BookOpen size={24} /><strong>No exam attempts yet</strong><span>Enter a join code above when your teacher shares one.</span></div> : sessions.map((session) => (
           <div className="student-history-row" key={session.session_id}>
             <span><strong>{session.exam_title || (session.status === 'ended' ? 'Submitted exam' : 'Exam attempt')}</strong><small>{session.subject ? `${session.subject} · ` : ''}{session.grade_released && session.grade ? `${session.grade.earned_marks}/${session.grade.total_marks} (${session.grade.percentage}%)` : session.status === 'ended' ? 'Result hidden until teacher makes it live' : 'Not submitted'}</small></span>
-            <button className="ghost-btn" onClick={() => openAttempt(session.session_id, session.status)}>{session.status === 'ended' ? session.grade_released ? 'View Result' : 'View Status' : 'Resume'}</button>
+            <button className="ghost-btn" onClick={() => openAttempt(session)}>{session.status === 'ended' ? session.grade_released ? 'View Result' : 'View Status' : 'Resume'}</button>
           </div>
         ))}
       </Card>

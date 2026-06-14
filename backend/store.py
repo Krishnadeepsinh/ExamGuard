@@ -676,8 +676,7 @@ class LocalStore:
             if session.get("locked_for_review") or session.get("integrity", {}).get("status") == "FLAGGED":
                 held += 1
                 continue
-            if "grade" not in session:
-                self.evaluate_session(str(session["id"]))
+            self.evaluate_session(str(session["id"]))
             session["grade_released"] = True
             session["review_status"] = "decided"
             released += 1

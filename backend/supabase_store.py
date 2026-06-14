@@ -344,7 +344,12 @@ class SupabaseStore:
         materials = [self.get_material(item) for item in material_ids]
         if any(str(material.get("exam_id")) != exam_id for material in materials):
             raise ValueError("Paper configuration contains material from another exam. Re-select this exam's material.")
-        chunks = self.rest("GET", "material_chunks", query=f"?exam_id=eq.{exam_id}")
+        material_filter = ",".join(parse.quote(str(item), safe="") for item in material_ids)
+        chunks = self.rest(
+            "GET",
+            "material_chunks",
+            query=f"?exam_id=eq.{exam_id}&material_id=in.({material_filter})",
+        )
         if not chunks:
             raise ValueError("Uploaded material has no usable chunks. Re-upload a readable PDF, DOCX, or TXT file.")
         questions: list[dict[str, Any]] = []
@@ -837,6 +842,7 @@ class SupabaseStore:
                 if exc.code != 404:
                     detail = exc.read().decode("utf-8", errors="ignore")
                     raise RuntimeError(f"Material storage delete failed: {detail or exc.reason}") from exc
+        self.rest("DELETE", "material_chunks", query=f"?material_id=eq.{material_id}")
         self.rest("DELETE", "materials", query=f"?id=eq.{material_id}")
 
     def reset_paper_config(self, exam_id: str) -> dict[str, Any]:
