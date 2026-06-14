@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import threading
 import time
 from dataclasses import dataclass
@@ -140,10 +141,19 @@ def question_quality_errors(question: dict[str, Any], question_type: str) -> lis
     answer = str(question.get("correct_answer", "")).strip()
     options = question.get("options") or []
     lowered = text.lower()
-    banned = ("according to the material", "according to the source", "uploaded material", "source 1", "the passage")
+    meta_patterns = (
+        r"\baccording to\b",
+        r"\b(?:uploaded|provided|given)\s+(?:syllabus|material|document|text|passage|source)\b",
+        r"\b(?:syllabus|material|document|passage|source)\s+(?:says|states|mentions|covers|includes|describes)\b",
+        r"\bwhat (?:does|is) (?:the )?(?:syllabus|material|document|passage|source)\b",
+        r"\bwhich (?:topic|concept|chapter)\b.*\b(?:covered|included|mentioned|listed)\b",
+        r"\b(?:this|the)\s+(?:chapter|section|passage|document)\b",
+        r"\bsource\s*\d+\b",
+        r"\bpage\s*\d+\b",
+    )
     if len(text) < 18 or not text.endswith(("?", ".")):
         errors.append("question text is incomplete")
-    if any(phrase in lowered for phrase in banned):
+    if any(re.search(pattern, lowered) for pattern in meta_patterns):
         errors.append("question refers to source material")
     if not answer:
         errors.append("answer or marking guide is missing")
@@ -176,10 +186,18 @@ def generate_grounded_questions(
         f"SOURCE {i + 1} [{chunk.get('id', chunk.get('chunk_index', i))}]: {chunk.get('chunk_text', '')[:1800]}"
         for i, chunk in enumerate(source_chunks[:8])
     )
+    source_count = max(1, min(len(source_chunks), 8))
+    coverage_plan = ", ".join(
+        f"question {index + 1} -> SOURCE {(index % source_count) + 1}"
+        for index in range(count)
+    )
     prompt = f"""Create exactly {count} {question_type} exam questions.
 Difficulty: {level}. Bloom level: {bloom}. Marks each: {marks_each}.
-Use source as subject scope and factual grounding. Write normal conceptual exam questions.
-Never ask what the document, source, syllabus, passage, or uploaded material says.
+Use each assigned source only as factual grounding. Write normal subject-concept exam questions for a student who never sees the source.
+Coverage plan: {coverage_plan}.
+For every item, source_number must equal its assigned SOURCE number from the coverage plan.
+Never ask what the document, source, syllabus, chapter list, passage, or uploaded material says, covers, includes, mentions, or describes.
+Never ask which topic/chapter/concept appears in the source. Ask directly about the underlying subject concept instead.
 Do not copy source sentences as questions. Test understanding, application, or analysis of concepts.
 Every question must be self-contained, unambiguous, grammatically complete, and distinct from every other question.
 Match difficulty and Bloom level through reasoning depth, not obscure wording.
@@ -205,6 +223,13 @@ SOURCE MATERIAL:
         normalized_texts: set[str] = set()
         for index, question in enumerate(questions):
             errors = question_quality_errors(question, question_type)
+            expected_source = (index % source_count) + 1
+            try:
+                actual_source = int(question.get("source_number", 0))
+            except (TypeError, ValueError):
+                actual_source = 0
+            if actual_source != expected_source:
+                errors.append(f"source_number must be {expected_source}")
             normalized = " ".join(str(question.get("text", "")).casefold().split())
             if normalized in normalized_texts:
                 errors.append("duplicate question")

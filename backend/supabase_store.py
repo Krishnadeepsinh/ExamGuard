@@ -14,7 +14,7 @@ from typing import Any
 from urllib import error, parse, request
 from uuid import uuid4
 
-from backend.agents.material_ingestion_agent import chunk_text, detect_chapter, chunk_text_with_chapters, embed_text, rank_chunks
+from backend.agents.material_ingestion_agent import balanced_rank_chunks, chunk_text, detect_chapter, chunk_text_with_chapters, embed_text, rank_chunks
 from backend.agents.llm_router import generate_grounded_questions, gemini_router
 from backend.agents.evaluation_agent import grade_objective, grade_subjective
 from backend.agents.orchestrator_agent import compute_integrity_score
@@ -282,24 +282,23 @@ class SupabaseStore:
         materials = [self.get_material(item) for item in material_ids]
         if any(str(material.get("exam_id")) != exam_id for material in materials):
             raise ValueError("Every selected material must belong to this exam")
-        material = materials[0] if materials else None
-        
-        flat_counts = {}
-        if material and "chapter_counts" in material:
-            raw = material["chapter_counts"]
-            total_sum = 0
+        flat_counts: dict[str, int] = {}
+        total_sum = 0
+        for selected_material in materials:
+            raw = selected_material.get("chapter_counts") or {}
             for tag, info in raw.items():
                 if isinstance(info, dict):
-                    count = info.get("count", 0)
-                    flat_counts[tag] = count
+                    count = int(info.get("count", 0))
+                    flat_counts[tag] = flat_counts.get(tag, 0) + count
                     total_sum += count
                     for t in info.get("topics", []):
-                        flat_counts[t] = count
+                        flat_counts[t] = flat_counts.get(t, 0) + count
                 else:
-                    flat_counts[tag] = info
-                    total_sum += info
-            flat_counts["All syllabus"] = total_sum
-            flat_counts["All chapters"] = total_sum
+                    count = int(info)
+                    flat_counts[tag] = flat_counts.get(tag, 0) + count
+                    total_sum += count
+        flat_counts["All syllabus"] = total_sum
+        flat_counts["All chapters"] = total_sum
 
         agent_config = {
             "total_marks": config["total_marks"],
@@ -353,11 +352,13 @@ class SupabaseStore:
         if not chunks:
             raise ValueError("Uploaded material has no usable chunks. Re-upload a readable PDF, DOCX, or TXT file.")
         questions: list[dict[str, Any]] = []
+        whole_syllabus_cursor = 0
         for section_index, section in enumerate(config["sections"]):
             chapter_tag = section.get("chapter_tag")
             topic_tag = section.get("topic_tag")
             
-            if chapter_tag == "All syllabus":
+            whole_syllabus = chapter_tag in {"All syllabus", "All chapters"}
+            if whole_syllabus:
                 matching = chunks
             else:
                 matching = [chunk for chunk in chunks if chunk["chapter_tag"] == chapter_tag] or chunks
@@ -366,20 +367,34 @@ class SupabaseStore:
                 topic_matching = [c for c in matching if topic_tag.lower() in c["chunk_text"].lower()]
                 if topic_matching:
                     matching = topic_matching
-            matching = rank_chunks(f"{chapter_tag} {topic_tag or ''} {section.get('bloom', '')}", matching, max(8, section["count"]))
+            retrieval_query = f"{chapter_tag} {topic_tag or ''} {section.get('bloom', '')}"
+            matching = rank_chunks(retrieval_query, matching, max(8, section["count"])) if not whole_syllabus else matching
                     
             generated_items: list[dict[str, Any]] = []
             # Generate a complete ordinary section in one provider request to
             # stay below browser/proxy timeouts on Render's free instances.
-            batch_size = 25
+            batch_size = 8 if whole_syllabus else 25
             for batch_start in range(0, section["count"], batch_size):
                 batch_count = min(batch_size, section["count"] - batch_start)
+                batch_context = (
+                    balanced_rank_chunks(retrieval_query, matching, min(8, batch_count), whole_syllabus_cursor + batch_start)
+                    if whole_syllabus
+                    else (matching[batch_start:batch_start + 8] or matching[:8])
+                )
                 try:
-                    generated_items.extend(generate_grounded_questions(
+                    generated_batch = generate_grounded_questions(
                         section["type"], batch_count,
                         section.get("level") or config["overall_level"], section["bloom"],
-                        section["marks_each"], matching[batch_start:batch_start + 8] or matching[:8],
-                    ))
+                        section["marks_each"], batch_context,
+                    )
+                    for generated_index, generated_item in enumerate(generated_batch):
+                        source_number = generated_item.get("source_number", generated_index + 1)
+                        try:
+                            source_index = (max(1, int(source_number)) - 1) % max(1, len(batch_context))
+                        except (TypeError, ValueError):
+                            source_index = generated_index % max(1, len(batch_context))
+                        generated_item["__source_chunk"] = batch_context[source_index] if batch_context else None
+                    generated_items.extend(generated_batch)
                 except (RuntimeError, ValueError, json.JSONDecodeError) as exc:
                     raise RuntimeError(
                         f"Question generation failed quality checks for section {section['id']}. "
@@ -387,15 +402,6 @@ class SupabaseStore:
                     ) from exc
 
             for index in range(section["count"]):
-                if matching:
-                    source = matching[index % len(matching)]
-                    source_chunk_ids = [source["id"]]
-                    groundedness_score = 0.84
-                else:
-                    source = {"chunk_text": ""}
-                    source_chunk_ids = []
-                    groundedness_score = 0.50
-                    
                 scope_label = chapter_tag
                 if topic_tag and topic_tag != "All topics":
                     scope_label = f"{chapter_tag} ({topic_tag})"
@@ -405,14 +411,16 @@ class SupabaseStore:
                 generated = generated_items[index] if index < len(generated_items) else {}
                 if not generated:
                     raise RuntimeError(f"Question generation returned an empty item for section {section['id']}.")
-                source_number = generated.get("source_number", 1)
-                try:
-                    source_number = max(1, min(int(source_number), len(matching)))
-                except (TypeError, ValueError):
-                    source_number = 1
-                if matching:
-                    source = matching[(index + source_number - 1) % len(matching)]
+                source = generated.get("__source_chunk") if isinstance(generated, dict) else None
+                if not source and matching:
+                    source = matching[index % len(matching)]
+                if source:
                     source_chunk_ids = [source["id"]]
+                    groundedness_score = 0.84
+                else:
+                    source = {"chunk_text": ""}
+                    source_chunk_ids = []
+                    groundedness_score = 0.50
                 options = generated.get("options") if isinstance(generated.get("options"), list) else []
                 questions.append({
                     "exam_id": exam_id,
@@ -425,13 +433,15 @@ class SupabaseStore:
                     "correct_answer": str(generated["correct_answer"]),
                     "marks": section["marks_each"],
                     "blooms_level": section["bloom"],
-                    "chapter_tag": chapter_tag,
+                    "chapter_tag": source.get("chapter_tag", chapter_tag) if whole_syllabus else chapter_tag,
                     "source_chunk_ids": source_chunk_ids,
                     "groundedness_score": groundedness_score,
                     "low_groundedness": groundedness_score <= 0.72,
                     "generation_attempts": 1 if groundedness_score > 0.72 else 3,
                     "teacher_modified": False,
                 })
+            if whole_syllabus:
+                whole_syllabus_cursor += int(section["count"])
         self.rest("DELETE", "questions", query=f"?exam_id=eq.{exam_id}")
         if questions:
             created = self.rest("POST", "questions", questions)
@@ -557,12 +567,10 @@ class SupabaseStore:
             answers = row.get("answers") or []
             released = bool(row.get("grade_released"))
             total = round(float(exam.get("total_marks") or 0), 2)
-            if released and answers and any(answer.get("eval_score") is None for answer in answers):
+            if released:
                 grade = self.evaluate_session(str(row["id"]))
                 earned = float(grade.get("earned_marks") or 0)
                 total = float(grade.get("total_marks") or total)
-            elif released:
-                earned = round(sum(float(answer.get("eval_score") or 0) for answer in answers), 2)
             else:
                 earned = 0.0
             user = row.get("users") or {}
@@ -712,12 +720,8 @@ class SupabaseStore:
             appeals = row.pop("integrity_appeals", None) or []
             session = self.normalize_session(row, user.get("display_name") or "Student")
             session["answers_count"] = len(answers)
-            if session.get("status") == "ended" and answers and any(answer.get("eval_score") is None for answer in answers):
+            if session.get("status") == "ended":
                 session["grade"] = self.evaluate_session(str(session["id"]))
-            elif session.get("status") == "ended":
-                earned = round(sum(float(answer.get("eval_score") or 0) for answer in answers), 2)
-                total = float(exam.get("total_marks") or 0)
-                session["grade"] = {"earned_marks": earned, "total_marks": total, "percentage": round(earned / total * 100, 2) if total else 0}
             else:
                 session["grade"] = None
             session["events_count"] = int(events[0].get("count", 0)) if events else 0
@@ -861,10 +865,16 @@ class SupabaseStore:
         session = self.normalize_session(session_row)
         exam = self.get_exam(str(session["exam_id"]))
         answers = self.rest("GET", "answers", query=f"?session_id=eq.{session_id}") or []
-        earned = round(sum(float(answer.get("eval_score") or 0) for answer in answers), 2)
         questions = self.session_questions(session_id)
         total = round(sum(float(question.get("marks") or 0) for question in questions), 2)
         released = bool(session.get("grade_released"))
+        if released:
+            grade = self.evaluate_session(session_id)
+            answers = self.rest("GET", "answers", query=f"?session_id=eq.{session_id}") or []
+            earned = float(grade.get("earned_marks") or 0)
+            total = float(grade.get("total_marks") or total)
+        else:
+            earned = 0.0
         visible_answers = answers if released else [
             {key: value for key, value in answer.items() if key not in {"eval_score", "eval_reasoning"}}
             for answer in answers

@@ -135,7 +135,7 @@ export type ApiMaterial = {
   filename: string
   status: string
   chunk_count: number
-  chapter_counts: Record<string, number>
+  chapter_counts: Record<string, number | { count: number; topics?: string[] }>
   source_type?: 'syllabus' | 'material'
 }
 

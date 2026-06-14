@@ -41,7 +41,7 @@ import {
   X,
 } from 'lucide-react'
 import './App.css'
-import { api, ApiError, examSocketUrl, type ApiExam, type ApiQuestion, type ApiSession } from './api'
+import { api, ApiError, examSocketUrl, type ApiExam, type ApiMaterial, type ApiQuestion, type ApiSession } from './api'
 
 type IntegrityStatus = 'CLEAN' | 'WATCH' | 'WARN' | 'FLAGGED'
 type AuthRole = 'teacher' | 'student'
@@ -1204,6 +1204,22 @@ function ConfigView({ examId, notify, go }: { examId: string; notify: (kind: Toa
   const [chapterTopicsMap, setChapterTopicsMap] = useState<Record<string, string[]>>({})
   const [chapterCountsMap, setChapterCountsMap] = useState<Record<string, number>>({})
 
+  const applyMaterialCoverage = (materials: ApiMaterial[]) => {
+    const topicsMap: Record<string, string[]> = {}
+    const countsMap: Record<string, number> = {}
+    materials.forEach((material) => {
+      Object.entries(material.chapter_counts || {}).forEach(([chapterName, info]: [string, any]) => {
+        const count = info && typeof info === 'object' ? Number(info.count || 0) : Number(info || 0)
+        const topics = info && typeof info === 'object' && Array.isArray(info.topics) ? info.topics.map(String) : []
+        countsMap[chapterName] = (countsMap[chapterName] || 0) + count
+        topicsMap[chapterName] = [...new Set([...(topicsMap[chapterName] || []), ...topics])]
+      })
+    })
+    setAvailableChapters(Object.keys(countsMap))
+    setChapterTopicsMap(topicsMap)
+    setChapterCountsMap(countsMap)
+  }
+
   useEffect(() => {
     currentExamRef.current = examId
     const requestId = ++loadRequestRef.current
@@ -1246,26 +1262,7 @@ function ConfigView({ examId, notify, go }: { examId: string; notify: (kind: Toa
         setSyllabusName(materials.find((item) => item.source_type === 'syllabus')?.filename || '')
         setStudyMaterialName(materials.find((item) => item.source_type !== 'syllabus')?.filename || '')
         
-        if (first.chapter_counts) {
-          const chList: string[] = []
-          const topicsMap: Record<string, string[]> = {}
-          const countsMap: Record<string, number> = {}
-          Object.entries(first.chapter_counts).forEach(([chapterName, info]: [string, any]) => {
-            chList.push(chapterName)
-            if (info && typeof info === 'object') {
-              Reflect.set(topicsMap, chapterName, Array.isArray(info.topics) ? info.topics : [])
-              Reflect.set(countsMap, chapterName, typeof info.count === 'number' ? info.count : 0)
-            } else {
-              Reflect.set(topicsMap, chapterName, [])
-              Reflect.set(countsMap, chapterName, typeof info === 'number' ? info : 0)
-            }
-          })
-          if (chList.length > 0) {
-            setAvailableChapters(chList)
-            setChapterTopicsMap(topicsMap)
-            setChapterCountsMap(countsMap)
-          }
-        }
+        applyMaterialCoverage(materials)
       })
       .catch((event) => { if (requestId === loadRequestRef.current) notify('error', `Could not load this exam from the backend: ${event instanceof Error ? event.message : 'unknown error'}`) })
       .finally(() => { if (requestId === loadRequestRef.current) setLoading(false) })
@@ -1317,24 +1314,23 @@ function ConfigView({ examId, notify, go }: { examId: string; notify: (kind: Toa
       if (sourceType === 'syllabus') setSyllabusName(material.filename); else setStudyMaterialName(material.filename)
       
       if (material.chapter_counts) {
-        const chList: string[] = []
-        const topicsMap: Record<string, string[]> = {}
-        const countsMap: Record<string, number> = {}
-        Object.entries(material.chapter_counts).forEach(([chapterName, info]: [string, any]) => {
-          chList.push(chapterName)
-          if (info && typeof info === 'object') {
-            Reflect.set(topicsMap, chapterName, Array.isArray(info.topics) ? info.topics : [])
-            Reflect.set(countsMap, chapterName, typeof info.count === 'number' ? info.count : 0)
-          } else {
-            Reflect.set(topicsMap, chapterName, [])
-            Reflect.set(countsMap, chapterName, typeof info === 'number' ? info : 0)
-          }
+        setAvailableChapters((current) => [...new Set([...current, ...Object.keys(material.chapter_counts)])])
+        setChapterTopicsMap((current) => {
+          const next = { ...current }
+          Object.entries(material.chapter_counts).forEach(([chapterName, info]: [string, any]) => {
+            const topics = info && typeof info === 'object' && Array.isArray(info.topics) ? info.topics.map(String) : []
+            next[chapterName] = [...new Set([...(next[chapterName] || []), ...topics])]
+          })
+          return next
         })
-        if (chList.length > 0) {
-          setAvailableChapters(chList)
-          setChapterTopicsMap(topicsMap)
-          setChapterCountsMap(countsMap)
-        }
+        setChapterCountsMap((current) => {
+          const next = { ...current }
+          Object.entries(material.chapter_counts).forEach(([chapterName, info]: [string, any]) => {
+            const count = info && typeof info === 'object' ? Number(info.count || 0) : Number(info || 0)
+            next[chapterName] = (next[chapterName] || 0) + count
+          })
+          return next
+        })
       }
       
       notify('success', `${sourceType === 'syllabus' ? 'Syllabus' : 'Study material'} uploaded and mapped for paper generation.`)
@@ -2120,6 +2116,16 @@ function ExamView(props: {
   const serverClockOffsetRef = useRef(0)
 
   const answerRequestKey = (questionId: string) => `${studentSessionId() || 'session'}:${questionId}:${Date.now()}:${crypto.randomUUID?.() || Math.random().toString(36).slice(2)}`
+  const pendingAnswerSavesRef = useRef<Set<Promise<unknown>>>(new Set())
+  const saveAnswerTracked = useCallback((sessionId: string, payload: Parameters<typeof api.saveAnswer>[1]) => {
+    const request = api.saveAnswer(sessionId, payload)
+    pendingAnswerSavesRef.current.add(request)
+    void request.then(
+      () => pendingAnswerSavesRef.current.delete(request),
+      () => pendingAnswerSavesRef.current.delete(request),
+    )
+    return request
+  }, [])
 
   // Load questions and duration from backend
   useEffect(() => {
@@ -2379,19 +2385,41 @@ function ExamView(props: {
     setLastSave(Date.now())
     if (sessionId && text.trim()) {
       try {
-        await api.saveAnswer(sessionId, { question_id: current.id, answer_text: text, idempotency_key: answerRequestKey(current.id) })
+        await saveAnswerTracked(sessionId, { question_id: current.id, answer_text: text, idempotency_key: answerRequestKey(current.id) })
         setSaveWarning('')
       } catch {
         setSaveWarning('Offline: answer saved locally and will retry on next save.')
       }
     }
-  }, [current, q, props.answer, answers])
+  }, [current, q, props.answer, answers, saveAnswerTracked])
+
+  const flushAllAnswers = useCallback(async () => {
+    const sessionId = studentSessionId()
+    if (!sessionId) throw new Error('Student session is missing. Reopen the exam from the student portal.')
+    const finalAnswers = { ...answers }
+    if (current?.id && props.answer.trim()) finalAnswers[current.id] = props.answer
+    window.localStorage.setItem(`examguard-answers-${sessionId}`, JSON.stringify(finalAnswers))
+    await Promise.allSettled([...pendingAnswerSavesRef.current])
+    await Promise.all(displayQuestions.map((question) => {
+      const value = String(finalAnswers[question.id] || '').trim()
+      if (!value) return Promise.resolve()
+      return saveAnswerTracked(sessionId, {
+        question_id: question.id,
+        answer_text: value,
+        selected_option: question.type === 'MCQ' ? value : undefined,
+        idempotency_key: answerRequestKey(question.id),
+      }).then(() => undefined)
+    }))
+    setAnswers(finalAnswers)
+    setLastSave(Date.now())
+    setSaveWarning('')
+  }, [answers, current?.id, displayQuestions, props.answer, saveAnswerTracked])
 
   useEffect(() => {
     if (!timerReady || timeLeft !== 0 || expirySubmitStarted.current) return
     expirySubmitStarted.current = true
     const submitExpiredExam = async () => {
-      await saveCurrentAnswer()
+      await flushAllAnswers()
       const sessionId = studentSessionId()
       if (!sessionId) return
       try {
@@ -2405,7 +2433,7 @@ function ExamView(props: {
       }
     }
     submitExpiredExam()
-  }, [timerReady, timeLeft, saveCurrentAnswer, props])
+  }, [timerReady, timeLeft, flushAllAnswers, props])
 
   const goToQuestion = (idx: number) => {
     saveCurrentAnswer()
@@ -2422,7 +2450,7 @@ function ExamView(props: {
       const sessionId = studentSessionId()
       if (sessionId) {
         window.localStorage.setItem(`examguard-answers-${sessionId}`, JSON.stringify(updated))
-        api.saveAnswer(sessionId, { question_id: current.id, answer_text: opt, selected_option: opt, idempotency_key: answerRequestKey(current.id) })
+        saveAnswerTracked(sessionId, { question_id: current.id, answer_text: opt, selected_option: opt, idempotency_key: answerRequestKey(current.id) })
           .then(() => setSaveWarning(''))
           .catch(() => setSaveWarning('Offline: answer saved locally and will retry on next save.'))
       }
@@ -2431,7 +2459,7 @@ function ExamView(props: {
   }
 
   const requestSubmit = () => {
-    saveCurrentAnswer()
+    void saveCurrentAnswer()
     setSubmitOpen(true)
   }
 
@@ -2662,6 +2690,7 @@ function ExamView(props: {
           answeredCount={answeredCount}
           totalCount={totalQ}
           markedCount={props.marked ? 1 : 0}
+          onBeforeSubmit={flushAllAnswers}
         />
       )}
       <div className="connection-card" style={{ display: 'none' }}><RefreshCw size={16} /> Connection lost. Answers saved locally. Reconnecting...</div>
@@ -2721,6 +2750,15 @@ function CompleteView({ notify, go }: { notify: (kind: ToastKind, text: string) 
           <span className={sessionData.grade_released ? 'done' : ''} style={{ color: sessionData.grade_released ? 'var(--eg-emerald)' : 'var(--eg-text-faint)' }}>Grade Released</span>
         </div>
       </Card>
+
+      {sessionData.grade_released && sessionData.grade && <Card title="Your Result" icon={GraduationCap}>
+        <div className="review-summary-strip">
+          <span><small>Marks</small><strong>{sessionData.grade.earned_marks}/{sessionData.grade.total_marks}</strong></span>
+          <span><small>Percentage</small><strong>{sessionData.grade.percentage}%</strong></span>
+          <span><small>Status</small><strong>Released</strong></span>
+        </div>
+        <button className="primary-btn" onClick={() => go('results')}>Open My Results</button>
+      </Card>}
 
       <Card title="Submit an appeal" icon={FileText}>
         <p className="muted" style={{ fontSize: '13px', marginBottom: '12px' }}>Explain your situation within 24 hours. If no response is submitted, the case still requires a teacher decision and is never auto-confirmed.</p>
@@ -2895,6 +2933,7 @@ function ResultsView({ auth, notify }: { auth: AuthUser | null; notify: (kind: T
           ))}
         </div>
       </Card>
+
     </section>
   )
 
@@ -3324,7 +3363,7 @@ function Toast({ kind, text, onClose }: { kind: ToastKind; text: string; onClose
   )
 }
 
-function SubmitDialog({ onClose, go, answeredCount, totalCount, markedCount }: { onClose: () => void; go: () => void; answeredCount: number; totalCount: number; markedCount: number }) {
+function SubmitDialog({ onClose, go, answeredCount, totalCount, markedCount, onBeforeSubmit }: { onClose: () => void; go: () => void; answeredCount: number; totalCount: number; markedCount: number; onBeforeSubmit: () => Promise<void> }) {
   const [submitError, setSubmitError] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const handleSubmit = async () => {
@@ -3336,7 +3375,10 @@ function SubmitDialog({ onClose, go, answeredCount, totalCount, markedCount }: {
     setSubmitError('')
     const sessionId = studentSessionId()
     if (sessionId) {
-      try { await api.endSession(sessionId) }
+      try {
+        await onBeforeSubmit()
+        await api.endSession(sessionId)
+      }
       catch (error) {
         setSubmitError(error instanceof Error ? error.message : 'Submission failed. Your answers remain saved locally.')
         setSubmitting(false)

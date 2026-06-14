@@ -16,7 +16,7 @@ import json
 from typing import Any
 from uuid import uuid4
 
-from backend.agents.material_ingestion_agent import chunk_text, detect_chapter, chunk_text_with_chapters, embed_text, rank_chunks
+from backend.agents.material_ingestion_agent import balanced_rank_chunks, chunk_text, detect_chapter, chunk_text_with_chapters, embed_text, rank_chunks
 from backend.agents.llm_router import generate_grounded_questions, gemini_router
 from backend.agents.evaluation_agent import grade_objective, grade_subjective
 from backend.agents.orchestrator_agent import compute_integrity_score
@@ -204,24 +204,23 @@ class LocalStore:
         if invalid_material_ids:
             raise ValueError("Paper configuration contains material from another exam. Re-select this exam's material.")
         materials = [self.materials[item] for item in material_ids if item in self.materials and self.materials[item]["exam_id"] == exam_id]
-        material = materials[0] if materials else None
-        
-        flat_counts = {}
-        if material and "chapter_counts" in material:
-            raw = material["chapter_counts"]
-            total_sum = 0
+        flat_counts: dict[str, int] = {}
+        total_sum = 0
+        for selected_material in materials:
+            raw = selected_material.get("chapter_counts") or {}
             for tag, info in raw.items():
                 if isinstance(info, dict):
-                    count = info.get("count", 0)
-                    flat_counts[tag] = count
+                    count = int(info.get("count", 0))
+                    flat_counts[tag] = flat_counts.get(tag, 0) + count
                     total_sum += count
                     for t in info.get("topics", []):
-                        flat_counts[t] = count
+                        flat_counts[t] = flat_counts.get(t, 0) + count
                 else:
-                    flat_counts[tag] = info
-                    total_sum += info
-            flat_counts["All syllabus"] = total_sum
-            flat_counts["All chapters"] = total_sum
+                    count = int(info)
+                    flat_counts[tag] = flat_counts.get(tag, 0) + count
+                    total_sum += count
+        flat_counts["All syllabus"] = total_sum
+        flat_counts["All chapters"] = total_sum
             
         agent_config = {
             "total_marks": config["total_marks"],
@@ -263,11 +262,13 @@ class LocalStore:
         
         questions: list[dict[str, Any]] = []
         chunks = [chunk for material in materials for chunk in material.get("chunks", [])]
+        whole_syllabus_cursor = 0
         for section_index, section in enumerate(config["sections"]):
             chapter_tag = section.get("chapter_tag")
             topic_tag = section.get("topic_tag")
             
-            if chapter_tag == "All syllabus":
+            whole_syllabus = chapter_tag in {"All syllabus", "All chapters"}
+            if whole_syllabus:
                 matching = chunks
             else:
                 matching = [chunk for chunk in chunks if chunk["chapter_tag"] == chapter_tag] or chunks
@@ -276,21 +277,35 @@ class LocalStore:
                 topic_matching = [c for c in matching if topic_tag.lower() in c["chunk_text"].lower()]
                 if topic_matching:
                     matching = topic_matching
-            matching = rank_chunks(f"{chapter_tag} {topic_tag or ''} {section.get('bloom', '')}", matching, max(8, section["count"]))
+            retrieval_query = f"{chapter_tag} {topic_tag or ''} {section.get('bloom', '')}"
+            matching = rank_chunks(retrieval_query, matching, max(8, section["count"])) if not whole_syllabus else matching
                     
             generated_items: list[dict[str, Any]] = []
             # One section-level request is much faster on hosted backends than
             # several sequential Gemini calls. Keep a conservative ceiling so
             # responses remain within the configured output-token budget.
-            batch_size = 25
+            batch_size = 8 if whole_syllabus else 25
             for batch_start in range(0, section["count"], batch_size):
                 batch_count = min(batch_size, section["count"] - batch_start)
+                batch_context = (
+                    balanced_rank_chunks(retrieval_query, matching, min(8, batch_count), whole_syllabus_cursor + batch_start)
+                    if whole_syllabus
+                    else (matching[batch_start:batch_start + 8] or matching[:8])
+                )
                 try:
-                    generated_items.extend(generate_grounded_questions(
+                    generated_batch = generate_grounded_questions(
                         section["type"], batch_count,
                         section.get("level") or config["overall_level"], section["bloom"],
-                        section["marks_each"], matching[batch_start:batch_start + 8] or matching[:8],
-                    ))
+                        section["marks_each"], batch_context,
+                    )
+                    for generated_index, generated_item in enumerate(generated_batch):
+                        source_number = generated_item.get("source_number", generated_index + 1)
+                        try:
+                            source_index = (max(1, int(source_number)) - 1) % max(1, len(batch_context))
+                        except (TypeError, ValueError):
+                            source_index = generated_index % max(1, len(batch_context))
+                        generated_item["__source_chunk"] = batch_context[source_index] if batch_context else None
+                    generated_items.extend(generated_batch)
                 except (RuntimeError, ValueError) as exc:
                     raise RuntimeError(
                         f"Question generation failed quality checks for section {section['id']}. "
@@ -298,8 +313,11 @@ class LocalStore:
                     ) from exc
 
             for index in range(section["count"]):
-                if matching:
+                generated = generated_items[index] if index < len(generated_items) else {}
+                source = generated.get("__source_chunk") if isinstance(generated, dict) else None
+                if not source and matching:
                     source = matching[index % len(matching)]
+                if source:
                     source_chunk_ids = [source["chunk_index"]]
                     source_page = source["source_page"]
                     groundedness = 0.84
@@ -317,7 +335,6 @@ class LocalStore:
                 elif chapter_tag == "All syllabus":
                     scope_label = "Complete Syllabus"
                     
-                generated = generated_items[index] if index < len(generated_items) else {}
                 if not generated:
                     raise RuntimeError(f"Question generation returned an empty item for section {section['id']}.")
                 question_text = str(generated["text"])
@@ -335,7 +352,7 @@ class LocalStore:
                         "correct_answer": str(generated["correct_answer"]),
                         "marks": section["marks_each"],
                         "bloom_level": section["bloom"],
-                        "chapter_tag": chapter_tag,
+                        "chapter_tag": source.get("chapter_tag", chapter_tag) if whole_syllabus else chapter_tag,
                         "source_chunk_ids": source_chunk_ids,
                         "source_page": source_page,
                         "groundedness": groundedness,
@@ -344,6 +361,8 @@ class LocalStore:
                         "teacher_modified": False,
                     }
                 )
+            if whole_syllabus:
+                whole_syllabus_cursor += int(section["count"])
         self.questions[exam_id] = questions
         exam["questions_generated"] = True
         exam["status"] = "generated"
@@ -567,7 +586,7 @@ class LocalStore:
             raise KeyError("exam not found")
         answers = self.answers.get(session_id, [])
         released = bool(session.get("grade_released"))
-        if released and "grade" not in session:
+        if released:
             self.evaluate_session(session_id)
         visible_answers = answers if released else [
             {key: value for key, value in answer.items() if key not in {"eval_score", "eval_reasoning"}}

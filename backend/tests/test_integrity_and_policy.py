@@ -11,6 +11,7 @@ from backend.agents.evaluation_agent import grade_objective, grade_subjective
 from backend.store import LocalStore
 from backend.main import ProctoringEventRequest, student_safe_question
 from backend.agents.llm_router import question_quality_errors
+from backend.agents.material_ingestion_agent import chunk_text_with_chapters
 from pydantic import ValidationError
 
 
@@ -22,6 +23,38 @@ class IntegrityPolicyTests(unittest.TestCase):
             "correct_answer": "C",
         }, "MCQ")
         self.assertTrue(errors)
+
+    def test_question_quality_rejects_syllabus_meta_questions(self) -> None:
+        for text in (
+            "Which concept is covered in the uploaded syllabus?",
+            "What does the provided document say about transactions?",
+            "Which topic is listed in this chapter?",
+            "According to page 2, what is normalization?",
+        ):
+            with self.subTest(text=text):
+                errors = question_quality_errors({
+                    "text": text,
+                    "options": ["A", "B", "C", "D"],
+                    "correct_answer": "A",
+                }, "MCQ")
+                self.assertIn("question refers to source material", errors)
+
+    def test_short_syllabus_keeps_every_chapter_separate(self) -> None:
+        source = """Chapter 1: Database Fundamentals
+Tables, rows, keys, and constraints.
+Chapter 2
+SQL Queries
+SELECT, WHERE, GROUP BY, and joins.
+Chapter 3 - Transactions
+ACID, commit, and rollback."""
+        chunks, topics = chunk_text_with_chapters(source, approx_tokens=40)
+        tags = {chunk.chapter_tag for chunk in chunks}
+        self.assertEqual(set(topics), {
+            "Chapter 1: Database Fundamentals",
+            "Chapter 2: SQL Queries",
+            "Chapter 3: Transactions",
+        })
+        self.assertEqual(tags, set(topics))
 
     def test_proctoring_event_allowlist_rejects_forged_type(self) -> None:
         with self.assertRaises(ValidationError):
@@ -339,7 +372,58 @@ class StoreBehaviorTests(unittest.TestCase):
         finally:
             store_module.generate_grounded_questions = original
         self.assertEqual(result["count"], 25)
-        self.assertEqual(calls, [25])
+        self.assertEqual(calls, [8, 8, 8, 1])
+
+    def test_all_syllabus_generation_rotates_across_chapters(self) -> None:
+        import backend.store as store_module
+
+        exam = self.store.create_exam("teacher-demo", {
+            "title": "Coverage Exam", "subject": "SQL", "duration_minutes": 60, "total_marks": 6,
+        })
+        source = """Chapter 1: Keys
+Primary and foreign keys identify and relate rows.
+Chapter 2: Queries
+SELECT retrieves rows and WHERE filters them.
+Chapter 3: Transactions
+Transactions use commit, rollback, and ACID properties."""
+        material = self.store.add_material(exam["id"], "coverage.txt", source.encode("utf-8"))
+        exam["paper_config"] = {
+            "material_id": material["id"], "material_ids": [material["id"]],
+            "total_marks": 6, "paper_mode": "MCQ only", "overall_level": "Standard",
+            "sections": [{
+                "id": "A", "type": "MCQ", "count": 3, "marks_each": 2,
+                "bloom": "Understand", "chapter_tag": "All syllabus", "level": "Standard",
+            }],
+        }
+        original = store_module.generate_grounded_questions
+        store_module.generate_grounded_questions = lambda question_type, count, level, bloom, marks, chunks: [{
+            "text": f"Concept question {index}?", "options": ["A", "B", "C", "D"],
+            "correct_answer": "A", "source_number": index + 1,
+        } for index in range(count)]
+        try:
+            result = self.store.generate_questions(exam["id"])
+        finally:
+            store_module.generate_grounded_questions = original
+        self.assertEqual(
+            [question["chapter_tag"] for question in result["questions"]],
+            ["Chapter 1: Keys", "Chapter 2: Queries", "Chapter 3: Transactions"],
+        )
+
+    def test_configuration_combines_chapters_from_all_uploaded_materials(self) -> None:
+        exam = self.store.create_exam("teacher-demo", {
+            "title": "Combined Coverage", "subject": "SQL", "duration_minutes": 60, "total_marks": 10,
+        })
+        first = self.store.add_material(exam["id"], "one.txt", b"Chapter 1: Keys\nPrimary keys identify rows and foreign keys relate tables.")
+        second = self.store.add_material(exam["id"], "two.txt", b"Chapter 2: Queries\nSELECT retrieves rows and WHERE filters query results.")
+        result = self.store.configure_exam(exam["id"], {
+            "material_id": first["id"], "material_ids": [first["id"], second["id"]],
+            "total_marks": 10, "paper_mode": "MCQ only", "overall_level": "Standard",
+            "sections": [{
+                "id": "A", "type": "MCQ", "count": 5, "marks_each": 2,
+                "bloom": "Understand", "chapter_tag": "Chapter 2: Queries", "level": "Standard",
+            }],
+        })
+        self.assertEqual(result["status"], "saved")
 
     def test_mixed_generation_includes_short_and_long_answers(self) -> None:
         import backend.store as store_module
@@ -601,6 +685,24 @@ class StoreBehaviorTests(unittest.TestCase):
         self.assertEqual(result["grade"]["earned_marks"], 2)
         self.assertTrue(result["grade_released"])
         self.assertIn("eval_score", result["answers"][0])
+
+    def test_released_result_repairs_stale_zero_grade(self) -> None:
+        self.store.exams["exam-physics"]["status"] = "active"
+        self.store.questions["exam-physics"] = [{
+            "id": "repair-q1", "exam_id": "exam-physics", "type": "MCQ", "correct_answer": "B",
+            "marks": 4, "text": "Choose", "options": ["Wrong", "Correct concept", "Other", "None"],
+        }]
+        session = self.store.join_session("PHY001", "Repair Student", "repair@student.ai")
+        self.store.save_answer(session["id"], {
+            "question_id": "repair-q1", "answer_text": "Correct concept", "selected_option": "Correct concept",
+        })
+        self.store.update_session(session["id"], {
+            "status": "ended", "grade_released": True,
+            "grade": {"earned_marks": 0, "total_marks": 4, "percentage": 0},
+        })
+        result = self.store.get_session_result(session["id"])
+        self.assertEqual(result["grade"]["earned_marks"], 4)
+        self.assertEqual(result["grade"]["percentage"], 100)
 
     def test_mixed_exam_grades_mcq_and_qa_and_flags_cheating(self) -> None:
         self.store.exams["exam-physics"]["status"] = "active"
