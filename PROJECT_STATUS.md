@@ -157,7 +157,7 @@ This repository contains a working, demo-ready ExamGuard AI v6 vertical slice. R
 Teacher:
 
 - Email: `teacher@demo.examguard.ai`
-- Password: `demo123`
+- Password: `ExamGuard-Demo-2026!` unless `DEMO_TEACHER_PASSWORD` is set differently
 
 Student:
 

@@ -12,13 +12,13 @@ from pathlib import Path
 
 
 DEMO = {
-    "teacher": "teacher@demo.examguard.ai / demo123",
+    "teacher": "teacher@demo.examguard.ai / ExamGuard-Demo-2026!",
     "students": [
-        "arjun@student.ai / demo123 (CLEAN, Tier 1, score 88)",
-        "priya@student.ai / demo123 (FLAGGED, Tier 1, score 43)",
-        "rahul@student.ai / demo123 (WARN, Tier 3, score 65)",
-        "meera@student.ai / demo123 (WATCH, Tier 2, score 78)",
-        "kabir@student.ai / demo123 (CLEAN, Tier 3, score 92)",
+        "arjun@student.ai (CLEAN, Tier 1, score 88)",
+        "priya@student.ai (FLAGGED, Tier 1, score 43)",
+        "rahul@student.ai (WARN, Tier 3, score 65)",
+        "meera@student.ai (WATCH, Tier 2, score 78)",
+        "kabir@student.ai (CLEAN, Tier 3, score 92)",
     ],
     "join_code": "PHY001",
     "exam": "Physics XI - Electromagnetism",

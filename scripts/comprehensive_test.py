@@ -13,8 +13,10 @@ import urllib.request
 import urllib.error
 import urllib.parse
 import sys
+import os
+from uuid import uuid4
 
-BASE_URL = "http://127.0.0.1:8000/api/v1"
+BASE_URL = os.getenv("EXAMGUARD_BASE_URL", "http://127.0.0.1:8000/api/v1")
 
 AUTH_TOKEN = ""
 
@@ -78,16 +80,24 @@ def run_test() -> None:
     print("        EXAMGUARD AI V6 INTEGRATION & VERIFICATION TEST SUITE         ")
     print("======================================================================\n")
 
-    # Step 1: Teacher Login
-    print("[1/15] Logging in as Teacher...")
-    teacher_login = call("POST", "/auth/login", {
-        "email": "teacher@demo.examguard.ai",
-        "password": "demo123",
-        "role": "teacher",
-        "display_name": "Rajan Kumar"
-    })
+    # Step 1: Teacher Auth
+    print("[1/15] Authenticating an isolated Teacher account...")
+    run_id = uuid4().hex[:8]
+    demo_email = os.getenv("DEMO_TEACHER_EMAIL", "").strip()
+    demo_password = os.getenv("DEMO_TEACHER_PASSWORD", "").strip()
+    if demo_email and demo_password:
+        teacher_login = call("POST", "/auth/demo", {"email": demo_email, "password": demo_password})
+    else:
+        teacher_email = f"teacher-{run_id}@example.com"
+        teacher_login = call("POST", "/auth/signup", {
+            "email": teacher_email,
+            "password": "ExamGuard-Test-2026!",
+            "role": "teacher",
+            "display_name": "Rajan Kumar",
+        })
     teacher_id = teacher_login["user"]["id"]
-    AUTH_TOKEN = teacher_login["token"]
+    teacher_token = teacher_login["token"]
+    AUTH_TOKEN = teacher_token
     print(f"  -> Success! Logged in as: {teacher_login['user']['display_name']} (ID: {teacher_id})")
 
     # Step 2: Create new Exam Shell
@@ -165,11 +175,18 @@ def run_test() -> None:
     print(f"  -> Success! Exam Status is now: {activated_exam['status']}")
 
     # Step 7: Student Joins using the Join Code
-    print("\n[7/15] Student Arjun Sharma joining the exam session...")
+    print("\n[7/15] Student Arjun Sharma accessing and joining the exam session...")
+    student_email = f"arjun-{run_id}@example.com"
+    student_access = call("POST", "/auth/student-access", {
+        "student_name": "Arjun Sharma",
+        "email": student_email,
+    })
+    student_token = student_access["token"]
+    AUTH_TOKEN = student_token
     student_session = call("POST", "/sessions/join", {
         "join_code": join_code,
         "student_name": "Arjun Sharma",
-        "email": "arjun@student.ai"
+        "email": student_email,
     })
     session_id = student_session["id"]
     print(f"  -> Success! Student Session Created (ID: {session_id}, Status: {student_session['status']})")
@@ -210,11 +227,13 @@ def run_test() -> None:
 
     # Step 13: Generate Integrity Report
     print("\n[13/15] Generating Integrity report...")
+    AUTH_TOKEN = teacher_token
     report_res = call("POST", f"/sessions/{session_id}/reports/generate")
     print(f"  -> Success! Report Status: {report_res['status']}, URL: {report_res['download_url']}")
 
     # Step 14: Submit Appeal as Student
     print("\n[14/15] Student submitting an appeal regarding flags...")
+    AUTH_TOKEN = student_token
     appeal_text = "I would like to state that my webcam visibility switches were due to adjustment of my reading posture."
     appeal_res = call("POST", f"/sessions/{session_id}/appeal", {
         "response": appeal_text
@@ -223,6 +242,7 @@ def run_test() -> None:
 
     # Step 15: Teacher Review Decision
     print("\n[15/15] Teacher reviewing appeal and saving final decision...")
+    AUTH_TOKEN = teacher_token
     decision_res = call("PUT", f"/sessions/{session_id}/decision", {
         "decision": "clear",
         "teacher_note": "Postural adjustments verified. Integrity score resolved. Released grades."
