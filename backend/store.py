@@ -486,7 +486,7 @@ class LocalStore:
             response = str(answer.get("selected_option") or answer.get("answer_text") or "")
             question_type = str(question.get("type") or "Short Answer")
             if question_type in {"MCQ", "True/False", "Fill Blank"}:
-                result = grade_objective(response, str(question.get("correct_answer") or ""), int(question.get("marks", 0)))
+                result = grade_objective(response, str(question.get("correct_answer") or ""), int(question.get("marks", 0)), question.get("options") or [])
             else:
                 result = grade_subjective(response, str(question.get("correct_answer") or ""), int(question.get("marks", 0)), question_type)
             answer["eval_score"] = result["score"]

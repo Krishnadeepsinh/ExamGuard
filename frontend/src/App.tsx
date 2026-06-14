@@ -1826,6 +1826,7 @@ function LiveMonitorView(props: {
             <span>Focus <strong>{props.selected.eventSummary?.window_blur || 0}</strong></span>
             <span>Face absent <strong>{props.selected.eventSummary?.face_missing || 0}</strong></span>
             <span>Multiple faces <strong>{props.selected.eventSummary?.multiple_faces || 0}</strong></span>
+            <span>Phone evidence <strong>{props.selected.eventSummary?.phone_detected || 0}</strong></span>
             <span>Large pastes <strong>{props.selected.eventSummary?.paste_detected || 0}</strong></span>
             <span>Fullscreen <strong>{props.selected.eventSummary?.fullscreen_exit || 0}</strong></span>
           </div>
@@ -2436,33 +2437,42 @@ function ExamView(props: {
 
   const secondsSinceSave = Math.round((Date.now() - lastSave) / 1000)
 
-  const logEvent = (eventType: string) => {
+  const eventSequenceRef = useRef(0)
+  const logEvent = (eventType: string, metadata: Record<string, unknown> = {}) => {
     const sessionId = studentSessionId()
-    if (sessionId) api.logEvent(sessionId, eventType).catch(() => {})
+    if (sessionId) api.logEvent(sessionId, eventType, { ...metadata, client_sequence: ++eventSequenceRef.current, client_recorded_at: new Date().toISOString() }).catch(() => {})
+  }
+
+  const logPaste = (pasted: string, questionId?: string) => {
+    logEvent('paste_detected', { question_id: questionId, character_count: pasted.length, bulk_paste: pasted.length >= 20, fullscreen: Boolean(document.fullscreenElement) })
+    props.notify('warning', `Paste detected (${pasted.length} characters) and logged for review.`)
   }
 
   useEffect(() => {
     let blurTimer: number | undefined
-    let lastBlurLoggedAt = 0
-    const visibility = () => { if (document.hidden) logEvent('tab_hidden') }
+    const visibility = () => { if (document.hidden) logEvent('tab_hidden', { visibility_state: document.visibilityState }) }
     const blur = () => {
       blurTimer = window.setTimeout(() => {
-        if (!document.hidden && Date.now() - lastBlurLoggedAt >= 30_000) {
-          lastBlurLoggedAt = Date.now()
-          logEvent('window_blur')
-        }
+        if (!document.hidden) logEvent('window_blur')
       }, 3000)
     }
     const focus = () => { if (blurTimer) window.clearTimeout(blurTimer) }
     const fullscreen = () => { if (!document.fullscreenElement) logEvent('fullscreen_exit') }
+    const paste = (event: ClipboardEvent) => {
+      const target = event.target as HTMLElement | null
+      if (target?.tagName === 'TEXTAREA') return
+      logPaste(event.clipboardData?.getData('text') || '')
+    }
     document.addEventListener('visibilitychange', visibility)
     window.addEventListener('blur', blur)
     window.addEventListener('focus', focus)
     document.addEventListener('fullscreenchange', fullscreen)
+    document.addEventListener('paste', paste)
     return () => {
       document.removeEventListener('visibilitychange', visibility)
       window.removeEventListener('blur', blur)
       window.removeEventListener('focus', focus)
+      document.removeEventListener('paste', paste)
       if (blurTimer) window.clearTimeout(blurTimer)
       document.removeEventListener('fullscreenchange', fullscreen)
     }
@@ -2496,6 +2506,7 @@ function ExamView(props: {
         <span>Fullscreen exits <strong>{eventSummary.fullscreen_exit || 0}</strong></span>
         <span>Face absent <strong>{eventSummary.face_missing || 0}</strong></span>
         <span>Multiple faces <strong>{eventSummary.multiple_faces || 0}</strong></span>
+        <span>Phone evidence <strong>{eventSummary.phone_detected || 0}</strong></span>
         <span>Large pastes <strong>{eventSummary.paste_detected || 0}</strong></span>
       </div>
 
@@ -2591,9 +2602,7 @@ function ExamView(props: {
               onChange={(event) => props.setAnswer(event.target.value)}
               onPaste={(event) => {
                 const pasted = event.clipboardData.getData('text')
-                const sessionId = studentSessionId()
-                if (sessionId) api.logEvent(sessionId, 'paste_detected', { question_id: current.id, character_count: pasted.length, bulk_paste: pasted.length >= 80, fullscreen: Boolean(document.fullscreenElement) }).catch(() => {})
-                props.notify('warning', `Paste detected (${pasted.length} characters) and logged for review.`)
+                logPaste(pasted, current.id)
               }}
               placeholder="Type your response here…"
               style={{
@@ -2698,29 +2707,14 @@ function CompleteView({ notify, go }: { notify: (kind: ToastKind, text: string) 
     }
   }
 
-  const studentObj = sessionData ? {
-    name: sessionData.student_name,
-    score: sessionData.integrity?.score ?? 100,
-    status: (sessionData.integrity?.status ?? 'CLEAN') as IntegrityStatus,
-    tier: sessionData.integrity?.baseline_tier ?? 1,
-    factors: [
-      sessionData.integrity?.factors?.behavioral ?? 92,
-      sessionData.integrity?.factors?.perplexity ?? 84,
-      sessionData.integrity?.factors?.stylometric ?? 89,
-      sessionData.integrity?.factors?.answer_quality ?? 91,
-      sessionData.integrity?.factors?.time_anomaly ?? 76
-    ],
-    ci: sessionData.integrity?.ci ?? null
-  } : null
-
   if (sessionData?.missingSession) return <section className="screen"><div className="empty-state"><Lock size={28} /><strong>Login required</strong><span>Open your student portal to see only your own submitted result.</span><button className="primary-btn" onClick={() => go('student')}>Open Student Portal</button></div></section>
-  if (!studentObj) return <section className="screen"><div className="empty-state"><RefreshCw size={28} /><strong>Loading submission result</strong><span>Your locally saved answers remain available.</span></div></section>
+  if (!sessionData) return <section className="screen"><div className="empty-state"><RefreshCw size={28} /><strong>Loading submission status</strong><span>Your locally saved answers remain available.</span></div></section>
 
   return (
     <section className="screen complete-layout" style={{ maxWidth: '680px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '24px' }}>
       <div style={{ background: sessionData.grade_released ? 'var(--eg-emerald)' : 'var(--eg-amber)', color: 'var(--eg-navy)', padding: '16px 24px', borderRadius: '12px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '12px' }}>
-        {sessionData.grade_released ? <Check size={20} /> : <AlertTriangle size={20} />}
-        <span>{sessionData.grade_released ? 'Teacher approved your result. Final marks are now available.' : 'Your exam is AI-checked and waiting for teacher approval.'}</span>
+        <Check size={20} />
+        <span>Your exam was submitted successfully.</span>
       </div>
 
       <Card title="Submission received" icon={Check}>
@@ -2730,18 +2724,6 @@ function CompleteView({ notify, go }: { notify: (kind: ToastKind, text: string) 
           <span className={submitted || sessionData?.review_status === 'appeal_submitted' ? 'done' : 'active'} style={{ color: 'var(--eg-amber)', fontWeight: 600 }}>Under Review</span>
           <span className={sessionData.grade_released ? 'done' : ''} style={{ color: sessionData.grade_released ? 'var(--eg-emerald)' : 'var(--eg-text-faint)' }}>Grade Released</span>
         </div>
-      </Card>
-
-      {sessionData.grade_released && sessionData.grade && (
-        <Card title="Final Result" icon={GraduationCap}>
-          <div className="result-score"><strong>{sessionData.grade.earned_marks}/{sessionData.grade.total_marks}</strong><span>{sessionData.grade.percentage}%</span></div>
-          <p className="muted">AI evaluated answers against correct answers and marking guides. Teacher reviewed integrity evidence and released this result.</p>
-        </Card>
-      )}
-
-      <Card title="Your integrity summary" icon={Shield}>
-        <IntegrityScoreCard student={studentObj} />
-        <p className="muted" style={{ fontSize: '13px', marginTop: '12px' }}>Some answers require verification. This does not impact your final eligibility automatically.</p>
       </Card>
 
       <Card title="Submit an appeal" icon={FileText}>

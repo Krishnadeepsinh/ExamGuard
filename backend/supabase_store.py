@@ -673,7 +673,7 @@ class SupabaseStore:
             response = str(answer.get("selected_option") or answer.get("answer_text") or "")
             question_type = str(question.get("type") or "Short Answer")
             if question_type in {"MCQ", "True/False", "Fill Blank"}:
-                result = grade_objective(response, str(question.get("correct_answer") or ""), int(question.get("marks", 0)))
+                result = grade_objective(response, str(question.get("correct_answer") or ""), int(question.get("marks", 0)), question.get("options") or [])
             else:
                 result = grade_subjective(response, str(question.get("correct_answer") or ""), int(question.get("marks", 0)), question_type)
             self.rest("PATCH", "answers", {"eval_score": result["score"], "eval_reasoning": result["reasoning"]}, query=f"?id=eq.{answer['id']}")
@@ -723,7 +723,7 @@ class SupabaseStore:
         return result
 
     def log_integrity_event(self, session_id: str, event_type: str, metadata: dict[str, Any]) -> dict[str, Any]:
-        severity = "warning" if event_type in {"tab_hidden", "window_blur", "fullscreen_exit", "paste_detected"} else "info"
+        severity = "warning" if event_type in {"tab_hidden", "window_blur", "fullscreen_exit", "paste_detected", "phone_detected", "multiple_faces"} else "info"
         prior_rows = self.rest("GET", "integrity_events", query=f"?session_id=eq.{session_id}&select=sequence_number,event_hash&order=sequence_number.desc&limit=1") or []
         sequence = int(prior_rows[0].get("sequence_number") or 0) + 1 if prior_rows else 1
         previous_hash = str(prior_rows[0].get("event_hash") or "") if prior_rows else ""

@@ -6,9 +6,49 @@ from difflib import SequenceMatcher
 import re
 
 
-def grade_objective(answer: str, correct_answer: str, marks: int) -> dict[str, object]:
-    ratio = SequenceMatcher(None, answer.strip().lower(), correct_answer.strip().lower()).ratio()
-    score = marks if ratio > 0.86 else 0
+def _normalize_objective(text: str) -> str:
+    value = re.sub(r"\s+", " ", text.strip().lower())
+    value = re.sub(r"^[\(\[]?[a-d1-4][\)\].:-]\s+", "", value)
+    return re.sub(r"[^a-z0-9]+", " ", value).strip()
+
+
+def _option_text(label: str, options: list[str]) -> str | None:
+    cleaned = label.strip().lower().rstrip(".):")
+    if cleaned in {"a", "b", "c", "d"}:
+        index = ord(cleaned) - ord("a")
+    elif cleaned in {"1", "2", "3", "4"}:
+        index = int(cleaned) - 1
+    else:
+        return None
+    return options[index] if 0 <= index < len(options) else None
+
+
+def grade_objective(answer: str, correct_answer: str, marks: int, options: list[str] | None = None) -> dict[str, object]:
+    """Grade objective answers while tolerating option labels and option text.
+
+    Generated papers may store the answer key as either the option text or a
+    label such as "B". Student submissions may likewise save the label or the
+    selected option text. Treat those equivalent forms as exact matches.
+    """
+    options = options or []
+    answer_variants = {answer, _normalize_objective(answer)}
+    correct_variants = {correct_answer, _normalize_objective(correct_answer)}
+    mapped_answer = _option_text(answer, options)
+    mapped_correct = _option_text(correct_answer, options)
+    if mapped_answer:
+        answer_variants.add(mapped_answer)
+        answer_variants.add(_normalize_objective(mapped_answer))
+    if mapped_correct:
+        correct_variants.add(mapped_correct)
+        correct_variants.add(_normalize_objective(mapped_correct))
+    normalized_answers = {_normalize_objective(item) for item in answer_variants if item}
+    normalized_correct = {_normalize_objective(item) for item in correct_variants if item}
+    exact = bool(normalized_answers & normalized_correct)
+    ratio = max(
+        (SequenceMatcher(None, item, expected).ratio() for item in normalized_answers for expected in normalized_correct),
+        default=0,
+    )
+    score = marks if exact or ratio > 0.92 else 0
     return {"score": score, "reasoning": "deterministic objective grading", "similarity": round(ratio, 2)}
 
 

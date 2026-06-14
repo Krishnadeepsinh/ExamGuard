@@ -29,6 +29,8 @@ class IntegrityPolicyTests(unittest.TestCase):
 
     def test_objective_and_subjective_grading_are_bounded(self) -> None:
         self.assertEqual(grade_objective("SELECT", "SELECT", 2)["score"], 2)
+        self.assertEqual(grade_objective("B", "To improve UI responsiveness", 2, ["Wrong", "To improve UI responsiveness", "Other", "None"])["score"], 2)
+        self.assertEqual(grade_objective("To improve UI responsiveness", "B", 2, ["Wrong", "To improve UI responsiveness", "Other", "None"])["score"], 2)
         subjective = grade_subjective("A transaction uses commit and rollback for atomic changes", "commit rollback atomic transaction", 5)
         self.assertGreater(subjective["score"], 0)
         self.assertLessEqual(subjective["score"], 5)
@@ -131,6 +133,25 @@ class StoreBehaviorTests(unittest.TestCase):
         self.assertEqual(second["sequence_number"], 2)
         self.assertEqual(second["previous_hash"], first["event_hash"])
         self.assertEqual(len(second["event_hash"]), 64)
+
+    def test_repeated_tab_and_paste_events_are_counted(self) -> None:
+        self.store.exams["exam-physics"]["status"] = "active"
+        session = self.store.join_session("PHY001", "Repeat Student", "repeat@student.ai")
+        self.store.log_integrity_event(session["id"], "tab_hidden", {"client_sequence": 1})
+        self.store.log_integrity_event(session["id"], "tab_hidden", {"client_sequence": 2})
+        self.store.log_integrity_event(session["id"], "paste_detected", {"bulk_paste": True, "client_sequence": 3})
+        self.store.log_integrity_event(session["id"], "paste_detected", {"bulk_paste": True, "client_sequence": 4})
+        summary = self.store.session_event_summary(session["id"])
+        self.assertEqual(summary["tab_hidden"], 2)
+        self.assertEqual(summary["paste_detected"], 2)
+
+    def test_phone_detection_is_high_severity_evidence(self) -> None:
+        self.store.exams["exam-physics"]["status"] = "active"
+        session = self.store.join_session("PHY001", "Phone Student", "phone@student.ai")
+        initial = session["integrity"]["score"]
+        self.store.log_integrity_event(session["id"], "phone_detected", {"confidence": 0.95})
+        self.assertLess(self.store.sessions[session["id"]]["integrity"]["score"], initial)
+        self.assertEqual(self.store.session_event_summary(session["id"])["phone_detected"], 1)
 
     def test_only_repeated_independent_signals_lock_attempt(self) -> None:
         self.store.exams["exam-physics"]["status"] = "active"
