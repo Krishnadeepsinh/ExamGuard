@@ -44,6 +44,20 @@ class IntegrityPolicyTests(unittest.TestCase):
         )
         self.assertGreaterEqual(result["score"], 4)
         self.assertIn("thread", result["rubric"]["matched_concepts"])
+
+    def test_subjective_grading_gives_partial_credit_without_exact_key(self) -> None:
+        result = grade_subjective(
+            "Synchronization prevents two threads from changing shared data at the same time.",
+            "Synchronization protects shared resources from race conditions and keeps data consistent between threads.",
+            8,
+            "Long Answer",
+        )
+        self.assertGreater(result["score"], 2)
+        self.assertLess(result["score"], 8)
+
+    def test_wrong_objective_answer_gets_no_marks(self) -> None:
+        result = grade_objective("Wrong option", "Correct option", 4, ["Correct option", "Wrong option", "Other", "None"])
+        self.assertEqual(result["score"], 0)
     def test_threshold_boundaries(self) -> None:
         self.assertEqual(status_for_score(85.01).value, "CLEAN")
         self.assertEqual(status_for_score(85).value, "WATCH")
@@ -568,6 +582,44 @@ class StoreBehaviorTests(unittest.TestCase):
         self.assertEqual(result["grade"]["earned_marks"], 2)
         self.assertTrue(result["grade_released"])
         self.assertIn("eval_score", result["answers"][0])
+
+    def test_mixed_exam_grades_mcq_and_qa_and_flags_cheating(self) -> None:
+        self.store.exams["exam-physics"]["status"] = "active"
+        self.store.questions["exam-physics"] = [
+            {
+                "id": "mix-q1", "exam_id": "exam-physics", "type": "MCQ",
+                "correct_answer": "B", "marks": 2,
+                "options": ["Wrong", "Java supports concurrent execution", "Other", "None"],
+            },
+            {
+                "id": "mix-q2", "exam_id": "exam-physics", "type": "Short Answer",
+                "correct_answer": "Synchronization protects shared resources and keeps threaded data consistent.",
+                "marks": 4,
+            },
+            {
+                "id": "mix-q3", "exam_id": "exam-physics", "type": "Long Answer",
+                "correct_answer": "A layout manager arranges UI components consistently across window sizes.",
+                "marks": 4,
+            },
+        ]
+        session = self.store.join_session("PHY001", "Mixed Student", "mixed@student.ai")
+        self.store.save_answer(session["id"], {"question_id": "mix-q1", "answer_text": "Java supports concurrent execution", "selected_option": "Java supports concurrent execution"})
+        self.store.save_answer(session["id"], {"question_id": "mix-q2", "answer_text": "It keeps shared data safe when threads use the same resource."})
+        self.store.save_answer(session["id"], {"question_id": "mix-q3", "answer_text": "unrelated filler " * 20})
+        for event, metadata in [
+            ("phone_detected", {"confidence": 0.95}),
+            ("paste_detected", {"bulk_paste": True}),
+            ("tab_hidden", {}),
+            ("phone_detected", {"confidence": 0.94}),
+            ("paste_detected", {"bulk_paste": True}),
+        ]:
+            self.store.log_integrity_event(session["id"], event, metadata)
+        grade = self.store.evaluate_session(session["id"])
+
+        self.assertGreaterEqual(grade["earned_marks"], 4)
+        self.assertLess(grade["earned_marks"], 10)
+        self.assertEqual(self.store.sessions[session["id"]]["integrity"]["status"], "FLAGGED")
+        self.assertTrue(self.store.sessions[session["id"]]["locked_for_review"])
 
     def test_student_history_released_result_uses_evaluated_grade(self) -> None:
         self.store.exams["exam-physics"]["status"] = "active"
