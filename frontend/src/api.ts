@@ -277,6 +277,9 @@ export const api = {
   savePaperConfig: (examId: string, payload: unknown) =>
     request(`/exams/${examId}/paper-config`, { method: 'PUT', body: JSON.stringify(payload) }),
 
+  resetPaperConfig: (examId: string) =>
+    request<ApiExam>(`/exams/${examId}/paper-config`, { method: 'DELETE' }),
+
   generatePaper: (examId: string) =>
     request<{ status: string; count: number; questions: ApiQuestion[] }>(`/exams/${examId}/generate`, { method: 'POST' }),
 

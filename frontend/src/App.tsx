@@ -1197,6 +1197,7 @@ function ConfigView({ examId, notify, go }: { examId: string; notify: (kind: Toa
   const [examStatus, setExamStatus] = useState('draft')
   const [activating, setActivating] = useState(false)
   const [scheduling, setScheduling] = useState(false)
+  const [clearing, setClearing] = useState(false)
   const [scheduledAt, setScheduledAt] = useState('')
 
   const [availableChapters, setAvailableChapters] = useState<string[]>([])
@@ -1416,6 +1417,37 @@ function ConfigView({ examId, notify, go }: { examId: string; notify: (kind: Toa
     } finally { setActivating(false) }
   }
 
+  const clearPaperConfig = async () => {
+    if (!window.confirm('Clear all uploaded materials, generated questions, and saved paper settings for this exam?')) return
+    setClearing(true)
+    try {
+      await api.resetPaperConfig(examId)
+      loadRequestRef.current += 1
+      setMaterialId('')
+      setMaterialIds([])
+      setUploadedMaterial('')
+      setSyllabusName('')
+      setStudyMaterialName('')
+      setAvailableChapters([])
+      setChapterTopicsMap({})
+      setChapterCountsMap({})
+      setGenerated(false)
+      setGeneratedQuestions([])
+      setGenerationError('')
+      setQuestionPage(0)
+      setPaperReviewed(false)
+      setExamStatus('draft')
+      setScheduledAt('')
+      setPaperMode('Mixed')
+      setOverallLevel('Standard')
+      setSections(sectionsForMode('Mixed', totalMarksTarget))
+      window.localStorage.removeItem(`examguard-paper-reviewed-${examId}`)
+      notify('success', 'Paper configuration cleared. Upload new material to start again.')
+    } catch (event) {
+      notify('error', event instanceof Error ? event.message : 'Paper configuration could not be cleared.')
+    } finally { setClearing(false) }
+  }
+
   const scheduleGeneratedExam = async () => {
     if (!paperReviewed) { notify('warning', 'Confirm that you reviewed the complete paper before scheduling it.'); return }
     if (!scheduledAt) { notify('error', 'Choose a future date and time.'); return }
@@ -1442,6 +1474,10 @@ function ConfigView({ examId, notify, go }: { examId: string; notify: (kind: Toa
     <section className="screen config-layout">
       <div className="config-main">
         <Card title="Step 1: Add syllabus and study material" icon={Upload}>
+          <div className="paper-clear-row">
+            <p className="muted">Materials and generated questions belong only to this exam.</p>
+            <button className="danger-btn" disabled={clearing || ['active', 'paused', 'ended', 'archived'].includes(examStatus)} onClick={clearPaperConfig}><X size={16} /> {clearing ? 'Clearing...' : 'Clear Paper Config'}</button>
+          </div>
           <div className="two-column-grid">
             <label htmlFor="syllabus-file-upload" className="upload-zone" style={{ cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
               <Upload size={28} style={{ color: 'var(--eg-indigo)' }} />

@@ -543,6 +543,21 @@ class LocalStore:
             raise KeyError("material not found")
         del self.materials[material_id]
 
+    def reset_paper_config(self, exam_id: str) -> dict[str, Any]:
+        exam = self.exams.get(exam_id)
+        if not exam:
+            raise KeyError("exam not found")
+        if exam.get("status") in {"active", "paused", "ended", "archived"}:
+            raise ValueError("Only draft, generated, or scheduled exams can be cleared")
+        for material_id in [item_id for item_id, item in self.materials.items() if item.get("exam_id") == exam_id]:
+            del self.materials[material_id]
+        self.questions.pop(exam_id, None)
+        exam["paper_config"] = {}
+        exam["questions_generated"] = False
+        exam["status"] = "draft"
+        exam["scheduled_start_at"] = None
+        return exam
+
     def get_session_result(self, session_id: str) -> dict[str, Any]:
         if session_id not in self.sessions:
             raise KeyError("session not found")

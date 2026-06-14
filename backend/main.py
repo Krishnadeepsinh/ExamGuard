@@ -504,6 +504,17 @@ def generate_paper(request: Request, exam_id: str, teacher: dict[str, object] = 
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
+@app.delete("/api/v1/exams/{exam_id}/paper-config")
+def reset_paper_config(exam_id: str, teacher: dict[str, object] = Depends(current_teacher)) -> dict[str, object]:
+    require_owned_exam(exam_id, teacher)
+    try:
+        return store.reset_paper_config(exam_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="exam not found") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
 @app.get("/api/v1/exams/{exam_id}/questions")
 def teacher_exam_questions(exam_id: str, teacher: dict[str, object] = Depends(current_teacher)) -> list[dict[str, object]]:
     require_owned_exam(exam_id, teacher)

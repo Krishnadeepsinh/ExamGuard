@@ -829,6 +829,20 @@ class SupabaseStore:
                     raise RuntimeError(f"Material storage delete failed: {detail or exc.reason}") from exc
         self.rest("DELETE", "materials", query=f"?id=eq.{material_id}")
 
+    def reset_paper_config(self, exam_id: str) -> dict[str, Any]:
+        exam = self.get_exam(exam_id)
+        if exam.get("status") in {"active", "paused", "ended", "archived"}:
+            raise ValueError("Only draft, generated, or scheduled exams can be cleared")
+        for material in self.list_materials(exam_id):
+            self.delete_material(str(material["id"]))
+        self.rest("DELETE", "material_chunks", query=f"?exam_id=eq.{exam_id}")
+        self.rest("DELETE", "questions", query=f"?exam_id=eq.{exam_id}")
+        updated = self.rest("PATCH", "exams", {
+            "paper_config": {}, "config_validated": False, "questions_generated": False,
+            "status": "draft", "scheduled_start_at": None,
+        }, query=f"?id=eq.{exam_id}")[0]
+        return self.normalize_exam(updated)
+
     def get_session_result(self, session_id: str) -> dict[str, Any]:
         session_row = self.require_session(session_id)
         session = self.normalize_session(session_row)

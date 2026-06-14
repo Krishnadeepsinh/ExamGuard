@@ -184,6 +184,28 @@ class StoreBehaviorTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "belong to this exam"):
             self.store.configure_exam(java_exam["id"], config)
 
+    def test_clear_paper_config_removes_materials_questions_and_schedule(self) -> None:
+        exam = self.store.exams["exam-physics"]
+        exam["status"] = "scheduled"
+        exam["scheduled_start_at"] = "2030-01-01T10:00:00+00:00"
+        exam["questions_generated"] = True
+        exam["paper_config"] = {"material_id": next(iter(self.store.materials))}
+        self.store.questions[exam["id"]] = [{"id": "old-question", "exam_id": exam["id"]}]
+
+        cleared = self.store.reset_paper_config(exam["id"])
+
+        self.assertEqual(cleared["status"], "draft")
+        self.assertEqual(cleared["paper_config"], {})
+        self.assertFalse(cleared["questions_generated"])
+        self.assertIsNone(cleared["scheduled_start_at"])
+        self.assertEqual(self.store.exam_questions(exam["id"]), [])
+        self.assertFalse(any(material["exam_id"] == exam["id"] for material in self.store.materials.values()))
+
+    def test_clear_paper_config_rejects_active_exam(self) -> None:
+        self.store.exams["exam-physics"]["status"] = "active"
+        with self.assertRaisesRegex(ValueError, "draft, generated, or scheduled"):
+            self.store.reset_paper_config("exam-physics")
+
     def test_generation_uses_only_current_exam_material_chunks(self) -> None:
         import backend.store as store_module
 

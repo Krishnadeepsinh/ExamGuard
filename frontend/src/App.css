@@ -2727,6 +2727,8 @@ input[type="range"]::-moz-range-thumb:hover {
 }
 .activation-actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 14px; }
 .results-toolbar { display: flex; align-items: end; justify-content: space-between; gap: 16px; margin-bottom: 14px; }
+.paper-clear-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 16px; }
+.paper-clear-row p { margin: 0; }
 .results-toolbar > div { min-width: min(420px, 100%); }
 .results-toolbar select { width: 100%; margin-top: 6px; }
 .results-list { display: flex; flex-direction: column; gap: 8px; margin-top: 18px; }
@@ -2740,5 +2742,6 @@ input[type="range"]::-moz-range-thumb:hover {
   .activation-actions, .schedule-control { align-items: stretch; flex-direction: column; width: 100%; }
   .activation-actions button, .schedule-control input { width: 100%; }
   .results-toolbar { align-items: stretch; flex-direction: column; }
+  .paper-clear-row { align-items: stretch; flex-direction: column; }
   .result-detail-row, .result-detail-row.teacher { grid-template-columns: 1fr auto; }
 }
