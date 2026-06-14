@@ -226,12 +226,6 @@ export const api = {
   signup: (payload: { email: string; password: string; role: 'teacher' | 'student'; display_name?: string }) =>
     request<{ user: ApiUser; token: string }>('/auth/signup', { method: 'POST', body: JSON.stringify(payload) }),
 
-  resetRequest: (email: string) =>
-    request<{ status: string }>('/auth/reset-request', { method: 'POST', body: JSON.stringify({ email }) }),
-
-  resetConfirm: (password: string, token: string) =>
-    request<{ status: string }>('/auth/reset-confirm', { method: 'POST', body: JSON.stringify({ password, token }) }),
-
   // Exams
   exams: (teacherId?: string) => request<ApiExam[]>(`/exams${teacherId ? `?teacher_id=${teacherId}` : ''}`),
 
@@ -316,7 +310,7 @@ export const api = {
   sessionResult: (sessionId: string) =>
     request<{ session_id: string; student_name: string; status: string; integrity: Record<string, any>; review_status: string; grade_released: boolean; answers_count: number; answers: ApiAnswer[]; grade?: { earned_marks: number; total_marks: number; percentage: number } }>(`/sessions/${sessionId}/result`),
 
-  myStudentSessions: () => request<Array<{ session_id: string; student_name: string; status: string; review_status: string; grade_released: boolean; grade?: { earned_marks: number; total_marks: number; percentage: number } }>>('/students/me/sessions'),
+  myStudentSessions: () => request<Array<{ session_id: string; student_name: string; exam_title?: string; subject?: string; status: string; review_status: string; grade_released: boolean; grade?: { earned_marks: number; total_marks: number; percentage: number } }>>('/students/me/sessions'),
 
   // Appeals & Review
   submitAppeal: (sessionId: string, response: string) =>
@@ -349,6 +343,6 @@ export const api = {
     requestRaw(`/exams/${examId}/reports/pdf`),
 
   // Settings
-  saveSettings: (userId: string, payload: { display_name: string; institute_name?: string | null; email_on_flag?: boolean }) =>
+  saveSettings: (userId: string, payload: { display_name: string; email_on_flag?: boolean }) =>
     request(`/users/${userId}/settings`, { method: 'PUT', body: JSON.stringify(payload) }),
 }

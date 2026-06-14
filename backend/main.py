@@ -177,7 +177,6 @@ class LivenessRequest(BaseModel):
 
 class SettingsRequest(BaseModel):
     display_name: str = Field(min_length=3, max_length=80)
-    institute_name: str | None = Field(default=None, min_length=2, max_length=120)
     email_on_flag: bool = True
 
 
@@ -884,6 +883,8 @@ def save_answer(request: Request, session_id: str, payload: AnswerRequest, stude
         raise HTTPException(status_code=423, detail="This attempt is paused after repeated independent integrity signals. Saved answers are preserved for teacher review.")
     exam = lookup_exam(str(session["exam_id"]))
     if session_expired(session, exam):
+        if hasattr(store, "evaluate_session"):
+            store.evaluate_session(session_id)
         store.update_session(session_id, {"status": "ended", "ended_at": now_iso()})
         raise HTTPException(status_code=409, detail="exam time has expired; answers are no longer accepted")
     if not payload.answer_text and not payload.selected_option:
@@ -983,7 +984,7 @@ def save_settings(user_id: str, payload: SettingsRequest, teacher: dict[str, obj
     if user_id != teacher["id"]:
         raise HTTPException(status_code=403, detail="You can update only your own settings")
     try:
-        return store.save_settings(user_id, payload.display_name, payload.institute_name)
+        return store.save_settings(user_id, payload.display_name)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="user not found") from exc
 

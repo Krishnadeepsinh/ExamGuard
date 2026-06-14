@@ -53,6 +53,12 @@ def validate_paper_config(config: dict[str, Any], chapter_chunk_counts: dict[str
     if total_questions > 50:
         errors.append(f"Paper has {total_questions} questions; maximum supported per generation is 50.")
 
+    configured_types = {str(section.get("type")) for section in sections}
+    if paper_mode == "Mixed":
+        missing = {"Short Answer", "Long Answer"} - configured_types
+        if missing:
+            errors.append(f"Mixed papers require both Short Answer and Long Answer sections; missing {', '.join(sorted(missing))}.")
+
     for section in sections:
         question_type = section.get("type")
         section_level = section.get("level", overall_level)

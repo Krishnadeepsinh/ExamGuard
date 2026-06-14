@@ -122,14 +122,40 @@ function sectionsForMode(mode: PaperMode, totalMarks: number, chapter = 'All syl
       budgetSection('B', 'Short Answer', qaMarks, 'Apply'),
     ]
   }
-  const shortMarks = Math.max(2, Math.floor(marks * 0.3))
+  const shortMarks = Math.max(2, Math.floor(marks * 0.25))
+  const longMarks = Math.max(2, Math.floor(marks * 0.3))
   const fillMarks = Math.max(1, Math.floor(marks * 0.1))
-  const mcqMarks = marks - shortMarks - fillMarks
+  const mcqMarks = marks - shortMarks - longMarks - fillMarks
   return [
     budgetSection('A', 'MCQ', mcqMarks, 'Understand'),
     budgetSection('B', 'Short Answer', shortMarks, 'Apply'),
-    budgetSection('C', 'Fill Blank', fillMarks, 'Remember'),
+    budgetSection('C', 'Long Answer', longMarks, 'Analyze'),
+    budgetSection('D', 'Fill Blank', fillMarks, 'Remember'),
   ]
+}
+
+function sectionsFromPaperConfig(config: Record<string, unknown> | undefined, fallbackMarks: number): { mode: PaperMode; level: ExamLevel; sections: PaperSection[] } {
+  const mode = ['MCQ only', 'MCQ + QA', 'Mixed'].includes(String(config?.paper_mode)) ? config?.paper_mode as PaperMode : 'Mixed'
+  const level = ['Easy', 'Standard', 'Challenging'].includes(String(config?.overall_level)) ? config?.overall_level as ExamLevel : 'Standard'
+  const rawSections = Array.isArray(config?.sections) ? config.sections : []
+  const restored = rawSections.flatMap((raw, index) => {
+    if (!raw || typeof raw !== 'object') return []
+    const section = raw as Record<string, unknown>
+    const type = String(section.type) as QuestionType
+    if (!['MCQ', 'Short Answer', 'Long Answer', 'Fill Blank', 'True/False', 'Essay'].includes(type)) return []
+    return [{
+      id: String(section.id || String.fromCharCode(65 + index)),
+      type,
+      count: Number(section.count) || 1,
+      marks: Number(section.marks_each) || 1,
+      bloom: String(section.bloom || 'Understand'),
+      chapter: String(section.chapter_tag || 'All syllabus'),
+      topic: String(section.topic_tag || 'All topics'),
+      level: (['Easy', 'Standard', 'Challenging', 'Use overall'].includes(String(section.level)) ? section.level : 'Use overall') as PaperSection['level'],
+      negative: 'none' as const,
+    }]
+  })
+  return { mode, level, sections: restored.length ? restored : sectionsForMode(mode, fallbackMarks) }
 }
 
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
@@ -452,6 +478,7 @@ function App() {
           window.localStorage.setItem('examguard-user-id', access.user.id)
           window.localStorage.setItem(`examguard-student-id-${studentDeviceId()}-${payload.name.trim().toLowerCase()}`, access.user.id)
           setAuth((current) => current?.role === 'student' ? { ...current, name: access.user.display_name, userId: access.user.id } : current)
+          window.dispatchEvent(new CustomEvent('examguard-student-access-ready'))
         })
         .catch((error) => notify('error', error instanceof Error ? error.message : 'Student portal sync failed. Retry if history does not load.'))
       return
@@ -531,7 +558,7 @@ function App() {
         }}
       />
     ),
-    config: <ConfigView examId={selectedExamId} notify={notify} />,
+    config: <ConfigView examId={selectedExamId} notify={notify} go={navigate} />,
     live: (
       <LiveMonitorView
         examId={selectedExamId}
@@ -834,12 +861,22 @@ function AuthPanel({ initialRole, onLogin, notify }: { initialRole: AuthRole; on
 
 function StudentPortalView({ auth, go, notify }: { auth: AuthUser | null; go: (view: View) => void; notify: (kind: ToastKind, text: string) => void }) {
   const [joinCode, setJoinCode] = useState('')
-  const [sessions, setSessions] = useState<Array<{ session_id: string; status: string; grade_released: boolean; grade?: { earned_marks: number; total_marks: number; percentage: number } }>>([])
+  const [sessions, setSessions] = useState<Array<{ session_id: string; exam_title?: string; subject?: string; status: string; grade_released: boolean; grade?: { earned_marks: number; total_marks: number; percentage: number } }>>([])
+  const [historyLoading, setHistoryLoading] = useState(true)
   const [joining, setJoining] = useState(false)
   const [error, setError] = useState('')
 
-  const loadSessions = () => api.myStudentSessions().then(setSessions).catch(() => setSessions([]))
-  useEffect(() => { void loadSessions() }, [])
+  const loadSessions = () => api.myStudentSessions().then(setSessions).catch(() => setSessions([])).finally(() => setHistoryLoading(false))
+  useEffect(() => {
+    const accessReady = () => { setHistoryLoading(true); void loadSessions() }
+    window.addEventListener('examguard-student-access-ready', accessReady)
+    void loadSessions()
+    const refreshTimer = window.setInterval(() => { void loadSessions() }, 10_000)
+    return () => {
+      window.removeEventListener('examguard-student-access-ready', accessReady)
+      window.clearInterval(refreshTimer)
+    }
+  }, [])
 
   const joinExam = async () => {
     const code = joinCode.trim().toUpperCase()
@@ -891,10 +928,10 @@ function StudentPortalView({ auth, go, notify }: { auth: AuthUser | null; go: (v
         <p className="hint">Draft, generated, paused, ended, and not-yet-started exams cannot create a new attempt.</p>
       </Card>
       <Card title="Your Exam History" icon={FileText}>
-        {sessions.length === 0 ? <div className="empty-state"><BookOpen size={24} /><strong>No exam attempts yet</strong><span>Enter a join code above when your teacher shares one.</span></div> : sessions.map((session) => (
+        {historyLoading && sessions.length === 0 ? <div className="empty-state"><RefreshCw size={24} /><strong>Syncing your exam history</strong><span>The portal is ready; results will appear as soon as secure login finishes.</span></div> : sessions.length === 0 ? <div className="empty-state"><BookOpen size={24} /><strong>No exam attempts yet</strong><span>Enter a join code above when your teacher shares one.</span></div> : sessions.map((session) => (
           <div className="student-history-row" key={session.session_id}>
-            <span><strong>{session.status === 'ended' ? 'Submitted exam' : 'Exam attempt'}</strong><small>{session.grade_released && session.grade ? `${session.grade.earned_marks}/${session.grade.total_marks} (${session.grade.percentage}%)` : session.status === 'ended' ? 'Result hidden until teacher makes it live' : 'Not submitted'}</small></span>
-            <button className="ghost-btn" onClick={() => openAttempt(session.session_id, session.status)}>{session.status === 'ended' ? 'View Status' : 'Resume'}</button>
+            <span><strong>{session.exam_title || (session.status === 'ended' ? 'Submitted exam' : 'Exam attempt')}</strong><small>{session.subject ? `${session.subject} · ` : ''}{session.grade_released && session.grade ? `${session.grade.earned_marks}/${session.grade.total_marks} (${session.grade.percentage}%)` : session.status === 'ended' ? 'Result hidden until teacher makes it live' : 'Not submitted'}</small></span>
+            <button className="ghost-btn" onClick={() => openAttempt(session.session_id, session.status)}>{session.status === 'ended' ? session.grade_released ? 'View Result' : 'View Status' : 'Resume'}</button>
           </div>
         ))}
       </Card>
@@ -1134,7 +1171,7 @@ function CreateExamModal({ onClose, onCreate }: { onClose: () => void; onCreate:
   )
 }
 
-function ConfigView({ examId, notify }: { examId: string; notify: (kind: ToastKind, text: string) => void }) {
+function ConfigView({ examId, notify, go }: { examId: string; notify: (kind: ToastKind, text: string) => void; go: (view: View) => void }) {
   const [materialId, setMaterialId] = useState('')
   const [materialIds, setMaterialIds] = useState<string[]>([])
   const [uploadedMaterial, setUploadedMaterial] = useState('')
@@ -1152,7 +1189,9 @@ function ConfigView({ examId, notify }: { examId: string; notify: (kind: ToastKi
   const [loading, setLoading] = useState(true)
   const [generating, setGenerating] = useState(false)
   const [generationError, setGenerationError] = useState('')
-  const [activated, setActivated] = useState(false)
+  const [examStatus, setExamStatus] = useState('draft')
+  const [activating, setActivating] = useState(false)
+  const [scheduling, setScheduling] = useState(false)
   const [scheduledAt, setScheduledAt] = useState('')
 
   const [availableChapters, setAvailableChapters] = useState<string[]>([])
@@ -1171,12 +1210,16 @@ function ConfigView({ examId, notify }: { examId: string; notify: (kind: ToastKi
     setChapterCountsMap({})
     setGenerated(false)
     setGeneratedQuestions([])
-    setActivated(false)
+    setExamStatus('draft')
+    setPaperReviewed(window.localStorage.getItem(`examguard-paper-reviewed-${examId}`) === 'true')
     Promise.all([api.getExam(examId), api.examQuestions(examId)])
       .then(([exam, existingQuestions]) => {
+        const restored = sectionsFromPaperConfig(exam.paper_config, exam.total_marks)
         setTotalMarksTarget(exam.total_marks)
-        setSections(sectionsForMode('Mixed', exam.total_marks))
-        setActivated(['active', 'paused', 'ended'].includes(exam.status))
+        setPaperMode(restored.mode)
+        setOverallLevel(restored.level)
+        setSections(restored.sections)
+        setExamStatus(exam.status)
         if (existingQuestions.length > 0) {
           setGeneratedQuestions(existingQuestions)
           setGenerated(true)
@@ -1235,7 +1278,7 @@ function ConfigView({ examId, notify }: { examId: string; notify: (kind: ToastKi
   const modeMismatch =
     (paperMode === 'MCQ only' && [...typeSet].some((type) => type !== 'MCQ')) ||
     (paperMode === 'MCQ + QA' && [...typeSet].some((type) => !['MCQ', 'Short Answer', 'Long Answer', 'Essay'].includes(type))) ||
-    (paperMode === 'Mixed' && ![...typeSet].some((type) => ['MCQ', 'Short Answer', 'Long Answer', 'Fill Blank'].includes(type)))
+    (paperMode === 'Mixed' && (!typeSet.has('Short Answer') || !typeSet.has('Long Answer')))
   const canGenerate = hasMaterial && validTotalMarks && total === totalMarksTarget && totalQuestions <= 50 && invalidSections.length === 0 && lowCoverageChapters.length === 0 && !modeMismatch && !generating
 
   const applyMode = (mode: PaperMode) => {
@@ -1320,7 +1363,9 @@ function ConfigView({ examId, notify }: { examId: string; notify: (kind: ToastKi
       setGeneratedQuestions(result.questions)
       setQuestionPage(0)
       setPaperReviewed(false)
+      window.localStorage.removeItem(`examguard-paper-reviewed-${examId}`)
       setGenerated(true)
+      setExamStatus('generated')
       notify('success', `Paper generated successfully. ${result.count}/${result.count} questions created.`)
     } catch (event) {
       const message = event instanceof Error ? event.message : 'Paper generation failed.'
@@ -1342,24 +1387,37 @@ function ConfigView({ examId, notify }: { examId: string; notify: (kind: ToastKi
   }
 
   const activateGeneratedExam = async () => {
+    if (!paperReviewed) {
+      notify('warning', 'Confirm that you reviewed the complete paper and answer keys before making the exam live.')
+      return
+    }
     try {
-      await api.activateExam(examId)
-      setActivated(true)
+      setActivating(true)
+      const liveExam = await api.activateExam(examId)
+      if (liveExam.status !== 'active') throw new Error(`Backend returned ${liveExam.status} instead of active.`)
+      setExamStatus(liveExam.status)
       notify('success', 'Exam activated. Students can now join with its code.')
     } catch (event) {
       notify('error', event instanceof Error ? event.message : 'Could not activate exam.')
-    }
+    } finally { setActivating(false) }
   }
 
   const scheduleGeneratedExam = async () => {
+    if (!paperReviewed) { notify('warning', 'Confirm that you reviewed the complete paper before scheduling it.'); return }
     if (!scheduledAt) { notify('error', 'Choose a future date and time.'); return }
+    const scheduledDate = new Date(scheduledAt)
+    if (Number.isNaN(scheduledDate.getTime()) || scheduledDate.getTime() <= Date.now() + 60_000) {
+      notify('error', 'Choose a date and time at least one minute in the future.')
+      return
+    }
     try {
-      const scheduled = await api.scheduleExam(examId, new Date(scheduledAt).toISOString())
-      setActivated(false)
+      setScheduling(true)
+      const scheduled = await api.scheduleExam(examId, scheduledDate.toISOString())
+      setExamStatus(scheduled.status)
       notify('success', `Exam scheduled for ${new Date(scheduled.scheduled_start_at || scheduledAt).toLocaleString()}. Students cannot join before then.`)
     } catch (event) {
       notify('error', event instanceof Error ? event.message : 'Could not schedule exam.')
-    }
+    } finally { setScheduling(false) }
   }
 
   const questionsPerPage = 8
@@ -1459,15 +1517,23 @@ function ConfigView({ examId, notify }: { examId: string; notify: (kind: ToastKi
                 <button className="ghost-btn" disabled={questionPage >= questionPageCount - 1} onClick={() => setQuestionPage((page) => Math.min(questionPageCount - 1, page + 1))}>Next</button>
               </div>
               <p className="hint">Review every page before activation. Students never receive answer keys or source chunk IDs.</p>
-              <label className="paper-review-confirm"><input type="checkbox" checked={paperReviewed} onChange={(event) => setPaperReviewed(event.target.checked)} /> I reviewed the complete paper and answer keys.</label>
+              <label className="paper-review-confirm"><input type="checkbox" checked={paperReviewed} onChange={(event) => { setPaperReviewed(event.target.checked); window.localStorage.setItem(`examguard-paper-reviewed-${examId}`, String(event.target.checked)) }} /> I reviewed the complete paper and answer keys.</label>
               <div className="activation-actions">
-                <button className="primary-btn" disabled={activated || !paperReviewed} onClick={activateGeneratedExam}>{activated ? 'Exam Live' : 'Go Live Now'}</button>
-                <div className="schedule-control">
-                  <input aria-label="Scheduled exam start" type="datetime-local" min={new Date(Date.now() + 60_000).toISOString().slice(0, 16)} value={scheduledAt} onChange={(event) => setScheduledAt(event.target.value)} />
-                  <button className="ghost-btn" disabled={!paperReviewed || !scheduledAt} onClick={scheduleGeneratedExam}><Clock size={16} /> Schedule</button>
-                </div>
+                {['active', 'paused'].includes(examStatus) ? (
+                  <button className="primary-btn" onClick={() => go('live')}><Radar size={16} /> Open Live Monitor</button>
+                ) : examStatus === 'ended' ? (
+                  <button className="ghost-btn" disabled>Exam Ended</button>
+                ) : (
+                  <>
+                    <button className="primary-btn" disabled={activating || scheduling} onClick={activateGeneratedExam}>{activating ? 'Going Live...' : 'Go Live Now'}</button>
+                    <div className="schedule-control">
+                      <input aria-label="Scheduled exam start" type="datetime-local" value={scheduledAt} onChange={(event) => setScheduledAt(event.target.value)} />
+                      <button className="ghost-btn" disabled={!scheduledAt || activating || scheduling} onClick={scheduleGeneratedExam}><Clock size={16} /> {scheduling ? 'Scheduling...' : examStatus === 'scheduled' ? 'Update Schedule' : 'Schedule'}</button>
+                    </div>
+                  </>
+                )}
               </div>
-              <p className="hint">Draft and scheduled exams reject student joins. The join code opens only when the exam is live.</p>
+              <p className="hint">{['active', 'paused'].includes(examStatus) ? 'This exam is live. Open the monitor to manage student sessions.' : examStatus === 'ended' ? 'This exam has ended. Clone it to create another attempt.' : 'Scheduled exams reject student joins until their start time. Go Live opens the join code immediately.'}</p>
             </div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', padding: '20px', background: 'var(--eg-navy-700)', borderRadius: '8px', borderLeft: '4px solid var(--eg-navy-600)', position: 'relative', overflow: 'hidden' }}>
@@ -2814,9 +2880,9 @@ function ReportsView({ examId, students, notify, onRefreshStudents }: { examId: 
         <div className="report-list" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
           {students.length === 0 ? <div className="empty-state"><FileText size={24} /><strong>No reports yet</strong><span>Reports appear after students submit the exam.</span></div> : students.map((student) => (
             <div className="report-row" key={student.id || student.name}>
-              <span><strong>{student.name}</strong><small>{student.sessionStatus || 'joined'}</small></span>
+              <span><strong>{student.name}</strong><small>{student.sessionStatus || 'joined'} · {student.answered} answer{student.answered === 1 ? '' : 's'}</small></span>
               <StatusBadge status={student.status} />
-              <span>{student.grade ? `${student.grade.earned_marks}/${student.grade.total_marks} (${student.grade.percentage}%)` : 'Marks pending'}</span>
+              <span>{student.sessionStatus === 'ended' && student.answered === 0 ? 'No answers submitted' : student.grade ? `${student.grade.earned_marks}/${student.grade.total_marks} (${student.grade.percentage}%)` : 'Evaluation pending'}</span>
               <span>{student.status === 'FLAGGED' ? 'Cheat review required' : student.status === 'WARN' ? 'Review suggested' : 'No critical cheat pattern'}</span>
               <span>{student.gradeReleased ? 'Released' : 'Held'}</span>
             </div>

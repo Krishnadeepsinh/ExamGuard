@@ -463,23 +463,31 @@ class SupabaseStore:
         current = self.get_exam(exam_id)
         if current.get("status") == "active":
             return current
+        legacy_generated = current.get("status") == "draft" and bool(current.get("questions_generated"))
+        if current.get("status") not in {"generated", "scheduled"} and not legacy_generated:
+            raise ValueError("Only a generated or scheduled paper can be made live.")
         version = int(current.get("paper_version") or 0) + 1
         snapshot = {"version": version, "config": current.get("paper_config") or {}, "questions": questions, "captured_at": utc_now()}
-        return self.normalize_exam(self.rest("PATCH", "exams", {"status": "active", "activated_at": utc_now(), "paper_version": version, "paper_snapshot": snapshot}, query=f"?id=eq.{exam_id}")[0])
+        return self.normalize_exam(self.rest("PATCH", "exams", {"status": "active", "activated_at": utc_now(), "scheduled_start_at": None, "paper_version": version, "paper_snapshot": snapshot}, query=f"?id=eq.{exam_id}")[0])
 
     def schedule_exam(self, exam_id: str, scheduled_start_at: str) -> dict[str, Any]:
         questions = self.rest("GET", "questions", query=f"?exam_id=eq.{exam_id}&select=id&limit=1")
         if not questions:
             raise ValueError("Generate and review questions before scheduling the exam.")
         current = self.get_exam(exam_id)
-        if current.get("status") not in {"generated", "scheduled"}:
+        legacy_generated = current.get("status") == "draft" and bool(current.get("questions_generated"))
+        if current.get("status") not in {"generated", "scheduled"} and not legacy_generated:
             raise ValueError("Only a generated paper can be scheduled.")
         return self.normalize_exam(self.rest("PATCH", "exams", {"status": "scheduled", "scheduled_start_at": scheduled_start_at}, query=f"?id=eq.{exam_id}")[0])
 
     def end_exam(self, exam_id: str) -> dict[str, Any]:
         ended_at = utc_now()
         exam = self.rest("PATCH", "exams", {"status": "ended", "ended_at": ended_at}, query=f"?id=eq.{exam_id}")[0]
-        self.rest("PATCH", "exam_sessions", {"status": "ended", "ended_at": ended_at}, query=f"?exam_id=eq.{exam_id}&status=neq.ended")
+        sessions = self.rest("GET", "exam_sessions", query=f"?exam_id=eq.{exam_id}&status=neq.ended&select=id") or []
+        for session in sessions:
+            self.evaluate_session(str(session["id"]))
+        if sessions:
+            self.rest("PATCH", "exam_sessions", {"status": "ended", "ended_at": ended_at}, query=f"?exam_id=eq.{exam_id}&status=neq.ended")
         return self.normalize_exam(exam)
 
     def join_session(self, join_code: str, student_name: str, email: str | None, student_id: str | None = None) -> dict[str, Any]:
@@ -522,8 +530,48 @@ class SupabaseStore:
         return self.normalize_session(session, student_name)
 
     def student_sessions(self, student_id: str) -> list[dict[str, Any]]:
-        rows = self.rest("GET", "exam_sessions", query=f"?student_id=eq.{student_id}&order=created_at.desc&select=id,exams!inner(id)")
-        return [self.get_session_result(str(row["id"])) for row in rows]
+        rows = self.rest(
+            "GET",
+            "exam_sessions",
+            query=(
+                f"?student_id=eq.{student_id}&order=created_at.desc"
+                "&select=id,status,review_status,grade_released,integrity_state,integrity_score,"
+                "integrity_ci,baseline_tier,integrity_factors,"
+                "users!exam_sessions_student_id_fkey(display_name),"
+                "exams!inner(id,title,subject,total_marks),answers(eval_score)"
+            ),
+        ) or []
+        results: list[dict[str, Any]] = []
+        for row in rows:
+            exam = row.get("exams") or {}
+            answers = row.get("answers") or []
+            released = bool(row.get("grade_released"))
+            earned = round(sum(float(answer.get("eval_score") or 0) for answer in answers), 2)
+            total = round(float(exam.get("total_marks") or 0), 2)
+            user = row.get("users") or {}
+            results.append({
+                "session_id": str(row["id"]),
+                "student_name": user.get("display_name", "Student"),
+                "exam_title": exam.get("title", "Exam"),
+                "subject": exam.get("subject", ""),
+                "status": row.get("status", ""),
+                "integrity": {
+                    "score": row.get("integrity_score"),
+                    "status": row.get("integrity_state"),
+                    "ci": row.get("integrity_ci"),
+                    "baseline_tier": row.get("baseline_tier"),
+                    "factors": row.get("integrity_factors") or {},
+                },
+                "review_status": row.get("review_status", "none"),
+                "grade_released": released,
+                "answers_count": len(answers),
+                "grade": ({
+                    "earned_marks": earned,
+                    "total_marks": total,
+                    "percentage": round(earned / total * 100, 2) if total else 0,
+                } if released else None),
+            })
+        return results
 
     def normalize_session(self, session: dict[str, Any], student_name: str | None = None) -> dict[str, Any]:
         if student_name is None:
@@ -647,9 +695,14 @@ class SupabaseStore:
             appeals = row.pop("integrity_appeals", None) or []
             session = self.normalize_session(row, user.get("display_name") or "Student")
             session["answers_count"] = len(answers)
-            earned = round(sum(float(answer.get("eval_score") or 0) for answer in answers), 2)
-            total = float(exam.get("total_marks") or 0)
-            session["grade"] = {"earned_marks": earned, "total_marks": total, "percentage": round(earned / total * 100, 2) if total else 0}
+            if session.get("status") == "ended" and answers and any(answer.get("eval_score") is None for answer in answers):
+                session["grade"] = self.evaluate_session(str(session["id"]))
+            elif session.get("status") == "ended":
+                earned = round(sum(float(answer.get("eval_score") or 0) for answer in answers), 2)
+                total = float(exam.get("total_marks") or 0)
+                session["grade"] = {"earned_marks": earned, "total_marks": total, "percentage": round(earned / total * 100, 2) if total else 0}
+            else:
+                session["grade"] = None
             session["events_count"] = int(events[0].get("count", 0)) if events else 0
             session["event_summary"] = self.session_event_summary(str(session["id"]))
             session["integrity_warning_count"] = self.session_warning_count(str(session["id"]))
@@ -712,6 +765,7 @@ class SupabaseStore:
     def generate_report_pdf(self, session_id: str) -> bytes:
         session_row = self.require_session(session_id)
         session = self.normalize_session(session_row)
+        exam = self.get_exam(str(session["exam_id"]))
         questions = self.session_questions(session_id)
         answers = self.rest("GET", "answers", query=f"?session_id=eq.{session_id}") or []
         grade = self.evaluate_session(session_id)
@@ -773,20 +827,28 @@ class SupabaseStore:
     def get_session_result(self, session_id: str) -> dict[str, Any]:
         session_row = self.require_session(session_id)
         session = self.normalize_session(session_row)
+        exam = self.get_exam(str(session["exam_id"]))
         answers = self.rest("GET", "answers", query=f"?session_id=eq.{session_id}") or []
         earned = round(sum(float(answer.get("eval_score") or 0) for answer in answers), 2)
         questions = self.session_questions(session_id)
         total = round(sum(float(question.get("marks") or 0) for question in questions), 2)
+        released = bool(session.get("grade_released"))
+        visible_answers = answers if released else [
+            {key: value for key, value in answer.items() if key not in {"eval_score", "eval_reasoning"}}
+            for answer in answers
+        ]
         return {
             "session_id": session_id,
             "student_name": session.get("student_name", ""),
+            "exam_title": exam.get("title", "Exam"),
+            "subject": exam.get("subject", ""),
             "status": session.get("status", ""),
             "integrity": session.get("integrity", {}),
             "review_status": session.get("review_status", "none"),
-            "grade_released": session.get("grade_released", False),
+            "grade_released": released,
             "answers_count": len(answers),
-            "answers": answers,
-            "grade": ({"earned_marks": earned, "total_marks": total, "percentage": round(earned / total * 100, 2) if total else 0} if session.get("grade_released") else None),
+            "answers": visible_answers,
+            "grade": ({"earned_marks": earned, "total_marks": total, "percentage": round(earned / total * 100, 2) if total else 0} if released else None),
         }
 
     def pause_exam(self, exam_id: str) -> dict[str, Any]:
@@ -827,10 +889,8 @@ class SupabaseStore:
         })
         return self.normalize_session(updated)
 
-    def save_settings(self, user_id: str, display_name: str, institute_name: str | None = None) -> dict[str, Any]:
+    def save_settings(self, user_id: str, display_name: str) -> dict[str, Any]:
         patch: dict[str, Any] = {"display_name": display_name}
-        if institute_name:
-            patch["institute_name"] = institute_name
         updated = self.rest("PATCH", "users", patch, query=f"?id=eq.{user_id}")
         if not updated:
             raise KeyError("user not found")

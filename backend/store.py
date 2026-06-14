@@ -356,6 +356,9 @@ class LocalStore:
             raise ValueError("generate questions before activation")
         if exam.get("status") == "active":
             return exam
+        legacy_generated = exam.get("status") == "draft" and bool(exam.get("questions_generated"))
+        if exam.get("status") not in {"generated", "scheduled"} and not legacy_generated:
+            raise ValueError("Only a generated or scheduled paper can be made live.")
         exam["paper_version"] = int(exam.get("paper_version", 0)) + 1
         exam["paper_snapshot"] = {
             "version": exam["paper_version"],
@@ -365,6 +368,7 @@ class LocalStore:
         }
         exam["status"] = "active"
         exam["activated_at"] = utc_now()
+        exam["scheduled_start_at"] = None
         return exam
 
     def schedule_exam(self, exam_id: str, scheduled_start_at: str) -> dict[str, Any]:
@@ -373,6 +377,9 @@ class LocalStore:
             raise KeyError("exam not found")
         if not self.questions.get(exam_id):
             raise ValueError("Generate and review questions before scheduling the exam.")
+        legacy_generated = exam.get("status") == "draft" and bool(exam.get("questions_generated"))
+        if exam.get("status") not in {"generated", "scheduled"} and not legacy_generated:
+            raise ValueError("Only a generated paper can be scheduled.")
         exam["status"] = "scheduled"
         exam["scheduled_start_at"] = scheduled_start_at
         return exam
@@ -385,6 +392,7 @@ class LocalStore:
         exam["ended_at"] = utc_now()
         for session in self.sessions.values():
             if session.get("exam_id") == exam_id and session.get("status") != "ended":
+                self.evaluate_session(str(session["id"]))
                 session["status"] = "ended"
                 session["ended_at"] = exam["ended_at"]
         return exam
@@ -483,6 +491,7 @@ class LocalStore:
 
     def generate_report_pdf(self, session_id: str) -> bytes:
         session = self.sessions[session_id]
+        exam = self.exams.get(str(session.get("exam_id"))) or {}
         if not session.get("grade"):
             self.evaluate_session(session_id)
         questions = self.questions.get(session["exam_id"], [])
@@ -532,17 +541,27 @@ class LocalStore:
         if session_id not in self.sessions:
             raise KeyError("session not found")
         session = self.sessions[session_id]
+        exam = self.exams.get(str(session.get("exam_id")))
+        if not exam:
+            raise KeyError("exam not found")
         answers = self.answers.get(session_id, [])
+        released = bool(session.get("grade_released"))
+        visible_answers = answers if released else [
+            {key: value for key, value in answer.items() if key not in {"eval_score", "eval_reasoning"}}
+            for answer in answers
+        ]
         return {
             "session_id": session_id,
             "student_name": session.get("student_name", ""),
+            "exam_title": exam.get("title", "Exam"),
+            "subject": exam.get("subject", ""),
             "status": session.get("status", ""),
             "integrity": session.get("integrity", {}),
             "review_status": session.get("review_status", "none"),
-            "grade_released": session.get("grade_released", False),
+            "grade_released": released,
             "answers_count": len(answers),
-            "answers": answers,
-            "grade": session.get("grade") if session.get("grade_released") else None,
+            "answers": visible_answers,
+            "grade": session.get("grade") if released else None,
         }
 
     def pause_exam(self, exam_id: str) -> dict[str, Any]:
@@ -643,6 +662,8 @@ class LocalStore:
         for session in self.sessions.values():
             if session["exam_id"] != exam_id:
                 continue
+            if session.get("status") == "ended" and "grade" not in session:
+                self.evaluate_session(str(session["id"]))
             item = dict(session)
             item["events_count"] = len(self.integrity_events.get(str(session["id"]), []))
             item["event_summary"] = self.session_event_summary(str(session["id"]))
@@ -674,12 +695,10 @@ class LocalStore:
         session["review_status"] = "resolved"
         return session
 
-    def save_settings(self, user_id: str, display_name: str, institute_name: str | None = None) -> dict[str, Any]:
+    def save_settings(self, user_id: str, display_name: str) -> dict[str, Any]:
         if user_id not in self.users:
             raise KeyError("user not found")
         self.users[user_id]["display_name"] = display_name
-        if institute_name:
-            self.users[user_id]["institute"] = institute_name
         return self.users[user_id]
 
     def require_session(self, session_id: str) -> dict[str, Any]:

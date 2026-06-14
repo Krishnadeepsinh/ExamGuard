@@ -115,6 +115,7 @@ class StoreBehaviorTests(unittest.TestCase):
 
     def test_activation_captures_immutable_paper_snapshot(self) -> None:
         self.store.questions["exam-physics"] = [{"id": "q1", "text": "What is SQL?", "marks": 2}]
+        self.store.exams["exam-physics"]["status"] = "generated"
         activated = self.store.activate_exam("exam-physics")
         self.assertEqual(activated["paper_version"], 1)
         self.assertEqual(activated["paper_snapshot"]["questions"][0]["id"], "q1")
@@ -190,6 +191,44 @@ class StoreBehaviorTests(unittest.TestCase):
         self.assertEqual(result["count"], 25)
         self.assertEqual(calls, [25])
 
+    def test_mixed_generation_includes_short_and_long_answers(self) -> None:
+        import backend.store as store_module
+
+        exam = self.store.exams["exam-physics"]
+        exam["paper_config"] = {
+            "material_id": next(iter(self.store.materials)),
+            "material_ids": [next(iter(self.store.materials))],
+            "total_marks": 20,
+            "paper_mode": "Mixed",
+            "overall_level": "Standard",
+            "sections": [
+                {"id": "A", "type": "MCQ", "count": 2, "marks_each": 2, "bloom": "Understand", "chapter_tag": "All syllabus", "level": "Standard"},
+                {"id": "B", "type": "Short Answer", "count": 2, "marks_each": 2, "bloom": "Apply", "chapter_tag": "All syllabus", "level": "Standard"},
+                {"id": "C", "type": "Long Answer", "count": 1, "marks_each": 8, "bloom": "Analyze", "chapter_tag": "All syllabus", "level": "Standard"},
+                {"id": "D", "type": "Fill Blank", "count": 4, "marks_each": 1, "bloom": "Remember", "chapter_tag": "All syllabus", "level": "Standard"},
+            ],
+        }
+        generated_types: list[str] = []
+        original = store_module.generate_grounded_questions
+
+        def fake_generate(question_type, count, level, bloom, marks, chunks):
+            generated_types.append(question_type)
+            return [{
+                "text": f"{question_type} question {index}",
+                "options": ["A", "B", "C", "D"] if question_type == "MCQ" else [],
+                "correct_answer": "A" if question_type == "MCQ" else "Grounded answer",
+                "source_number": 1,
+            } for index in range(count)]
+
+        store_module.generate_grounded_questions = fake_generate
+        try:
+            result = self.store.generate_questions(exam["id"])
+        finally:
+            store_module.generate_grounded_questions = original
+
+        self.assertEqual(result["count"], 9)
+        self.assertEqual(set(generated_types), {"MCQ", "Short Answer", "Long Answer", "Fill Blank"})
+
     def test_activation_rejects_empty_generated_paper(self) -> None:
         exam = self.store.create_exam("teacher-demo", {
             "title": "Empty Paper", "subject": "SQL", "duration_minutes": 60, "total_marks": 10,
@@ -197,6 +236,19 @@ class StoreBehaviorTests(unittest.TestCase):
         self.store.questions[exam["id"]] = []
         with self.assertRaisesRegex(ValueError, "generate questions"):
             self.store.activate_exam(exam["id"])
+
+    def test_legacy_draft_with_generated_questions_can_go_live_or_schedule(self) -> None:
+        exam = self.store.exams["exam-physics"]
+        exam["status"] = "draft"
+        exam["questions_generated"] = True
+        self.store.questions[exam["id"]] = [{"id": "legacy-live-q1", "text": "Ready?", "marks": 1}]
+
+        scheduled = self.store.schedule_exam(exam["id"], "2030-01-01T10:00:00+00:00")
+        self.assertEqual(scheduled["status"], "scheduled")
+
+        activated = self.store.activate_exam(exam["id"])
+        self.assertEqual(activated["status"], "active")
+        self.assertIsNone(activated["scheduled_start_at"])
 
     def test_teacher_can_recover_generated_questions(self) -> None:
         self.store.questions["exam-physics"] = [{"id": "q-recovered", "text": "Recovered question?", "marks": 1}]
@@ -275,12 +327,59 @@ class StoreBehaviorTests(unittest.TestCase):
         self.assertEqual(result["status"], "invalid")
         self.assertTrue(any("maximum supported" in error for error in result["errors"]))
 
+    def test_mixed_paper_requires_short_and_long_answer_sections(self) -> None:
+        result = validate_paper_config({
+            "material_id": "material-1", "total_marks": 10, "paper_mode": "Mixed", "overall_level": "Standard",
+            "sections": [
+                {"type": "MCQ", "count": 2, "marks_each": 2, "chapter_tag": "SQL", "level": "Standard"},
+                {"type": "Fill Blank", "count": 3, "marks_each": 2, "chapter_tag": "SQL", "level": "Standard"},
+            ],
+        }, {"SQL": 10})
+        self.assertEqual(result["status"], "invalid")
+        self.assertTrue(any("Short Answer and Long Answer" in error for error in result["errors"]))
+
     def test_end_exam_finalizes_active_sessions(self) -> None:
         self.store.exams["exam-physics"]["status"] = "active"
         session = self.store.join_session("PHY001", "End Test", "end@test.example")
         self.store.end_exam("exam-physics")
         self.assertEqual(self.store.exams["exam-physics"]["status"], "ended")
         self.assertEqual(self.store.sessions[session["id"]]["status"], "ended")
+        self.assertIn("grade", self.store.sessions[session["id"]])
+
+    def test_teacher_forced_end_evaluates_saved_answers(self) -> None:
+        self.store.exams["exam-physics"]["status"] = "active"
+        self.store.questions["exam-physics"] = [{
+            "id": "forced-end-q1", "exam_id": "exam-physics", "type": "MCQ",
+            "correct_answer": "Correct", "marks": 4, "text": "Choose",
+            "options": ["Correct", "Wrong", "Other", "None"],
+        }]
+        session = self.store.join_session("PHY001", "Forced End Student", "forced-end@student.ai")
+        self.store.save_answer(session["id"], {
+            "question_id": "forced-end-q1", "answer_text": "Correct", "selected_option": "Correct",
+        })
+
+        self.store.end_exam("exam-physics")
+
+        grade = self.store.sessions[session["id"]]["grade"]
+        self.assertEqual(grade["earned_marks"], 4)
+        self.assertEqual(grade["total_marks"], 4)
+
+    def test_teacher_report_repairs_legacy_unevaluated_session(self) -> None:
+        self.store.exams["exam-physics"]["status"] = "active"
+        self.store.questions["exam-physics"] = [{
+            "id": "legacy-q1", "exam_id": "exam-physics", "type": "MCQ",
+            "correct_answer": "Correct", "marks": 3, "text": "Choose",
+            "options": ["Correct", "Wrong", "Other", "None"],
+        }]
+        session = self.store.join_session("PHY001", "Legacy Student", "legacy@student.ai")
+        self.store.save_answer(session["id"], {
+            "question_id": "legacy-q1", "answer_text": "Correct", "selected_option": "Correct",
+        })
+        self.store.update_session(session["id"], {"status": "ended"})
+
+        students = self.store.exam_students("exam-physics")
+
+        self.assertEqual(students[0]["grade"]["earned_marks"], 3)
 
     def test_langgraph_flagged_route_includes_review(self) -> None:
         result = run_workflow("proctor", {"event": "tab_hidden"}, "FLAGGED")
@@ -337,11 +436,25 @@ class StoreBehaviorTests(unittest.TestCase):
         session = self.store.join_session("PHY001", "Grade Student", "grade@student.ai")
         self.store.save_answer(session["id"], {"question_id": "grade-q1", "answer_text": "Correct", "selected_option": "Correct"})
         self.store.evaluate_session(session["id"])
-        self.assertIsNone(self.store.get_session_result(session["id"])["grade"])
+        hidden_result = self.store.get_session_result(session["id"])
+        self.assertIsNone(hidden_result["grade"])
+        self.assertNotIn("eval_score", hidden_result["answers"][0])
+        self.assertNotIn("eval_reasoning", hidden_result["answers"][0])
         self.store.teacher_decision(session["id"], "clear", "Reviewed and approved")
         result = self.store.get_session_result(session["id"])
         self.assertEqual(result["grade"]["earned_marks"], 2)
         self.assertTrue(result["grade_released"])
+        self.assertIn("eval_score", result["answers"][0])
+
+    def test_student_history_hides_deleted_exams(self) -> None:
+        self.store.exams["exam-physics"]["status"] = "active"
+        session = self.store.join_session("PHY001", "History Student", "history@student.ai")
+        student_id = str(session["student_id"])
+        self.assertEqual(len(self.store.student_sessions(student_id)), 1)
+
+        self.store.delete_exam("exam-physics")
+
+        self.assertEqual(self.store.student_sessions(student_id), [])
 
     def test_student_question_endpoint_never_exposes_answer_key(self) -> None:
         result = student_safe_question({"id": "q1", "text": "Question", "correct_answer": "Secret", "source_chunk_ids": ["chunk-1"]})
